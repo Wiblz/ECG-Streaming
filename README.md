@@ -44,7 +44,7 @@ Device driver must implement a base interface to allow replacements (future sens
 
 **Technology:**
 
-- Python 3.14
+- Python 3.14.2
 - Virtual environment via `uv venv`
 - BLE via `polar-ble-sdk` or `Bleak`
 - Linux BlueZ multi-interface support (hci0, hci1, hci2…)
@@ -92,7 +92,7 @@ Implement a backend API service that:
 
 **Technology:**
 
-- Python 3.14
+- Python 3.14.2
 - Virtual environment via `uv venv`
 - FastAPI
 - WebSockets (native FastAPI)
@@ -185,7 +185,7 @@ The project succeeds when:
 
 ## Engineering Constraints
 
-- **Backend Language:** Python 3.14
+- **Backend Language:** Python 3.14.2
 - **Package Management:** uv (with `uv venv` for virtual environments)
 - **Frontend Framework:** SvelteKit
 - **Platform:** Linux (Raspberry Pi or PC)
