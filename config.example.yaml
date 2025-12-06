@@ -30,6 +30,13 @@ logging:
   format: "detailed"           # Log format: simple or detailed
   log_file: null               # Optional log file path (null for console only)
 
+# Data Persistence Configuration
+persistence:
+  enabled: false               # Enable SQLite persistence for ECG samples
+  db_path: "ecg_data.db"       # Path to SQLite database file
+  batch_size: 100              # Number of samples to batch before writing
+  retention_days: null         # Optional: Delete samples older than N days (null = keep forever)
+
 # Device Configuration
 # Add your Polar H10 device IDs here
 # Device IDs should match the device names or addresses

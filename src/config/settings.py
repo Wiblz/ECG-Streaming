@@ -20,7 +20,7 @@ class SyncConfig(BaseModel):
     """Time synchronization configuration."""
 
     regression_window_size: int = Field(default=100, ge=10)
-    min_samples_for_sync: int = Field(default=20, ge=5)
+    min_samples_for_sync: int = Field(default=5, ge=3)
     confidence_threshold: float = Field(default=0.9, ge=0.0, le=1.0)
     max_drift_ppm: float = Field(default=100.0, gt=0)
 
@@ -43,6 +43,15 @@ class LoggingConfig(BaseModel):
     log_file: Path | None = None
 
 
+class PersistenceConfig(BaseModel):
+    """Data persistence configuration."""
+
+    enabled: bool = Field(default=False)
+    db_path: Path = Field(default=Path("ecg_data.db"))
+    batch_size: int = Field(default=100, ge=1)
+    retention_days: int | None = Field(default=None, ge=1)
+
+
 class Settings(BaseSettings):
     """Application settings."""
 
@@ -51,6 +60,7 @@ class Settings(BaseSettings):
     sync: SyncConfig = Field(default_factory=SyncConfig)
     api: APIConfig = Field(default_factory=APIConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    persistence: PersistenceConfig = Field(default_factory=PersistenceConfig)
 
     # Device configuration
     device_ids: list[str] = Field(default_factory=list)

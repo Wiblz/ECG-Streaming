@@ -13,6 +13,7 @@ from src.api.server import create_app
 from src.collector.adapter_manager import BLEAdapterManager
 from src.common.logging import get_logger, setup_logging
 from src.config.settings import load_settings
+from src.storage.persistence import ECGDatabase
 from src.sync.time_alignment import TimeAlignmentService
 
 logger = get_logger(__name__)
@@ -68,8 +69,21 @@ class ECGStreamingApp:
             self.time_alignment.register_device(device_id)
             logger.info(f"Registered device: {device_id}")
 
+        # Initialize database if persistence is enabled
+        self.database: ECGDatabase | None = None
+        if self.settings.persistence.enabled:
+            self.database = ECGDatabase(db_path=self.settings.persistence.db_path)
+            logger.info(f"Persistence enabled: {self.settings.persistence.db_path}")
+
+        # Batch buffer for database writes
+        self._db_batch: list[tuple[str, float, float, int, float]] = []
+        self._batch_size = self.settings.persistence.batch_size
+
         # Shutdown flag
         self._shutdown_event = asyncio.Event()
+
+        # Track offset version for each device (to detect when offset is recalculated)
+        self._offset_versions: dict[str, int] = {}
 
         # Data collection task
         self._collection_task: asyncio.Task | None = None
@@ -100,14 +114,69 @@ class ECGStreamingApp:
                             sample.device_id, sample.device_timestamp
                         )
 
+                        # Check if offset was recalculated (new version)
+                        if synced and self.database is not None:
+                            device_model = self.time_alignment._device_models.get(sample.device_id)
+                            if device_model and device_model.offset is not None:
+                                current_version = device_model.offset_version
+                                last_version = self._offset_versions.get(sample.device_id, 0)
+
+                                if current_version > last_version:
+                                    # Offset was recalculated! First flush current batch to DB
+                                    if self._db_batch:
+                                        logger.info(
+                                            f"Flushing {len(self._db_batch)} samples before UPDATE (version {last_version} -> {current_version})"
+                                        )
+                                        self.database.add_samples_batch(self._db_batch)
+                                        self._db_batch.clear()
+
+                                    # Now update previous unsynced samples in database
+                                    self._offset_versions[sample.device_id] = current_version
+                                    logger.info(
+                                        f"Running UPDATE for {sample.device_id} with offset {device_model.offset:.3f}"
+                                    )
+                                    updated_count = self.database.update_unsynced_samples(
+                                        device_id=sample.device_id,
+                                        offset=device_model.offset,
+                                    )
+                                    logger.info(
+                                        f"UPDATE completed: {updated_count} samples updated"
+                                    )
+
+                        # Determine global time and confidence
                         if synced:
-                            # Add to buffer
+                            global_time = synced.global_time
+                            confidence = synced.confidence
+                        else:
+                            # Use host receive time as fallback for unsynced samples
+                            global_time = sample.host_receive_time
+                            confidence = 0.0
+
+                        # Add to buffer (only synced samples with good confidence)
+                        if synced and confidence >= self.settings.sync.confidence_threshold:
                             self.data_buffer.add_sample(
-                                device_id=synced.device_id,
-                                global_time=synced.global_time,
+                                device_id=sample.device_id,
+                                global_time=global_time,
                                 raw_value=sample.raw_value,
-                                confidence=synced.confidence,
+                                confidence=confidence,
                             )
+
+                        # Add to database batch if persistence enabled (all samples)
+                        if self.database is not None:
+                            self._db_batch.append(
+                                (
+                                    sample.device_id,
+                                    global_time,
+                                    sample.device_timestamp / 1_000_000.0,  # Convert to seconds
+                                    sample.raw_value,
+                                    confidence,
+                                )
+                            )
+
+                            # Flush batch if it reaches batch size
+                            if len(self._db_batch) >= self._batch_size:
+                                self.database.add_samples_batch(self._db_batch)
+                                self._db_batch.clear()
 
                 # Small sleep to avoid busy loop
                 await asyncio.sleep(0.001)  # 1ms
@@ -116,6 +185,12 @@ class ECGStreamingApp:
             logger.info("Data collection loop cancelled")
         except Exception as e:
             logger.error(f"Error in data collection loop: {e}", exc_info=True)
+        finally:
+            # Flush any remaining batch data
+            if self.database is not None and self._db_batch:
+                logger.info(f"Flushing {len(self._db_batch)} remaining samples to database")
+                self.database.add_samples_batch(self._db_batch)
+                self._db_batch.clear()
 
     async def start(self) -> None:
         """Start the application."""
@@ -178,6 +253,10 @@ class ECGStreamingApp:
 
         logger.info("Disconnecting devices...")
         await self.adapter_manager.disconnect_all()
+
+        # Close database
+        if self.database is not None:
+            self.database.close()
 
         logger.info("Application stopped")
 

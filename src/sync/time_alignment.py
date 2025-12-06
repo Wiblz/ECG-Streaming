@@ -1,11 +1,9 @@
 """Time alignment engine for synchronizing device timestamps."""
 
 import time
-from collections import deque
 from dataclasses import dataclass
 
 import numpy as np
-from scipy import stats
 
 from src.common.logging import get_logger
 
@@ -40,33 +38,31 @@ class DeviceTimeModel:
         self,
         device_id: str,
         window_size: int = 100,
-        min_samples: int = 20,
+        min_samples: int = 5,
     ):
         """Initialize device time model.
 
         Args:
             device_id: Device identifier
-            window_size: Size of sliding window for regression
-            min_samples: Minimum samples needed for valid model
+            window_size: Size of sliding window (not used in offset mode)
+            min_samples: Minimum samples needed to calculate offset
         """
         self.device_id = device_id
         self.window_size = window_size
         self.min_samples = min_samples
 
-        # Sliding window of timestamp pairs
-        self._device_times: deque = deque(maxlen=window_size)
-        self._host_times: deque = deque(maxlen=window_size)
+        # Timestamp pairs for offset calculation
+        self._device_times: list[float] = []
+        self._host_times: list[float] = []
 
-        # Current model
-        self._model: TimeModel | None = None
+        # Simple offset model
+        self._offset: float | None = None
+        self._sample_count: int = 0
+        self._offset_version: int = 0  # Increments each time offset is recalculated
 
         # Dropout detection
         self._last_device_time: float | None = None
         self._dropout_count = 0
-
-        # Reference point (first sample)
-        self._device_t0: float | None = None
-        self._host_t0: float | None = None
 
     def add_sample(self, device_timestamp: float, host_receive_time: float) -> None:
         """Add a timestamp pair to the model.
@@ -87,71 +83,54 @@ class DeviceTimeModel:
                 # Clear history on reconnection
                 self._device_times.clear()
                 self._host_times.clear()
-                self._model = None
+                self._offset = None
+                self._sample_count = 0
 
         self._last_device_time = device_timestamp
 
-        # Add to windows (convert device time to seconds)
-        self._device_times.append(device_timestamp / 1_000_000.0)
-        self._host_times.append(host_receive_time)
+        # Add to list if offset not yet calculated
+        if self._offset is None:
+            device_time_s = device_timestamp / 1_000_000.0
+            self._device_times.append(device_time_s)
+            self._host_times.append(host_receive_time)
 
-        # Update model if we have enough samples
-        if len(self._device_times) >= self.min_samples:
-            self._update_model()
+            # Calculate offset when we have enough samples
+            if len(self._device_times) >= self.min_samples:
+                self._calculate_offset()
 
-    def _update_model(self) -> None:
-        """Update the time alignment model using linear regression.
+        self._sample_count += 1
 
-        Since device timestamps are relative (microseconds since boot), we need to:
-        1. Use the first sample as reference point (t0)
-        2. Calculate deltas from t0 for both device and host times
-        3. Regress to find: delta_host = drift * delta_device
-        4. Use the offset to map device time to host time
+    def _calculate_offset(self) -> None:
+        """Calculate simple time offset between device and host clocks.
+
+        Uses median of differences to be robust against outliers.
+        Assumes clocks run at the same speed (drift ≈ 1.0).
         """
         try:
-            device_times = np.array(self._device_times)
-            host_times = np.array(self._host_times)
+            # Calculate offset for each sample pair
+            offsets = [
+                host_time - device_time
+                for device_time, host_time in zip(self._device_times, self._host_times)
+            ]
 
-            # Use first sample as reference point
-            device_t0 = device_times[0]
-            host_t0 = host_times[0]
+            # Use median for robustness
+            self._offset = float(np.median(offsets))
 
-            # Calculate deltas from reference point
-            device_deltas = device_times - device_t0
-            host_deltas = host_times - host_t0
+            # Increment version counter (signals offset was recalculated)
+            self._offset_version += 1
 
-            # Perform linear regression on deltas: delta_host = drift * delta_device
-            # This gives us the clock drift ratio
-            # Force regression through origin by using deltas
-            slope, intercept, r_value, _, _ = stats.linregress(device_deltas, host_deltas)
-
-            # Calculate confidence from R²
-            r_squared = r_value**2
-            confidence = max(0.0, min(1.0, r_squared))
-
-            # The slope is the drift ratio
-            drift = slope
-            # Map device time to host time: host_time = drift * device_time + offset
-            # Using first sample as anchor: host_t0 = drift * device_t0 + offset
-            # So: offset = host_t0 - drift * device_t0
-            offset = host_t0 - (drift * device_t0)
-
-            # Check for unrealistic drift (should be close to 1.0)
-            drift_ppm = abs(drift - 1.0) * 1_000_000
-            if drift_ppm > 1000:  # More than 1000 ppm (0.1%) is suspicious
-                logger.warning(f"Device {self.device_id} has high clock drift: {drift_ppm:.1f} ppm")
-
-            self._model = TimeModel(
-                drift=drift,
-                offset=offset,
-                confidence=confidence,
-                sample_count=len(device_times),
-                last_update=time.time(),
+            logger.info(
+                f"Device {self.device_id} time offset calculated: {self._offset:.3f}s "
+                f"(from {len(offsets)} samples, version {self._offset_version})"
             )
 
+            # Clear the lists to free memory
+            self._device_times.clear()
+            self._host_times.clear()
+
         except Exception as e:
-            logger.error(f"Error updating time model for {self.device_id}: {e}")
-            self._model = None
+            logger.error(f"Error calculating offset for {self.device_id}: {e}")
+            self._offset = None
 
     def sync_timestamp(self, device_timestamp: float) -> SyncedTimestamp | None:
         """Convert device timestamp to global time.
@@ -160,33 +139,52 @@ class DeviceTimeModel:
             device_timestamp: Device timestamp in microseconds
 
         Returns:
-            SyncedTimestamp if model available, None otherwise
+            SyncedTimestamp if offset available, None otherwise
         """
-        if self._model is None:
+        if self._offset is None:
             return None
 
         # Convert device timestamp to seconds
         device_time_s = device_timestamp / 1_000_000.0
 
-        # Apply model: global_time = drift * device_time + offset
-        global_time = self._model.drift * device_time_s + self._model.offset
+        # Apply offset: global_time = device_time + offset
+        global_time = device_time_s + self._offset
 
         return SyncedTimestamp(
             device_id=self.device_id,
             device_timestamp=device_timestamp,
             global_time=global_time,
-            confidence=self._model.confidence,
+            confidence=1.0,  # Simple offset is always reliable
         )
 
     @property
     def model(self) -> TimeModel | None:
         """Get the current time model."""
-        return self._model
+        if self._offset is None:
+            return None
+
+        return TimeModel(
+            drift=1.0,  # Assuming no drift
+            offset=self._offset,
+            confidence=1.0,
+            sample_count=self._sample_count,
+            last_update=time.time(),
+        )
 
     @property
     def is_ready(self) -> bool:
-        """Check if model is ready for synchronization."""
-        return self._model is not None and self._model.confidence > 0.5
+        """Check if offset is ready for synchronization."""
+        return self._offset is not None
+
+    @property
+    def offset(self) -> float | None:
+        """Get the calculated offset."""
+        return self._offset
+
+    @property
+    def offset_version(self) -> int:
+        """Get the offset version (increments on each recalculation)."""
+        return self._offset_version
 
     @property
     def dropout_count(self) -> int:
@@ -200,15 +198,15 @@ class TimeAlignmentService:
     def __init__(
         self,
         window_size: int = 100,
-        min_samples: int = 20,
+        min_samples: int = 5,
         confidence_threshold: float = 0.9,
     ):
         """Initialize time alignment service.
 
         Args:
-            window_size: Size of regression window per device
-            min_samples: Minimum samples needed for valid model
-            confidence_threshold: Minimum confidence for reliable sync
+            window_size: Size of window (not used in offset mode)
+            min_samples: Minimum samples needed to calculate offset
+            confidence_threshold: Minimum confidence for reliable sync (not used in offset mode)
         """
         self.window_size = window_size
         self.min_samples = min_samples
@@ -300,10 +298,11 @@ class TimeAlignmentService:
         Returns:
             Dictionary with sync statistics
         """
+        devices_dict: dict[str, dict[str, object]] = {}
         stats: dict[str, object] = {
             "total_devices": len(self._device_models),
             "ready_devices": sum(1 for m in self._device_models.values() if m.is_ready),
-            "devices": {},
+            "devices": devices_dict,
         }
 
         for device_id, model in self._device_models.items():
@@ -325,7 +324,7 @@ class TimeAlignmentService:
                     }
                 )
 
-            stats["devices"][device_id] = device_stats
+            devices_dict[device_id] = device_stats
 
         return stats
 

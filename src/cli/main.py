@@ -284,6 +284,177 @@ def adapter_stats(
 
 
 @app.command()
+def collect(
+    config_file: Path | None = None,
+    duration: int | None = None,
+    output_db: Path | None = None,
+) -> None:
+    """Collect ECG samples and save to database.
+
+    Args:
+        config_file: Path to configuration file
+        duration: Duration in seconds (None = run until Ctrl+C)
+        output_db: Database path (overrides config)
+    """
+    settings = load_settings(config_file)
+
+    if not settings.device_ids:
+        console.print("[red]No devices configured[/red]")
+        return
+
+    # Enable persistence and set output path
+    settings.persistence.enabled = True
+    if output_db:
+        settings.persistence.db_path = output_db
+
+    async def do_collect() -> None:
+        from src.storage.persistence import ECGDatabase
+
+        # Initialize database
+        database = ECGDatabase(db_path=settings.persistence.db_path)
+        console.print(f"[green]Database: {settings.persistence.db_path}[/green]")
+
+        # Initialize services
+        adapter_manager = BLEAdapterManager(
+            max_devices_per_adapter=settings.ble.max_devices_per_adapter
+        )
+        time_alignment = TimeAlignmentService(
+            window_size=settings.sync.regression_window_size,
+            min_samples=settings.sync.min_samples_for_sync,
+            confidence_threshold=settings.sync.confidence_threshold,
+        )
+
+        # Add devices
+        for device_id in settings.device_ids:
+            adapter_manager.add_device(device_id)
+            time_alignment.register_device(device_id)
+
+        # Connect devices
+        console.print("[yellow]Connecting to devices...[/yellow]")
+        connection_status = await adapter_manager.connect_all()
+        connected_count = sum(1 for success in connection_status.values() if success)
+        console.print(
+            f"[green]Connected to {connected_count}/{len(settings.device_ids)} devices[/green]"
+        )
+
+        if connected_count == 0:
+            console.print("[red]No devices connected. Exiting.[/red]")
+            database.close()
+            return
+
+        # Start streaming
+        console.print("[yellow]Starting data streams...[/yellow]")
+        streaming_status = await adapter_manager.start_streaming_all()
+        streaming_count = sum(1 for success in streaming_status.values() if success)
+        console.print(
+            f"[green]Started streaming on {streaming_count}/{connected_count} devices[/green]"
+        )
+
+        if streaming_count == 0:
+            console.print("[red]No devices streaming. Exiting.[/red]")
+            await adapter_manager.disconnect_all()
+            database.close()
+            return
+
+        # Collection stats
+        sample_count = 0
+        batch: list[tuple[str, float, float, int, float]] = []
+        batch_size = settings.persistence.batch_size
+        start_time = asyncio.get_event_loop().time()
+
+        console.print(
+            f"\n[cyan]Collecting samples{'for ' + str(duration) + 's' if duration else ' (Ctrl+C to stop)'}...[/cyan]\n"
+        )
+
+        # Collection loop
+        try:
+            while True:
+                # Check duration
+                if duration and (asyncio.get_event_loop().time() - start_time) >= duration:
+                    break
+
+                # Process samples from all devices
+                for driver in adapter_manager.get_all_devices():
+                    while True:
+                        sample = await driver.read_ecg_sample()
+                        if sample is None:
+                            break
+
+                        # Add to time alignment
+                        time_alignment.add_timestamp_pair(
+                            sample.device_id,
+                            sample.device_timestamp,
+                            sample.host_receive_time,
+                        )
+
+                        # Synchronize timestamp
+                        synced = time_alignment.sync_timestamp(
+                            sample.device_id, sample.device_timestamp
+                        )
+
+                        # Determine global time and confidence
+                        if synced:
+                            global_time = synced.global_time
+                            confidence = synced.confidence
+                        else:
+                            global_time = sample.host_receive_time
+                            confidence = 0.0
+
+                        # Add to batch
+                        batch.append(
+                            (
+                                sample.device_id,
+                                global_time,
+                                sample.device_timestamp / 1_000_000.0,
+                                sample.raw_value,
+                                confidence,
+                            )
+                        )
+                        sample_count += 1
+
+                        # Flush batch if needed
+                        if len(batch) >= batch_size:
+                            database.add_samples_batch(batch)
+                            batch.clear()
+                            console.print(
+                                f"[blue]Collected {sample_count} samples...[/blue]", end="\r"
+                            )
+
+                await asyncio.sleep(0.001)
+
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Stopping collection...[/yellow]")
+        finally:
+            # Flush remaining batch
+            if batch:
+                database.add_samples_batch(batch)
+                batch.clear()
+
+            console.print(f"\n[green]✓ Collected {sample_count} total samples[/green]")
+
+            # Cleanup
+            await adapter_manager.stop_streaming_all()
+            await adapter_manager.disconnect_all()
+
+            # Show database stats
+            stats = database.get_stats()
+            console.print("\n[cyan]Database Statistics:[/cyan]")
+            console.print(f"  Total samples: {stats['total_samples']}")
+            console.print(f"  Database size: {stats['db_size_mb']:.2f} MB")
+
+            if stats["time_range"]["start"] and stats["time_range"]["end"]:
+                console.print(f"  Duration: {stats['time_range']['duration']:.2f} seconds")
+
+            console.print("\n[cyan]Per-device stats:[/cyan]")
+            for device_id, device_stats in stats["devices"].items():
+                console.print(f"  {device_id}: {device_stats['total_samples']} samples")
+
+            database.close()
+
+    asyncio.run(do_collect())
+
+
+@app.command()
 def create_config(
     output: Path = Path("config.yaml"),
 ) -> None:
