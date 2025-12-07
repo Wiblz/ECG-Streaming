@@ -1,0 +1,205 @@
+"""Circular buffer for storing synchronized ECG data."""
+
+import time
+from collections import deque
+from dataclasses import asdict
+from threading import Lock
+
+from ecg_common.models import BufferedECGSample
+
+
+class ECGDataBuffer:
+    """Circular buffer for storing synchronized ECG data.
+
+    Maintains a time-based sliding window of ECG samples
+    across all devices.
+    """
+
+    def __init__(self, duration_seconds: int = 30, max_samples: int = 100000):
+        """Initialize the data buffer.
+
+        Args:
+            duration_seconds: Duration of data to keep in seconds
+            max_samples: Maximum number of samples to store (safety limit)
+        """
+        self.duration_seconds = duration_seconds
+        self.max_samples = max_samples
+
+        self._buffer: deque[BufferedECGSample] = deque(maxlen=max_samples)
+        self._lock = Lock()
+
+        # Statistics
+        self._total_samples = 0
+        self._dropped_samples = 0
+
+    def add_sample(
+        self, device_id: str, global_time: float, raw_value: int, confidence: float
+    ) -> None:
+        """Add a synchronized ECG sample to the buffer.
+
+        Args:
+            device_id: Device identifier
+            global_time: Synchronized global timestamp
+            raw_value: Raw ECG value
+            confidence: Synchronization confidence
+        """
+        sample = BufferedECGSample(
+            device_id=device_id,
+            global_time=global_time,
+            raw_value=raw_value,
+            confidence=confidence,
+        )
+
+        with self._lock:
+            self._buffer.append(sample)
+            self._total_samples += 1
+
+            # Clean old samples
+            self._cleanup_old_samples()
+
+    def _cleanup_old_samples(self) -> None:
+        """Remove samples older than the buffer duration."""
+        if not self._buffer:
+            return
+
+        cutoff_time = time.time() - self.duration_seconds
+
+        # Remove old samples from the left
+        while self._buffer and self._buffer[0].global_time < cutoff_time:
+            self._buffer.popleft()
+            self._dropped_samples += 1
+
+    def get_recent_samples(
+        self,
+        since: float | None = None,
+        device_id: str | None = None,
+        limit: int | None = None,
+    ) -> list[dict]:
+        """Get recent samples from the buffer.
+
+        Args:
+            since: Only return samples after this timestamp (optional)
+            device_id: Filter by device ID (optional)
+            limit: Maximum number of samples to return (optional)
+
+        Returns:
+            List of sample dictionaries
+        """
+        with self._lock:
+            samples = list(self._buffer)
+
+        # Filter by timestamp
+        if since is not None:
+            samples = [s for s in samples if s.global_time > since]
+
+        # Filter by device
+        if device_id is not None:
+            samples = [s for s in samples if s.device_id == device_id]
+
+        # Apply limit
+        if limit is not None:
+            samples = samples[-limit:]
+
+        # Convert to dictionaries
+        return [asdict(sample) for sample in samples]
+
+    def get_latest_by_device(self) -> dict[str, dict]:
+        """Get the latest sample for each device.
+
+        Returns:
+            Dictionary mapping device IDs to their latest sample
+        """
+        with self._lock:
+            samples = list(self._buffer)
+
+        latest = {}
+        for sample in reversed(samples):
+            if sample.device_id not in latest:
+                latest[sample.device_id] = asdict(sample)
+
+        return latest
+
+    def get_time_range(self) -> tuple[float | None, float | None]:
+        """Get the time range of data in the buffer.
+
+        Returns:
+            Tuple of (oldest_time, newest_time) or (None, None) if empty
+        """
+        with self._lock:
+            if not self._buffer:
+                return None, None
+            return self._buffer[0].global_time, self._buffer[-1].global_time
+
+    def get_sample_count(self, device_id: str | None = None) -> int:
+        """Get the number of samples in the buffer.
+
+        Args:
+            device_id: Optional device ID to count samples for
+
+        Returns:
+            Number of samples
+        """
+        with self._lock:
+            if device_id is None:
+                return len(self._buffer)
+            return sum(1 for s in self._buffer if s.device_id == device_id)
+
+    def get_device_list(self) -> list[str]:
+        """Get list of device IDs currently in the buffer.
+
+        Returns:
+            List of unique device IDs
+        """
+        with self._lock:
+            return list(set(s.device_id for s in self._buffer))
+
+    def get_stats(self) -> dict:
+        """Get buffer statistics.
+
+        Returns:
+            Dictionary with buffer statistics
+        """
+        with self._lock:
+            oldest, newest = self.get_time_range()
+            duration = (newest - oldest) if oldest and newest else 0
+
+            device_counts: dict[str, int] = {}
+            for sample in self._buffer:
+                device_counts[sample.device_id] = device_counts.get(sample.device_id, 0) + 1
+
+            return {
+                "total_samples": len(self._buffer),
+                "duration_seconds": duration,
+                "device_count": len(device_counts),
+                "samples_per_device": device_counts,
+                "oldest_timestamp": oldest,
+                "newest_timestamp": newest,
+                "total_processed": self._total_samples,
+                "dropped_samples": self._dropped_samples,
+                "buffer_utilization": len(self._buffer) / self.max_samples,
+            }
+
+    def clear(self) -> None:
+        """Clear all samples from the buffer."""
+        with self._lock:
+            self._buffer.clear()
+            self._total_samples = 0
+            self._dropped_samples = 0
+
+    def clear_device(self, device_id: str) -> int:
+        """Clear samples for a specific device.
+
+        Args:
+            device_id: Device identifier
+
+        Returns:
+            Number of samples removed
+        """
+        with self._lock:
+            original_len = len(self._buffer)
+            self._buffer = deque(
+                (s for s in self._buffer if s.device_id != device_id),
+                maxlen=self.max_samples,
+            )
+            removed = original_len - len(self._buffer)
+            return removed

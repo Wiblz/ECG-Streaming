@@ -1,200 +1,262 @@
 # ECG-Streaming
 
-## Project: Multi-Device Real-Time ECG Aggregation & Web Visualization
+Multi-Device Real-Time ECG Aggregation & Web Visualization System
 
-### Objective
+A distributed system for collecting, synchronizing, and visualizing ECG data from up to 20 Polar H10 chest straps with minimal latency.
 
-Implement a hardware-agnostic real-time signal collection, alignment, and visualization system that can ingest ECG data from 20 Polar H10 chest straps and display synchronized waveforms in a web browser with minimal latency.
+## Architecture Overview
 
-The system must:
-
-- Support 20 concurrent BLE devices
-- Synchronize data streams into a single timebase
-- Expose a browser-based live monitor
-- Allow future replacement of hardware (non-Polar devices) without architectural changes
-
-### High-Level Architecture
+The system is split into two main modules that can run independently:
 
 ```
-Sensors → Collector Layer → Time Alignment Engine → API Server → Web UI
+┌─────────────────────┐         ┌─────────────────────────────────┐
+│   ECG COLLECTOR     │         │   ECG AGGREGATOR + DASHBOARD    │
+│                     │         │                                 │
+│  ┌───────────────┐  │         │  ┌──────────────────────────┐   │
+│  │ Polar H10     │  │  gRPC   │  │  gRPC Server             │   │
+│  │ BLE Drivers   │──┼────────▶│  │  (receives data)         │   │
+│  └───────────────┘  │         │  └──────────────────────────┘   │
+│  ┌───────────────┐  │         │  ┌──────────────────────────┐   │
+│  │ Adapter       │  │         │  │  Time Alignment Engine   │   │
+│  │ Manager       │  │         │  │  (sync timestamps)       │   │
+│  └───────────────┘  │         │  └──────────────────────────┘   │
+│  ┌───────────────┐  │         │  ┌──────────────────────────┐   │
+│  │ gRPC Client   │  │         │  │  SQLite Database         │   │
+│  └───────────────┘  │         │  │  (persistence)           │   │
+│                     │         │  └──────────────────────────┘   │
+└─────────────────────┘         │  ┌──────────────────────────┐   │
+                                │  │  WebSocket API Server    │   │
+                                │  │  (dashboard)             │   │
+                                │  └──────────────────────────┘   │
+                                │              │                  │
+                                └──────────────┼──────────────────┘
+                                               ▼
+                                    ┌──────────────────┐
+                                    │  Web Dashboard   │
+                                    │  (SvelteKit)     │
+                                    └──────────────────┘
 ```
 
-**Key design principles:**
+### Module Separation
 
-- Time synchronization is centralized
-- Device drivers are abstracted
-- Visualization is not coupled to the sensor type
+**Collector (`ecg-collector`)**:
+- Connects to N Polar H10 devices via BLE
+- Manages multiple BLE adapters (hci0, hci1, hci2...)
+- Timestamps samples at collection time
+- Streams data to aggregator via gRPC
 
-## Functional Requirements
+**Aggregator (`ecg-aggregator`)**:
+- Receives data from multiple collectors
+- Performs time alignment and synchronization
+- Stores samples in SQLite database
+- Serves real-time dashboard via WebSocket
+- Provides REST API for metadata
 
-### 1. Device Collection Layer
+## Quick Start
 
-Implement a collector service that:
+### Installation
 
-- Connects to multiple Polar H10 devices over BLE
-- Subscribes to ECG and optional accelerometer streams
-- Handles >7 devices per BLE adapter (expect multiple USB dongles)
-- Allows binding device → adapter mapping
-- Exposes a uniform interface:
-  ```python
-  read() → (device_id, device_timestamp, raw_sample)
-  ```
-
-Device driver must implement a base interface to allow replacements (future sensors).
-
-**Technology:**
-
-- Python 3.14.2
-- Virtual environment via `uv venv`
-- BLE via `polar-ble-sdk` or `Bleak`
-- Linux BlueZ multi-interface support (hci0, hci1, hci2…)
-
-### 2. Time Alignment Engine
-
-Implement a synchronization service that:
-
-- Accepts `(device_timestamp, host_receive_time)` pairs
-- Continuously estimates:
-  ```
-  host_time = drift * device_time + offset
-  ```
-- Maintains a live regression model per device
-- Converts all ECG samples into a global timebase
-- Computes reliability/confidence of time correction per device
-- Supports dropout detection and reconnection handling
-
-**Optional Phase 2:**
-
-- Implement ECG cross-correlation for fine temporal alignment
-- Optional mechanical synchronization event detection (accelerometer spike or ECG artifact)
-
-### 3. Streaming Backend
-
-Implement a backend API service that:
-
-- Buffers the last 30 seconds of synchronized ECG data
-- Streams data to browsers via WebSocket at configurable rate (30–60 fps)
-- Supports endpoints:
-  - `/ws/ecg` — live stream
-  - `/devices` — list active devices
-  - `/stats` — synchronization error report
-
-**Data format:**
-
-```json
-{
-  "device_id": "H10_07",
-  "global_time": 1716492342.182,
-  "raw": 412,
-  "confidence": 0.992
-}
+```bash
+# Install all packages
+uv pip install -e packages/ecg-common
+uv pip install -e packages/ecg-collector
+uv pip install -e packages/ecg-aggregator
 ```
 
-**Technology:**
+### Configuration
 
-- Python 3.14.2
-- Virtual environment via `uv venv`
-- FastAPI
-- WebSockets (native FastAPI)
+```bash
+# Copy example config
+cp config.example.yaml config.yaml
 
-### 4. Web UI
+# Edit configuration
+# - Add your Polar H10 device IDs
+# - Configure aggregator host/port
+nano config.yaml
+```
 
-Implement a browser interface that:
+### Running
 
-- Shows ECG waveforms in quasi-real-time
-- Supports:
-  - Multiple streams
-  - Device selection
-  - Focus view per channel
-  - Sliding time window
-  - Zoom and pan
-- Displays time correction confidence and connectivity
-- Does NOT compute timestamps
+**Local deployment (single machine):**
 
-**Technology:**
+```bash
+# Terminal 1: Start aggregator
+ecg-aggregator --config config.yaml
 
-- **Framework:** SvelteKit
-- **Charting:** Canvas-based rendering (PixiJS, raw Canvas, or WebGL if needed)
-- **WebSocket client:** Native browser WebSocket API with SvelteKit stores for state management
-- **Styling:** CSS modules or Tailwind CSS (optional)
+# Terminal 2: Start collector
+ecg-collector --config config.yaml
 
-## Non-Functional Requirements
+# Access dashboard at http://localhost:8000
+```
 
-### Performance
+**Distributed deployment:**
 
-- End-to-end latency < 300 ms
-- Minimum refresh rate 20 fps
-- Support burst handling
-- No frame stall when losing devices
+```bash
+# On server (e.g., 192.168.1.100):
+ecg-aggregator --config config.yaml
 
-### Maintainability
+# On edge device(s) with BLE adapters:
+# Edit config.yaml: collector.aggregator.host = "192.168.1.100"
+ecg-collector --config config.yaml
+```
 
-- Strict separation of:
-  - Drivers
-  - Sync engine
-  - API
-  - UI
-- Module boundaries enforced
-- No hardware-specific assumptions in logic
+## Project Structure
 
-### Logging & Debugging
+```
+ECG-Streaming/
+├── packages/
+│   ├── ecg-common/           # Shared models, gRPC protocol, logging
+│   │   └── src/ecg_common/
+│   │       ├── models.py     # Data models (ECGSample, etc.)
+│   │       ├── proto/        # gRPC protocol definitions
+│   │       └── logging.py    # Logging utilities
+│   │
+│   ├── ecg-collector/        # Collector module
+│   │   └── src/ecg_collector/
+│   │       ├── collector/    # BLE device drivers
+│   │       ├── grpc_client.py  # gRPC client
+│   │       ├── config.py     # Configuration
+│   │       ├── main.py       # Entry point
+│   │       └── cli.py        # CLI utilities
+│   │
+│   └── ecg-aggregator/       # Aggregator + Dashboard
+│       └── src/ecg_aggregator/
+│           ├── grpc_server.py  # gRPC server
+│           ├── sync/         # Time alignment engine
+│           ├── storage/      # SQLite persistence
+│           ├── api/          # WebSocket/REST API
+│           ├── config.py     # Configuration
+│           └── main.py       # Entry point
+│
+├── config.example.yaml       # Example configuration
+└── README.md                 # This file
+```
 
-**Per-device logs:**
+## Features
 
-- Offset
-- Drift
-- Jitter
+### Collector Features
+- ✅ Multi-device BLE connection (up to 20+ devices)
+- ✅ Multiple BLE adapter support
+- ✅ Concurrent device management
+- ✅ gRPC streaming to aggregator
+- ✅ Device status monitoring
+- ✅ CLI tools (scan, test-connection)
 
-**CLI debug mode for:**
+### Aggregator Features
+- ✅ gRPC server for receiving data
+- ✅ Time synchronization engine
+- ✅ SQLite database persistence
+- ✅ WebSocket real-time streaming
+- ✅ REST API for metadata
+- ✅ Buffer management (30s window)
+- ✅ Dashboard web interface
 
-- Device connection health
-- Clock drift
+## API Reference
 
-**Visualization diagnostics panel:**
+### REST Endpoints (Aggregator)
 
-- Dropouts
-- Skew
-- RMS sync error
+- `GET /` - Service information
+- `GET /devices` - List all devices with sync status
+- `GET /stats` - Synchronization and system statistics
+- `GET /buffer/stats` - Buffer statistics
+- `GET /buffer/latest` - Latest sample per device
+- `WS /ws/ecg` - WebSocket for real-time ECG streaming
 
-## Deliverables
+### CLI Tools
 
-### Mandatory
+**Collector:**
+```bash
+# Scan for Polar devices
+ecg-collector-cli scan
 
-- Collector daemon
-- Synchronization engine
-- FastAPI/WebSocket server
-- Live web viewer
+# Test connection to a device
+ecg-collector-cli test-connection "Polar H10 ABC123"
+```
 
-### Bonus
+## Configuration
 
-- Session recording
-- Replay UI
-- Export tool (CSV / HDF5)
-- Interactive R-peak visualizer
+See `config.example.yaml` for detailed configuration options:
 
-## Success Criteria
+**Collector:**
+- `collector.device_ids` - List of Polar H10 device IDs
+- `collector.aggregator.host` - Aggregator hostname/IP
+- `collector.aggregator.port` - Aggregator gRPC port (default: 50051)
 
-The project succeeds when:
+**Aggregator:**
+- `aggregator.grpc.port` - gRPC server port (default: 50051)
+- `aggregator.api.port` - HTTP/WebSocket port (default: 8000)
+- `aggregator.storage.database_path` - SQLite database path
 
-- ✅ 20 Polar H10s stream simultaneously
-- ✅ Data shares a common timebase
-- ✅ Browser shows stable ECG across all devices
-- ✅ Latency < 300 ms
-- ✅ Swapping devices requires only replacing driver module
-- ✅ System runs for 30 minutes without instability
+## Deployment Scenarios
 
-## Engineering Constraints
+### Scenario 1: Single Machine (Development/Testing)
+- Run both collector and aggregator on localhost
+- Good for development and testing with a few devices
 
-- **Backend Language:** Python 3.14.2
-- **Package Management:** uv (with `uv venv` for virtual environments)
-- **Frontend Framework:** SvelteKit
+### Scenario 2: Distributed (Edge + Server)
+- Collector on edge device with BLE adapters
+- Aggregator on server (no BLE hardware required)
+- Good for production with many devices
+
+### Scenario 3: Multiple Collectors
+- Multiple collectors (different locations/rooms)
+- Single aggregator receiving from all
+- Each collector manages subset of devices
+
+## System Requirements
+
+- **Backend:** Python 3.14+
+- **BLE Support:** Linux with BlueZ (for collector only)
+- **Package Manager:** uv
+- **Frontend:** SvelteKit (coming soon)
 - **Platform:** Linux (Raspberry Pi or PC)
-- Backend must run headless
-- Deployment script included
 
-## Optional Phase 2 (Future ready)
+## Performance
 
-- Hardware sync sources (research ECG)
-- Trigger-based alignment
-- Heartbeat-based synchronization
-- Offline re-alignment
+- End-to-end latency: < 300 ms
+- WebSocket refresh rate: 30 FPS (configurable)
+- Supports 20+ concurrent devices
+- Stable operation for extended sessions
+
+## Development
+
+```bash
+# Install development dependencies
+uv pip install -e "packages/ecg-common[dev]"
+uv pip install -e "packages/ecg-collector[dev]"
+uv pip install -e "packages/ecg-aggregator[dev]"
+
+# Run tests
+pytest
+
+# Lint code
+ruff check .
+
+# Format code
+ruff format .
+```
+
+## Troubleshooting
+
+**Collector can't connect to devices:**
+- Run `ecg-collector-cli scan` to find device IDs
+- Check BlueZ configuration
+- Verify BLE adapters with `hciconfig`
+
+**Collector can't connect to aggregator:**
+- Check aggregator is running and port is correct
+- Verify firewall rules allow gRPC port (50051)
+- Check network connectivity
+
+**Poor time synchronization:**
+- Increase `aggregator.sync.min_samples`
+- Check for network latency issues
+- Verify device clocks are stable
+
+## License
+
+[Your License Here]
+
+## Contributing
+
+[Your Contributing Guidelines Here]

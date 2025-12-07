@@ -1,43 +1,16 @@
-[project]
-name = "ecg-streaming"
-version = "0.1.0"
-description = "Multi-Device Real-Time ECG Aggregation & Web Visualization"
-readme = "README.md"
-requires-python = ">=3.14"
-dependencies = [
-    "fastapi>=0.115.0",
-    "uvicorn[standard]>=0.32.0",
-    "websockets>=14.1",
-    "bleak>=0.22.3",
-    "numpy>=2.2.0",
-    "scipy>=1.15.0",
-    "pyyaml>=6.0.2",
-    "python-dotenv>=1.0.1",
-    "typer>=0.15.1",
-    "rich>=13.9.4",
-    "pydantic>=2.10.3",
-    "pydantic-settings>=2.6.0",
+[tool.workspace]
+# Monorepo workspace configuration for ECG-Streaming project
+members = [
+    "packages/ecg-common",
+    "packages/ecg-collector",
+    "packages/ecg-aggregator",
 ]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.3.4",
-    "pytest-asyncio>=0.24.0",
-    "ruff>=0.8.4",
-    "mypy>=1.13.0",
-]
-
-[project.scripts]
-ecg-server = "src.main:main"
-ecg-cli = "src.cli.main:app"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src"]
-
+# Shared tool configurations for all packages
 [tool.ruff]
 line-length = 100
 target-version = "py314"
@@ -82,6 +55,18 @@ warn_no_return = true
 warn_unreachable = true
 strict_equality = true
 ignore_missing_imports = true
+exclude = [
+    "^packages/ecg-common/src/ecg_common/proto/.*_pb2\\.pyi?$",
+    "^packages/ecg-common/src/ecg_common/proto/.*_pb2_grpc\\.py$",
+]
+
+[[tool.mypy.overrides]]
+module = "ecg_common.proto.ecg_streaming_pb2"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "ecg_common.proto.ecg_streaming_pb2_grpc"
+ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = "bleak.*"
@@ -89,4 +74,8 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "scipy.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "grpc.*"
 ignore_missing_imports = true

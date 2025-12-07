@@ -1,0 +1,109 @@
+syntax = "proto3";
+
+package ecg_streaming;
+
+// ECG Streaming Service
+// Bidirectional streaming between Collector and Aggregator
+service ECGStreamingService {
+  // Stream ECG data from collectors to aggregator
+  // Client (collector) sends samples, server (aggregator) sends control messages
+  rpc StreamECG(stream CollectorMessage) returns (stream AggregatorMessage);
+}
+
+// Messages from Collector to Aggregator
+message CollectorMessage {
+  oneof message {
+    CollectorRegistration registration = 1;
+    ECGSampleBatch sample_batch = 2;
+    DeviceStatusUpdate status_update = 3;
+    CollectorHeartbeat heartbeat = 4;
+  }
+}
+
+// Messages from Aggregator to Collector
+message AggregatorMessage {
+  oneof message {
+    RegistrationAck registration_ack = 1;
+    SyncStatusUpdate sync_status = 2;
+    ControlCommand control = 3;
+  }
+}
+
+// Collector registration message (sent on connection)
+message CollectorRegistration {
+  string collector_id = 1;
+  repeated string device_ids = 2;
+  string version = 3;
+  map<string, string> metadata = 4;  // Optional metadata (e.g., location, hardware)
+}
+
+// Registration acknowledgment
+message RegistrationAck {
+  bool accepted = 1;
+  string message = 2;
+  int64 server_time_ms = 3;  // Server time for initial sync
+}
+
+// Batch of ECG samples from a single device
+message ECGSampleBatch {
+  string device_id = 1;
+  repeated ECGSample samples = 2;
+  int64 batch_timestamp_ms = 3;  // When this batch was created
+}
+
+// Individual ECG sample
+message ECGSample {
+  double device_timestamp_us = 1;  // Device's internal timestamp (microseconds)
+  double host_receive_time_s = 2;  // Host system time when received (seconds since epoch)
+  int32 raw_value = 3;              // Raw ECG value from device
+  int32 sample_rate = 4;            // Sample rate in Hz
+}
+
+// Device status update
+message DeviceStatusUpdate {
+  string device_id = 1;
+  DeviceStatus status = 2;
+  optional int32 battery_level = 3;  // Battery percentage (0-100)
+  optional string error_message = 4;
+  map<string, string> device_info = 5;  // Additional device information
+}
+
+enum DeviceStatus {
+  DEVICE_STATUS_UNKNOWN = 0;
+  DEVICE_STATUS_DISCONNECTED = 1;
+  DEVICE_STATUS_CONNECTING = 2;
+  DEVICE_STATUS_CONNECTED = 3;
+  DEVICE_STATUS_STREAMING = 4;
+  DEVICE_STATUS_ERROR = 5;
+}
+
+// Periodic heartbeat from collector
+message CollectorHeartbeat {
+  int64 timestamp_ms = 1;
+  int32 samples_sent = 2;  // Total samples sent since start
+  int32 active_devices = 3;  // Number of currently streaming devices
+}
+
+// Sync status update from aggregator
+message SyncStatusUpdate {
+  string device_id = 1;
+  bool sync_ready = 2;
+  double offset_s = 3;  // Calculated time offset (seconds)
+  int32 offset_version = 4;  // Offset calculation version
+  double confidence = 5;  // Sync confidence (0.0 to 1.0)
+}
+
+// Control commands from aggregator to collector
+message ControlCommand {
+  enum CommandType {
+    COMMAND_TYPE_UNKNOWN = 0;
+    COMMAND_TYPE_START_DEVICE = 1;
+    COMMAND_TYPE_STOP_DEVICE = 2;
+    COMMAND_TYPE_DISCONNECT_DEVICE = 3;
+    COMMAND_TYPE_SHUTDOWN = 4;
+  }
+
+  CommandType command = 1;
+  optional string device_id = 2;  // Target device (if applicable)
+  map<string, string> parameters = 3;  // Additional command parameters
+}

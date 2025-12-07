@@ -1,0 +1,270 @@
+"""gRPC client for streaming ECG data to the aggregator."""
+
+import asyncio
+import time
+from collections.abc import AsyncIterator
+
+import grpc
+from ecg_common.logging import get_logger
+from ecg_common.models import ECGSample
+from ecg_common.proto import ecg_streaming_pb2, ecg_streaming_pb2_grpc
+
+logger = get_logger(__name__)
+
+
+class AggregatorClient:
+    """gRPC client for connecting to the aggregator and streaming ECG data."""
+
+    def __init__(
+        self,
+        collector_id: str,
+        aggregator_host: str,
+        aggregator_port: int,
+        device_ids: list[str],
+        batch_size: int = 50,
+        batch_interval: float = 0.1,
+    ):
+        """Initialize the aggregator client.
+
+        Args:
+            collector_id: Unique identifier for this collector
+            aggregator_host: Aggregator server hostname/IP
+            aggregator_port: Aggregator server port
+            device_ids: List of device IDs this collector manages
+            batch_size: Number of samples per batch
+            batch_interval: Interval between batch sends (seconds)
+        """
+        self.collector_id = collector_id
+        self.aggregator_host = aggregator_host
+        self.aggregator_port = aggregator_port
+        self.device_ids = device_ids
+        self.batch_size = batch_size
+        self.batch_interval = batch_interval
+
+        self._channel: grpc.aio.Channel | None = None
+        self._stub: ecg_streaming_pb2_grpc.ECGStreamingServiceStub | None = None
+        self._stream_task: asyncio.Task | None = None
+        self._connected = False
+
+        # Sample queues per device
+        self._sample_queues: dict[str, asyncio.Queue[ECGSample]] = {
+            device_id: asyncio.Queue() for device_id in device_ids
+        }
+
+        # Statistics
+        self._samples_sent = 0
+        self._last_heartbeat = time.time()
+
+    async def connect(self) -> bool:
+        """Connect to the aggregator server.
+
+        Returns:
+            True if connection successful, False otherwise
+        """
+        try:
+            server_address = f"{self.aggregator_host}:{self.aggregator_port}"
+            logger.info(f"Connecting to aggregator at {server_address}")
+
+            self._channel = grpc.aio.insecure_channel(server_address)
+            self._stub = ecg_streaming_pb2_grpc.ECGStreamingServiceStub(self._channel)
+
+            # Start the bidirectional stream
+            self._stream_task = asyncio.create_task(self._stream_loop())
+
+            # Wait a bit to see if connection succeeds
+            await asyncio.sleep(0.5)
+
+            if self._connected:
+                logger.info(f"Successfully connected to aggregator at {server_address}")
+                return True
+            else:
+                logger.warning(f"Connection to {server_address} pending...")
+                return True  # Return True as connection is in progress
+
+        except Exception as e:
+            logger.error(f"Failed to connect to aggregator: {e}")
+            return False
+
+    async def disconnect(self) -> None:
+        """Disconnect from the aggregator server."""
+        logger.info("Disconnecting from aggregator...")
+
+        if self._stream_task:
+            self._stream_task.cancel()
+            try:
+                await self._stream_task
+            except asyncio.CancelledError:
+                pass
+
+        if self._channel:
+            await self._channel.close()
+
+        self._connected = False
+        logger.info("Disconnected from aggregator")
+
+    async def send_sample(self, sample: ECGSample) -> None:
+        """Queue an ECG sample for sending to the aggregator.
+
+        Args:
+            sample: ECG sample to send
+        """
+        if sample.device_id not in self._sample_queues:
+            logger.warning(f"Sample from unknown device {sample.device_id}, ignoring")
+            return
+
+        await self._sample_queues[sample.device_id].put(sample)
+
+    async def _message_generator(self) -> AsyncIterator[ecg_streaming_pb2.CollectorMessage]:
+        """Generate messages to send to the aggregator."""
+        # First, send registration
+        registration = ecg_streaming_pb2.CollectorRegistration(
+            collector_id=self.collector_id,
+            device_ids=self.device_ids,
+            version="0.1.0",
+            metadata={"type": "polar_h10_collector"},
+        )
+
+        yield ecg_streaming_pb2.CollectorMessage(registration=registration)
+
+        logger.info(f"Sent registration for collector {self.collector_id}")
+
+        # Then, continuously send sample batches and heartbeats
+        while True:
+            # Collect samples from all devices into batches
+            batches_ready = False
+
+            for device_id, queue in self._sample_queues.items():
+                samples_batch: list[ECGSample] = []
+
+                # Collect up to batch_size samples from this device's queue
+                while not queue.empty() and len(samples_batch) < self.batch_size:
+                    try:
+                        sample = queue.get_nowait()
+                        samples_batch.append(sample)
+                    except asyncio.QueueEmpty:
+                        break
+
+                # Send batch if we have samples
+                if samples_batch:
+                    batches_ready = True
+                    proto_samples = [
+                        ecg_streaming_pb2.ECGSample(
+                            device_timestamp_us=s.device_timestamp,
+                            host_receive_time_s=s.host_receive_time,
+                            raw_value=s.raw_value,
+                            sample_rate=s.sample_rate,
+                        )
+                        for s in samples_batch
+                    ]
+
+                    batch = ecg_streaming_pb2.ECGSampleBatch(
+                        device_id=device_id,
+                        samples=proto_samples,
+                        batch_timestamp_ms=int(time.time() * 1000),
+                    )
+
+                    yield ecg_streaming_pb2.CollectorMessage(sample_batch=batch)
+
+                    self._samples_sent += len(samples_batch)
+                    logger.debug(f"Sent batch of {len(samples_batch)} samples from {device_id}")
+
+            # Send heartbeat periodically
+            if time.time() - self._last_heartbeat > 10.0:
+                active_devices = sum(1 for q in self._sample_queues.values() if not q.empty())
+
+                heartbeat = ecg_streaming_pb2.CollectorHeartbeat(
+                    timestamp_ms=int(time.time() * 1000),
+                    samples_sent=self._samples_sent,
+                    active_devices=active_devices,
+                )
+
+                yield ecg_streaming_pb2.CollectorMessage(heartbeat=heartbeat)
+
+                self._last_heartbeat = time.time()
+                logger.debug(
+                    f"Sent heartbeat: {self._samples_sent} samples, {active_devices} active devices"
+                )
+
+            # Sleep before next iteration
+            await asyncio.sleep(self.batch_interval if batches_ready else 1.0)
+
+    async def _stream_loop(self) -> None:
+        """Main streaming loop for bidirectional communication."""
+        if not self._stub:
+            logger.error("gRPC stub not initialized")
+            return
+
+        try:
+            async for response in self._stub.StreamECG(self._message_generator()):
+                await self._handle_aggregator_message(response)
+
+        except grpc.aio.AioRpcError as e:
+            logger.error(f"gRPC stream error: {e.code()}: {e.details()}")
+            self._connected = False
+
+        except asyncio.CancelledError:
+            logger.info("Stream loop cancelled")
+            raise
+
+        except Exception as e:
+            logger.error(f"Unexpected error in stream loop: {e}")
+            self._connected = False
+
+    async def _handle_aggregator_message(
+        self, message: ecg_streaming_pb2.AggregatorMessage
+    ) -> None:
+        """Handle a message from the aggregator.
+
+        Args:
+            message: Message received from aggregator
+        """
+        msg_type = message.WhichOneof("message")
+
+        if msg_type == "registration_ack":
+            ack = message.registration_ack
+            if ack.accepted:
+                self._connected = True
+                logger.info(f"Registration accepted: {ack.message}")
+            else:
+                logger.error(f"Registration rejected: {ack.message}")
+                self._connected = False
+
+        elif msg_type == "sync_status":
+            status = message.sync_status
+            logger.info(
+                f"Sync status for {status.device_id}: "
+                f"ready={status.sync_ready}, offset={status.offset_s:.6f}s, "
+                f"confidence={status.confidence:.2f}"
+            )
+
+        elif msg_type == "control":
+            command = message.control
+            logger.info(f"Received control command: {command.command}")
+            # TODO: Implement control command handling
+
+        else:
+            logger.warning(f"Unknown message type: {msg_type}")
+
+    @property
+    def connected(self) -> bool:
+        """Check if the client is connected to the aggregator.
+
+        Returns:
+            True if connected, False otherwise
+        """
+        return self._connected
+
+    def get_stats(self) -> dict:
+        """Get client statistics.
+
+        Returns:
+            Dictionary containing client statistics
+        """
+        return {
+            "connected": self._connected,
+            "samples_sent": self._samples_sent,
+            "aggregator_host": self.aggregator_host,
+            "aggregator_port": self.aggregator_port,
+            "collector_id": self.collector_id,
+            "device_count": len(self.device_ids),
+        }

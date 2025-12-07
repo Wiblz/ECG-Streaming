@@ -4,33 +4,36 @@
 VENV := .venv/bin/activate
 RUN := . $(VENV) &&
 
+# Package directories
+PACKAGES := packages/ecg-common packages/ecg-collector packages/ecg-aggregator
+
 # Format code
 fmt:
 	@echo "Formatting code with ruff..."
-	$(RUN) ruff format src/
+	$(RUN) ruff format $(PACKAGES)
 	@echo "✓ Code formatted"
 
 # Check formatting without modifying
 fmt-check:
 	@echo "Checking formatting..."
-	$(RUN) ruff format --check --diff src/
+	$(RUN) ruff format --check --diff $(PACKAGES)
 
 # Type checking
 vet:
 	@echo "Running type checks with mypy..."
-	$(RUN) mypy src/
+	$(RUN) mypy $(PACKAGES)
 	@echo "✓ Type checking complete"
 
 # Linting
 lint:
 	@echo "Running linter with ruff..."
-	$(RUN) ruff check src/
+	$(RUN) ruff check $(PACKAGES)
 	@echo "✓ Linting complete"
 
 # Lint and auto-fix
 lint-fix:
 	@echo "Running linter with auto-fix..."
-	$(RUN) ruff check --fix src/
+	$(RUN) ruff check --fix $(PACKAGES)
 
 # Run all checks (format + lint + type check)
 check: fmt lint vet
@@ -45,15 +48,37 @@ test:
 	@echo "Running tests..."
 	$(RUN) pytest -v
 
-# Install dependencies
+# Install all packages
 install:
-	@echo "Installing dependencies..."
-	$(RUN) uv pip install -e ".[dev]"
+	@echo "Installing ECG-Streaming packages..."
+	$(RUN) uv pip install -e "packages/ecg-common[dev]"
+	$(RUN) uv pip install -e "packages/ecg-collector[dev]"
+	$(RUN) uv pip install -e "packages/ecg-aggregator[dev]"
+	@echo "✓ All packages installed"
 
 # Install without dev dependencies
 install-prod:
 	@echo "Installing production dependencies..."
-	$(RUN) uv pip install -e .
+	$(RUN) uv pip install -e packages/ecg-common
+	$(RUN) uv pip install -e packages/ecg-collector
+	$(RUN) uv pip install -e packages/ecg-aggregator
+	@echo "✓ Production packages installed"
+
+# Install individual packages
+install-common:
+	$(RUN) uv pip install -e "packages/ecg-common[dev]"
+
+install-collector:
+	$(RUN) uv pip install -e "packages/ecg-collector[dev]"
+
+install-aggregator:
+	$(RUN) uv pip install -e "packages/ecg-aggregator[dev]"
+
+# Generate gRPC code
+proto:
+	@echo "Generating gRPC code..."
+	$(RUN) python packages/ecg-common/generate_proto.py
+	@echo "✓ gRPC code generated"
 
 # Clean up generated files
 clean:
@@ -64,6 +89,7 @@ clean:
 	find . -type d -name ".pytest_cache" -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name ".mypy_cache" -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name ".ruff_cache" -exec rm -rf {} + 2>/dev/null || true
+	rm -f ecg_data.db 2>/dev/null || true
 	@echo "✓ Cleaned up"
 
 # Show help
@@ -89,6 +115,10 @@ help:
 	@echo "  make test        Run pytest tests"
 	@echo ""
 	@echo "Setup:"
-	@echo "  make install     Install all dependencies including dev tools"
-	@echo "  make install-prod Install only production dependencies"
-	@echo "  make clean       Remove generated files and caches"
+	@echo "  make install          Install all packages with dev dependencies"
+	@echo "  make install-prod     Install only production dependencies"
+	@echo "  make install-common   Install ecg-common only"
+	@echo "  make install-collector  Install ecg-collector only"
+	@echo "  make install-aggregator Install ecg-aggregator only"
+	@echo "  make proto           Generate gRPC code from .proto files"
+	@echo "  make clean           Remove generated files and caches"

@@ -1,0 +1,47 @@
+# ECG-Collector
+
+Collector module for ECG-Streaming project. Connects to multiple Polar H10 devices via Bluetooth LE, timestamps samples, and streams data to the aggregator via gRPC.
+
+## Features
+
+- Multi-device Polar H10 BLE connection
+- Concurrent device management across multiple BLE adapters
+- High-performance gRPC streaming to aggregator
+- Real-time sample timestamping
+- Device status monitoring
+
+## Installation
+
+```bash
+pip install -e packages/ecg-collector
+```
+
+## Usage
+
+### Start Collector
+
+```bash
+ecg-collector --config config.yaml
+```
+
+### CLI Tools
+
+```bash
+# Scan for nearby Polar devices
+ecg-collector-cli scan
+
+# Test connection to a device
+ecg-collector-cli test-connection <device_id>
+
+# Monitor adapter statistics
+ecg-collector-cli adapter-stats
+```
+
+## Configuration
+
+See `config.example.yaml` for configuration options:
+
+- `device_ids`: List of Polar H10 device IDs to connect to
+- `ble`: BLE adapter settings
+- `aggregator`: Aggregator connection settings (host, port)
+- `logging`: Logging configuration

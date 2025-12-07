@@ -1,53 +1,111 @@
 # ECG Streaming Configuration Example
 # Copy this file to config.yaml and customize for your setup
 
-# BLE Configuration
-ble:
-  max_devices_per_adapter: 7  # Maximum devices per BLE adapter
-  connection_timeout: 10.0     # Connection timeout in seconds
-  reconnection_attempts: 3     # Number of reconnection attempts
-  scan_duration: 5.0           # BLE scan duration in seconds
+# ==============================================================================
+# COLLECTOR CONFIGURATION
+# ==============================================================================
+# Run with: ecg-collector --config config.yaml
 
-# Time Synchronization Configuration
-sync:
-  regression_window_size: 100  # Number of samples for regression
-  min_samples_for_sync: 20     # Minimum samples before sync is ready
-  confidence_threshold: 0.9    # Minimum confidence for reliable sync
-  max_drift_ppm: 100.0         # Maximum acceptable clock drift in ppm
+collector:
+  # Unique collector ID (useful when running multiple collectors)
+  collector_id: "collector-1"
 
-# API Server Configuration
-api:
-  host: "0.0.0.0"              # Server host (0.0.0.0 for all interfaces)
-  port: 8000                   # Server port
-  buffer_duration_seconds: 30  # Data buffer duration
-  websocket_fps: 30            # WebSocket broadcast rate (frames per second)
-  cors_origins:                # CORS allowed origins
-    - "*"                      # Allow all origins (change for production)
+  # List of Polar H10 device IDs to connect to
+  # Find device IDs with: ecg-collector-cli scan
+  device_ids:
+    - "Polar H10 ABC123"  # Example device name/ID
+    - "Polar H10 DEF456"  # Add more devices as needed
+    # - "Polar H10 GHI789"
+    # - "Polar H10 JKL012"
 
-# Logging Configuration
-logging:
-  level: "INFO"                # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
-  format: "detailed"           # Log format: simple or detailed
-  log_file: null               # Optional log file path (null for console only)
+  # BLE Configuration
+  ble:
+    max_devices_per_adapter: 7    # Maximum devices per BLE adapter
+    connection_timeout: 10         # Connection timeout in seconds
 
-# Data Persistence Configuration
-persistence:
-  enabled: false               # Enable SQLite persistence for ECG samples
-  db_path: "ecg_data.db"       # Path to SQLite database file
-  batch_size: 100              # Number of samples to batch before writing
-  retention_days: null         # Optional: Delete samples older than N days (null = keep forever)
+  # Aggregator Connection
+  aggregator:
+    host: "localhost"              # Aggregator hostname or IP
+    port: 50051                    # Aggregator gRPC port
+    batch_size: 50                 # Samples per batch to send
+    batch_interval: 0.1            # Interval between batches (seconds)
 
-# Device Configuration
-# Add your Polar H10 device IDs here
-# Device IDs should match the device names or addresses
-device_ids:
-  - "H10_ABC123"               # Example device ID
-  - "H10_DEF456"               # Add more devices as needed
-  # - "H10_GHI789"
-  # - "H10_JKL012"
+  # Logging
+  logging:
+    level: "INFO"                  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+    format: "detailed"             # simple or detailed
+    file: null                     # Optional log file path
 
-# Notes:
-# - Device IDs can be found by running: ecg-cli scan
-# - For 20 devices, you'll need 3 BLE adapters (7+7+6)
-# - Ensure BlueZ is properly configured on your Linux system
-# - Battery levels are checked periodically when devices are connected
+# ==============================================================================
+# AGGREGATOR CONFIGURATION
+# ==============================================================================
+# Run with: ecg-aggregator --config config.yaml
+
+aggregator:
+  # gRPC Server (receives data from collectors)
+  grpc:
+    port: 50051                    # gRPC server port
+
+  # Time Synchronization
+  sync:
+    window_size: 100               # Sliding window size for sync
+    min_samples: 5                 # Minimum samples to calculate offset
+    buffer_confidence_threshold: 0.8  # Minimum confidence to buffer samples
+
+  # HTTP/WebSocket API (serves dashboard and REST API)
+  api:
+    port: 8000                     # HTTP/WebSocket server port
+    websocket_fps: 30              # WebSocket broadcast rate (frames/sec)
+    cors_origins:
+      - "*"                        # CORS origins (change for production)
+
+  # Database Storage
+  storage:
+    database_path: "ecg_data.db"   # SQLite database file
+    batch_size: 100                # Samples per database batch
+
+  # Data Buffer
+  buffer:
+    duration_seconds: 30           # Buffer duration (seconds)
+    max_samples: 100000            # Maximum samples in buffer
+
+  # Logging
+  logging:
+    level: "INFO"                  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+    format: "detailed"             # simple or detailed
+    file: null                     # Optional log file path
+
+# ==============================================================================
+# DEPLOYMENT SCENARIOS
+# ==============================================================================
+
+# Scenario 1: Single machine (development/testing)
+# - Run aggregator: ecg-aggregator --config config.yaml
+# - Run collector: ecg-collector --config config.yaml
+# - Both use localhost communication
+
+# Scenario 2: Distributed deployment
+# - Aggregator on server (e.g., 192.168.1.100)
+#   - Update aggregator.grpc.port if needed
+#   - Run: ecg-aggregator --config config.yaml
+# - Collector(s) on edge device(s)
+#   - Update collector.aggregator.host to server IP (192.168.1.100)
+#   - Update collector.aggregator.port to match aggregator
+#   - Run: ecg-collector --config config.yaml
+
+# Scenario 3: Multiple collectors → single aggregator
+# - Run aggregator once on server
+# - Run multiple collectors with unique collector_ids:
+#   - collector-1: devices A, B, C
+#   - collector-2: devices D, E, F
+#   - All pointing to same aggregator host:port
+
+# ==============================================================================
+# NOTES
+# ==============================================================================
+# - Device IDs can be found with: ecg-collector-cli scan
+# - For 20 devices with max 7 per adapter, you need 3 BLE adapters (hci0, hci1, hci2)
+# - Ensure BlueZ is properly configured on Linux
+# - Dashboard available at: http://localhost:8000 (or aggregator IP)
+# - WebSocket endpoint: ws://localhost:8000/ws/ecg
+# - REST API docs: http://localhost:8000/docs
