@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+from typing import Any
 
 from ecg_common.logging import get_logger
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -114,6 +115,22 @@ class ECGStreamingServer:
                 "sync": sync_stats,
                 "websocket_connections": len(self.active_connections),
                 "buffer": self.data_buffer.get_stats(),
+            }
+
+        @self.app.get("/debug/connections")
+        @self.app.get("/debug/connections/")
+        async def debug_connections() -> dict[str, Any]:
+            """Debug endpoint to inspect active WebSocket connections."""
+            return {
+                "count": len(self.active_connections),
+                "connections": [
+                    {
+                        "id": id(conn),
+                        "client": getattr(conn, "client", None),
+                        "headers": dict(conn.headers) if hasattr(conn, "headers") else {},
+                    }
+                    for conn in self.active_connections
+                ],
             }
 
         @self.app.get("/buffer/stats")

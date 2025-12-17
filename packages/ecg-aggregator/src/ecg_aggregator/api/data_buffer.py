@@ -3,7 +3,7 @@
 import time
 from collections import deque
 from dataclasses import asdict
-from threading import Lock
+from threading import RLock
 
 from ecg_common.models import BufferedECGSample
 
@@ -26,7 +26,7 @@ class ECGDataBuffer:
         self.max_samples = max_samples
 
         self._buffer: deque[BufferedECGSample] = deque(maxlen=max_samples)
-        self._lock = Lock()
+        self._lock = RLock()
 
         # Statistics
         self._total_samples = 0
@@ -160,8 +160,14 @@ class ECGDataBuffer:
             Dictionary with buffer statistics
         """
         with self._lock:
-            oldest, newest = self.get_time_range()
-            duration = (newest - oldest) if oldest and newest else 0
+            if self._buffer:
+                oldest = self._buffer[0].global_time
+                newest = self._buffer[-1].global_time
+                duration = newest - oldest
+            else:
+                oldest = None
+                newest = None
+                duration = 0
 
             device_counts: dict[str, int] = {}
             for sample in self._buffer:
