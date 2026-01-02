@@ -9,6 +9,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from ecg_aggregator.api.data_buffer import ECGDataBuffer
+from ecg_aggregator.storage.persistence import ECGDatabase
 from ecg_aggregator.sync.time_alignment import TimeAlignmentService
 
 logger = get_logger(__name__)
@@ -21,6 +22,7 @@ class ECGStreamingServer:
         self,
         time_alignment: TimeAlignmentService,
         data_buffer: ECGDataBuffer,
+        database: ECGDatabase,
         websocket_fps: int = 30,
         cors_origins: list[str] | None = None,
     ):
@@ -29,11 +31,13 @@ class ECGStreamingServer:
         Args:
             time_alignment: Time alignment service instance
             data_buffer: Data buffer instance
+            database: Database instance
             websocket_fps: WebSocket broadcast rate in FPS
             cors_origins: CORS allowed origins
         """
         self.time_alignment = time_alignment
         self.data_buffer = data_buffer
+        self.database = database
         self.websocket_fps = websocket_fps
         self.broadcast_interval = 1.0 / websocket_fps
 
@@ -142,6 +146,60 @@ class ECGStreamingServer:
         async def get_latest_samples() -> dict[str, dict]:
             """Get latest sample for each device."""
             return self.data_buffer.get_latest_by_device()
+
+        # Session endpoints
+
+        @self.app.get("/sessions")
+        async def list_sessions(limit: int | None = None, offset: int = 0) -> dict[str, Any]:
+            """List all recording sessions."""
+            sessions = self.database.get_sessions(limit=limit, offset=offset)
+            return {"sessions": sessions, "count": len(sessions)}
+
+        @self.app.get("/sessions/{session_id}")
+        async def get_session_detail(session_id: int) -> dict[str, Any]:
+            """Get details for a specific session."""
+            session = self.database.get_session(session_id)
+            if not session:
+                return {"error": "Session not found"}
+            return session
+
+        @self.app.get("/sessions/{session_id}/samples")
+        async def get_session_samples_endpoint(
+            session_id: int,
+            device_id: str | None = None,
+            limit: int | None = None,
+            offset: int = 0,
+        ) -> dict[str, Any]:
+            """Get samples for a specific session."""
+            samples = self.database.get_session_samples(
+                session_id=session_id,
+                device_id=device_id,
+                limit=limit,
+                offset=offset,
+            )
+            return {
+                "session_id": session_id,
+                "samples": samples,
+                "count": len(samples),
+            }
+
+        @self.app.post("/sessions/backfill")
+        async def backfill_sessions(gap_threshold: float = 300.0) -> dict[str, Any]:
+            """Backfill sessions from existing samples."""
+            sessions_created = self.database.create_sessions_from_samples(gap_threshold=gap_threshold)
+            return {
+                "success": True,
+                "sessions_created": sessions_created,
+                "message": f"Created {sessions_created} sessions from existing samples",
+            }
+
+        @self.app.delete("/sessions/{session_id}")
+        async def delete_session_endpoint(session_id: int) -> dict[str, Any]:
+            """Delete a session."""
+            success = self.database.delete_session(session_id)
+            if success:
+                return {"success": True, "message": f"Session {session_id} deleted"}
+            return {"success": False, "error": "Failed to delete session"}
 
         @self.app.websocket("/ws/ecg")
         async def websocket_endpoint(websocket: WebSocket) -> None:
@@ -277,6 +335,7 @@ class ECGStreamingServer:
 def create_app(
     time_alignment: TimeAlignmentService,
     data_buffer: ECGDataBuffer,
+    database: ECGDatabase,
     websocket_fps: int = 30,
     cors_origins: list[str] | None = None,
 ) -> tuple[FastAPI, ECGStreamingServer]:
@@ -285,6 +344,7 @@ def create_app(
     Args:
         time_alignment: Time alignment service
         data_buffer: Data buffer
+        database: Database instance
         websocket_fps: WebSocket broadcast rate
         cors_origins: CORS allowed origins
 
@@ -294,6 +354,7 @@ def create_app(
     server = ECGStreamingServer(
         time_alignment=time_alignment,
         data_buffer=data_buffer,
+        database=database,
         websocket_fps=websocket_fps,
         cors_origins=cors_origins,
     )

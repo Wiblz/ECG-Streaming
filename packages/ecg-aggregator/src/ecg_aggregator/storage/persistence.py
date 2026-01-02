@@ -79,6 +79,9 @@ class ECGDatabase:
 
             conn.commit()
 
+            # Migrate schema if needed
+            self._migrate_schema()
+
     def _get_connection(self) -> sqlite3.Connection:
         """Get database connection (thread-safe).
 
@@ -90,6 +93,27 @@ class ECGDatabase:
             # Enable WAL mode for better concurrency
             self._conn.execute("PRAGMA journal_mode=WAL")
         return self._conn
+
+    def _migrate_schema(self) -> None:
+        """Migrate database schema to latest version."""
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                # Check if session_id column exists
+                cursor.execute("PRAGMA table_info(ecg_samples)")
+                columns = [row[1] for row in cursor.fetchall()]
+
+                if "session_id" not in columns:
+                    logger.info("Adding session_id column to ecg_samples table")
+                    cursor.execute("ALTER TABLE ecg_samples ADD COLUMN session_id INTEGER")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_session_id ON ecg_samples (session_id)")
+                    conn.commit()
+                    logger.info("Schema migration completed")
+
+            except Exception as e:
+                logger.error(f"Error during schema migration: {e}")
 
     def add_sample(
         self,
@@ -390,6 +414,412 @@ class ECGDatabase:
                 logger.info("Database vacuumed")
             except Exception as e:
                 logger.error(f"Error vacuuming database: {e}")
+
+    # Session management methods
+
+    def create_session(
+        self,
+        start_time: float,
+        end_time: float | None = None,
+        notes: str | None = None,
+    ) -> int:
+        """Create a new recording session.
+
+        Args:
+            start_time: Session start timestamp
+            end_time: Session end timestamp (optional)
+            notes: Session notes (optional)
+
+        Returns:
+            Session ID
+        """
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                cursor.execute(
+                    """
+                    INSERT INTO sessions (start_time, end_time, notes)
+                    VALUES (?, ?, ?)
+                    """,
+                    (start_time, end_time, notes),
+                )
+
+                session_id = cursor.lastrowid
+                conn.commit()
+
+                logger.info(f"Created session {session_id}")
+                return session_id if session_id is not None else -1
+
+            except Exception as e:
+                logger.error(f"Error creating session: {e}")
+                return -1
+
+    def get_sessions(
+        self,
+        limit: int | None = None,
+        offset: int = 0,
+        order_by: str = "start_time DESC",
+    ) -> list[dict]:
+        """Retrieve all sessions.
+
+        Args:
+            limit: Maximum number of sessions to return
+            offset: Number of sessions to skip
+            order_by: Order clause (default: newest first)
+
+        Returns:
+            List of session dictionaries
+        """
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                query = "SELECT id, start_time, end_time, device_count, sample_count, notes FROM sessions"
+                query += f" ORDER BY {order_by}"
+
+                params: list[int] = []
+                if limit:
+                    query += " LIMIT ? OFFSET ?"
+                    params.extend([limit, offset])
+
+                cursor.execute(query, params)
+
+                results = []
+                for row in cursor.fetchall():
+                    session_data = {
+                        "id": row[0],
+                        "start_time": row[1],
+                        "end_time": row[2],
+                        "device_count": row[3],
+                        "sample_count": row[4],
+                        "notes": row[5],
+                    }
+
+                    # Calculate duration
+                    if row[2]:  # end_time
+                        session_data["duration_seconds"] = row[2] - row[1]
+                    else:
+                        session_data["duration_seconds"] = None
+
+                    # Get unique devices for this session
+                    cursor.execute(
+                        """
+                        SELECT DISTINCT device_id FROM ecg_samples
+                        WHERE session_id = ?
+                        """,
+                        (row[0],),
+                    )
+                    devices = [d[0] for d in cursor.fetchall()]
+                    session_data["devices"] = devices
+
+                    results.append(session_data)
+
+                return results
+
+            except Exception as e:
+                logger.error(f"Error retrieving sessions: {e}")
+                return []
+
+    def get_session(self, session_id: int) -> dict | None:
+        """Get a single session by ID.
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            Session dictionary or None if not found
+        """
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                cursor.execute(
+                    """
+                    SELECT id, start_time, end_time, device_count, sample_count, notes
+                    FROM sessions WHERE id = ?
+                    """,
+                    (session_id,),
+                )
+
+                row = cursor.fetchone()
+                if not row:
+                    return None
+
+                session_data = {
+                    "id": row[0],
+                    "start_time": row[1],
+                    "end_time": row[2],
+                    "device_count": row[3],
+                    "sample_count": row[4],
+                    "notes": row[5],
+                }
+
+                # Calculate duration
+                if row[2]:
+                    session_data["duration_seconds"] = row[2] - row[1]
+                else:
+                    session_data["duration_seconds"] = None
+
+                # Get unique devices
+                cursor.execute(
+                    """
+                    SELECT DISTINCT device_id FROM ecg_samples
+                    WHERE session_id = ?
+                    """,
+                    (session_id,),
+                )
+                devices = [d[0] for d in cursor.fetchall()]
+                session_data["devices"] = devices
+
+                return session_data
+
+            except Exception as e:
+                logger.error(f"Error retrieving session: {e}")
+                return None
+
+    def update_session(
+        self,
+        session_id: int,
+        end_time: float | None = None,
+        notes: str | None = None,
+    ) -> bool:
+        """Update session metadata.
+
+        Args:
+            session_id: Session ID
+            end_time: Session end time
+            notes: Session notes
+
+        Returns:
+            True if successful
+        """
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                updates = []
+                params: list[float | str | int] = []
+
+                if end_time is not None:
+                    updates.append("end_time = ?")
+                    params.append(end_time)
+
+                if notes is not None:
+                    updates.append("notes = ?")
+                    params.append(notes)
+
+                if not updates:
+                    return True
+
+                params.append(session_id)
+                query = f"UPDATE sessions SET {', '.join(updates)} WHERE id = ?"
+
+                cursor.execute(query, params)
+                conn.commit()
+
+                return True
+
+            except Exception as e:
+                logger.error(f"Error updating session: {e}")
+                return False
+
+    def delete_session(self, session_id: int) -> bool:
+        """Delete a session and optionally its samples.
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            True if successful
+        """
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                # Delete session (samples will have session_id set to NULL due to cascade)
+                cursor.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+
+                # Optionally unlink samples instead of deleting them
+                cursor.execute(
+                    "UPDATE ecg_samples SET session_id = NULL WHERE session_id = ?",
+                    (session_id,),
+                )
+
+                conn.commit()
+                logger.info(f"Deleted session {session_id}")
+                return True
+
+            except Exception as e:
+                logger.error(f"Error deleting session: {e}")
+                return False
+
+    def get_session_samples(
+        self,
+        session_id: int,
+        device_id: str | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[dict]:
+        """Get samples for a specific session.
+
+        Args:
+            session_id: Session ID
+            device_id: Filter by device ID (optional)
+            limit: Maximum samples to return
+            offset: Number of samples to skip
+
+        Returns:
+            List of sample dictionaries
+        """
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                query = """
+                    SELECT device_id, global_time, raw_value, confidence
+                    FROM ecg_samples
+                    WHERE session_id = ?
+                """
+                params: list[int | str] = [session_id]
+
+                if device_id:
+                    query += " AND device_id = ?"
+                    params.append(device_id)
+
+                query += " ORDER BY global_time ASC"
+
+                if limit:
+                    query += " LIMIT ? OFFSET ?"
+                    params.extend([limit, offset])
+
+                cursor.execute(query, params)
+
+                results = []
+                for row in cursor.fetchall():
+                    results.append(
+                        {
+                            "device_id": row[0],
+                            "global_time": row[1],
+                            "raw_value": row[2],
+                            "confidence": row[3],
+                        }
+                    )
+
+                return results
+
+            except Exception as e:
+                logger.error(f"Error retrieving session samples: {e}")
+                return []
+
+    def create_sessions_from_samples(self, gap_threshold: float = 300.0) -> int:
+        """Analyze existing samples and create sessions based on time gaps.
+
+        Args:
+            gap_threshold: Time gap in seconds to consider a new session (default: 5 minutes)
+
+        Returns:
+            Number of sessions created
+        """
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                # Get all samples ordered by time
+                cursor.execute(
+                    """
+                    SELECT id, device_id, global_time
+                    FROM ecg_samples
+                    WHERE session_id IS NULL
+                    ORDER BY global_time ASC
+                    """
+                )
+
+                samples = cursor.fetchall()
+                if not samples:
+                    logger.info("No unassigned samples to process")
+                    return 0
+
+                sessions_created = 0
+                current_session_id: int | None = None
+                current_session_start: float | None = None
+                current_session_end: float | None = None
+                last_time: float | None = None
+                session_sample_ids: list[int] = []
+
+                for sample_id, device_id, global_time in samples:
+                    # Check if we need to start a new session
+                    if last_time is None or (global_time - last_time) > gap_threshold:
+                        # Save previous session
+                        if current_session_id and session_sample_ids:
+                            # Update session end time
+                            cursor.execute(
+                                "UPDATE sessions SET end_time = ? WHERE id = ?",
+                                (current_session_end, current_session_id),
+                            )
+
+                            # Update sample session IDs
+                            cursor.executemany(
+                                "UPDATE ecg_samples SET session_id = ? WHERE id = ?",
+                                [(current_session_id, sid) for sid in session_sample_ids],
+                            )
+
+                        # Create new session
+                        cursor.execute(
+                            "INSERT INTO sessions (start_time) VALUES (?)",
+                            (global_time,),
+                        )
+                        current_session_id = cursor.lastrowid
+                        current_session_start = global_time
+                        session_sample_ids = []
+                        sessions_created += 1
+
+                    # Add sample to current session
+                    session_sample_ids.append(sample_id)
+                    current_session_end = global_time
+                    last_time = global_time
+
+                # Save final session
+                if current_session_id and session_sample_ids:
+                    cursor.execute(
+                        "UPDATE sessions SET end_time = ? WHERE id = ?",
+                        (current_session_end, current_session_id),
+                    )
+                    cursor.executemany(
+                        "UPDATE ecg_samples SET session_id = ? WHERE id = ?",
+                        [(current_session_id, sid) for sid in session_sample_ids],
+                    )
+
+                # Update session statistics
+                cursor.execute(
+                    """
+                    UPDATE sessions
+                    SET sample_count = (
+                        SELECT COUNT(*) FROM ecg_samples WHERE session_id = sessions.id
+                    ),
+                    device_count = (
+                        SELECT COUNT(DISTINCT device_id) FROM ecg_samples WHERE session_id = sessions.id
+                    )
+                    WHERE id IN (
+                        SELECT DISTINCT session_id FROM ecg_samples WHERE session_id IS NOT NULL
+                    )
+                    """
+                )
+
+                conn.commit()
+                logger.info(f"Created {sessions_created} sessions from existing samples")
+                return sessions_created
+
+            except Exception as e:
+                logger.error(f"Error creating sessions from samples: {e}")
+                return 0
 
     def close(self) -> None:
         """Close database connection."""

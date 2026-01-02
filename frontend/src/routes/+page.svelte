@@ -31,7 +31,15 @@
 					<h1 class="text-2xl font-bold text-gray-900">ECG Streaming</h1>
 					<p class="text-sm text-gray-500">Real-time cardiac monitoring</p>
 				</div>
-				<ConnectionStatus />
+				<div class="flex items-center gap-4">
+					<a
+						href="/sessions"
+						class="text-sm text-gray-600 hover:text-gray-900 transition-colors font-medium"
+					>
+						Sessions
+					</a>
+					<ConnectionStatus />
+				</div>
 			</div>
 		</div>
 	</header>

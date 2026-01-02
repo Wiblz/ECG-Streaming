@@ -128,6 +128,7 @@ class ECGAggregator:
         self.http_server = ECGStreamingServer(
             time_alignment=self.time_alignment,
             data_buffer=self.data_buffer,
+            database=self.database,
             websocket_fps=self.config.api.websocket_fps,
             cors_origins=self.config.api.cors_origins,
         )
