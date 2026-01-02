@@ -730,11 +730,14 @@ class ECGDatabase:
                 logger.error(f"Error retrieving session samples: {e}")
                 return []
 
-    def create_sessions_from_samples(self, gap_threshold: float = 300.0) -> int:
+    def create_sessions_from_samples(
+        self, gap_threshold: float = 300.0, min_duration: float = 30.0
+    ) -> int:
         """Analyze existing samples and create sessions based on time gaps.
 
         Args:
             gap_threshold: Time gap in seconds to consider a new session (default: 5 minutes)
+            min_duration: Minimum session duration in seconds to keep (default: 30 seconds)
 
         Returns:
             Number of sessions created
@@ -760,28 +763,45 @@ class ECGDatabase:
                     return 0
 
                 sessions_created = 0
+                sessions_discarded = 0
                 current_session_id: int | None = None
                 current_session_start: float | None = None
                 current_session_end: float | None = None
                 last_time: float | None = None
                 session_sample_ids: list[int] = []
 
+                def save_current_session():
+                    """Helper to save or discard current session based on duration."""
+                    nonlocal sessions_created, sessions_discarded, current_session_id
+
+                    if not current_session_id or not session_sample_ids:
+                        return
+
+                    session_duration = current_session_end - current_session_start
+
+                    if session_duration < min_duration:
+                        # Discard short session - delete it and leave samples unassigned
+                        cursor.execute("DELETE FROM sessions WHERE id = ?", (current_session_id,))
+                        sessions_discarded += 1
+                        logger.debug(
+                            f"Discarded session {current_session_id} (duration: {session_duration:.1f}s < {min_duration}s)"
+                        )
+                    else:
+                        # Keep session - update end time and assign samples
+                        cursor.execute(
+                            "UPDATE sessions SET end_time = ? WHERE id = ?",
+                            (current_session_end, current_session_id),
+                        )
+                        cursor.executemany(
+                            "UPDATE ecg_samples SET session_id = ? WHERE id = ?",
+                            [(current_session_id, sid) for sid in session_sample_ids],
+                        )
+
                 for sample_id, device_id, global_time in samples:
                     # Check if we need to start a new session
                     if last_time is None or (global_time - last_time) > gap_threshold:
-                        # Save previous session
-                        if current_session_id and session_sample_ids:
-                            # Update session end time
-                            cursor.execute(
-                                "UPDATE sessions SET end_time = ? WHERE id = ?",
-                                (current_session_end, current_session_id),
-                            )
-
-                            # Update sample session IDs
-                            cursor.executemany(
-                                "UPDATE ecg_samples SET session_id = ? WHERE id = ?",
-                                [(current_session_id, sid) for sid in session_sample_ids],
-                            )
+                        # Save previous session (may be discarded if too short)
+                        save_current_session()
 
                         # Create new session
                         cursor.execute(
@@ -798,16 +818,8 @@ class ECGDatabase:
                     current_session_end = global_time
                     last_time = global_time
 
-                # Save final session
-                if current_session_id and session_sample_ids:
-                    cursor.execute(
-                        "UPDATE sessions SET end_time = ? WHERE id = ?",
-                        (current_session_end, current_session_id),
-                    )
-                    cursor.executemany(
-                        "UPDATE ecg_samples SET session_id = ? WHERE id = ?",
-                        [(current_session_id, sid) for sid in session_sample_ids],
-                    )
+                # Save final session (may be discarded if too short)
+                save_current_session()
 
                 # Update session statistics
                 cursor.execute(
@@ -826,7 +838,10 @@ class ECGDatabase:
                 )
 
                 conn.commit()
-                logger.info(f"Created {sessions_created} sessions from existing samples")
+                logger.info(
+                    f"Created {sessions_created} sessions from existing samples "
+                    f"({sessions_discarded} discarded as too short)"
+                )
                 return sessions_created
 
             except Exception as e:

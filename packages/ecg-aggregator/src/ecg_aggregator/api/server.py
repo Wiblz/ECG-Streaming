@@ -197,9 +197,18 @@ class ECGStreamingServer:
             }
 
         @self.app.post("/sessions/backfill")
-        async def backfill_sessions(gap_threshold: float = 300.0) -> dict[str, Any]:
-            """Backfill sessions from existing samples."""
-            sessions_created = self.database.create_sessions_from_samples(gap_threshold=gap_threshold)
+        async def backfill_sessions(
+            gap_threshold: float = 300.0, min_duration: float = 30.0
+        ) -> dict[str, Any]:
+            """Backfill sessions from existing samples.
+
+            Args:
+                gap_threshold: Time gap in seconds to consider a new session (default: 300s)
+                min_duration: Minimum session duration in seconds to keep (default: 30s)
+            """
+            sessions_created = self.database.create_sessions_from_samples(
+                gap_threshold=gap_threshold, min_duration=min_duration
+            )
             return {
                 "success": True,
                 "sessions_created": sessions_created,
