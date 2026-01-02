@@ -25,7 +25,6 @@
 
 	const INITIAL_WINDOW_SECONDS = 30;
 	const MAX_WINDOW_SECONDS = 30; // Maximum zoom out window
-	const MAX_POINTS_PER_FETCH = 10000;
 
 	// Debounce for fetching data
 	let fetchTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -76,14 +75,16 @@
 				// Set programmatic flag to prevent hook from triggering
 				programmaticUpdate = true;
 
+				const chartInstance = chart; // Capture for closure
+
 				// Batch the data update and scale restoration together
-				chart.batch(() => {
+				chartInstance.batch(() => {
 					// Pass false to prevent triggering hooks
-					chart.setData(chartData.data, false);
+					chartInstance.setData(chartData.data, false);
 
 					// Restore viewport if we had one
 					if (currentMin !== undefined && currentMax !== undefined) {
-						chart.setScale('x', { min: currentMin, max: currentMax });
+						chartInstance.setScale('x', { min: currentMin, max: currentMax });
 					}
 				});
 
@@ -100,7 +101,9 @@
 	};
 
 	// Prepare data for uPlot (convert to relative session time)
-	const prepareChartData = (samples: SessionSample[]) => {
+	const prepareChartData = (
+		samples: SessionSample[]
+	): { data: uPlot.AlignedData; devices: string[] } => {
 		if (samples.length === 0) {
 			return { data: [[], []], devices: [] };
 		}
@@ -115,7 +118,7 @@
 			const values = sorted.map((s) => s.raw_value);
 
 			return {
-				data: [timestamps, values],
+				data: [timestamps, values] as uPlot.AlignedData,
 				devices
 			};
 		}
@@ -137,6 +140,9 @@
 
 		// Use first device's timestamps as x-axis (relative time)
 		const firstDevice = byDevice.values().next().value;
+		if (!firstDevice) {
+			return { data: [[], []], devices: [] };
+		}
 		const timestamps = firstDevice.map((s: SessionSample) => s.global_time - session.start_time);
 
 		// Each device gets its own y-values array
@@ -146,7 +152,7 @@
 		});
 
 		return {
-			data: [timestamps, ...seriesData],
+			data: [timestamps, ...seriesData] as uPlot.AlignedData,
 			devices
 		};
 	};
@@ -155,97 +161,99 @@
 	function wheelZoomPlugin() {
 		return {
 			hooks: {
-				ready: [(u: uPlot) => {
-					const over = u.over;
+				ready: [
+					(u: uPlot) => {
+						const over = u.over;
 
-					// Middle-click drag to pan
-					over.addEventListener('mousedown', (e) => {
-						if (e.button === 1) {
+						// Middle-click drag to pan
+						over.addEventListener('mousedown', (e) => {
+							if (e.button === 1) {
+								e.preventDefault();
+								const left0 = e.clientX;
+								const scXMin0 = u.scales.x.min!;
+								const scXMax0 = u.scales.x.max!;
+								const xUnitsPerPx = u.posToVal(1, 'x') - u.posToVal(0, 'x');
+
+								const onMove = (e2: MouseEvent) => {
+									e2.preventDefault();
+									const left1 = e2.clientX;
+									const dx = xUnitsPerPx * (left1 - left0);
+
+									// Clamp to session bounds (relative time: 0 to session duration)
+									let newMin = scXMin0 - dx;
+									let newMax = scXMax0 - dx;
+									const range = newMax - newMin;
+
+									const sessionDuration = session.duration_seconds ?? INITIAL_WINDOW_SECONDS;
+
+									if (newMin < 0) {
+										newMin = 0;
+										newMax = range;
+									}
+									if (newMax > sessionDuration) {
+										newMax = sessionDuration;
+										newMin = sessionDuration - range;
+									}
+
+									u.setScale('x', { min: newMin, max: newMax });
+								};
+
+								const onUp = () => {
+									document.removeEventListener('mousemove', onMove);
+									document.removeEventListener('mouseup', onUp);
+								};
+
+								document.addEventListener('mousemove', onMove);
+								document.addEventListener('mouseup', onUp);
+							}
+						});
+
+						// Wheel zoom
+						over.addEventListener('wheel', (e) => {
 							e.preventDefault();
-							const left0 = e.clientX;
-							const scXMin0 = u.scales.x.min!;
-							const scXMax0 = u.scales.x.max!;
-							const xUnitsPerPx = u.posToVal(1, 'x') - u.posToVal(0, 'x');
+							const { left } = u.cursor;
+							const leftPct = left! / u.bbox.width;
+							const xVal = u.posToVal(left!, 'x');
+							const oxRange = u.scales.x.max! - u.scales.x.min!;
+							const factor = 0.75;
+							let nxRange = e.deltaY < 0 ? oxRange * factor : oxRange / factor;
 
-							const onMove = (e2: MouseEvent) => {
-								e2.preventDefault();
-								const left1 = e2.clientX;
-								const dx = xUnitsPerPx * (left1 - left0);
+							// If trying to zoom out beyond max window, ignore the event
+							if (e.deltaY > 0 && oxRange >= MAX_WINDOW_SECONDS) {
+								return;
+							}
 
-								// Clamp to session bounds (relative time: 0 to session duration)
-								let newMin = scXMin0 - dx;
-								let newMax = scXMax0 - dx;
-								const range = newMax - newMin;
+							// Limit maximum zoom out to MAX_WINDOW_SECONDS
+							if (nxRange > MAX_WINDOW_SECONDS) {
+								nxRange = MAX_WINDOW_SECONDS;
+							}
 
-								const sessionDuration = session.duration_seconds ?? INITIAL_WINDOW_SECONDS;
+							let nxMin = xVal - leftPct * nxRange;
+							let nxMax = nxMin + nxRange;
 
-								if (newMin < 0) {
-									newMin = 0;
-									newMax = range;
-								}
-								if (newMax > sessionDuration) {
-									newMax = sessionDuration;
-									newMin = sessionDuration - range;
-								}
+							// Clamp to session bounds (relative time: 0 to session duration)
+							const sessionDuration = session.duration_seconds ?? INITIAL_WINDOW_SECONDS;
 
-								u.setScale('x', { min: newMin, max: newMax });
-							};
+							if (nxMin < 0) {
+								nxMin = 0;
+								nxMax = nxRange;
+							}
+							if (nxMax > sessionDuration) {
+								nxMax = sessionDuration;
+								nxMin = sessionDuration - nxRange;
+							}
+							// Don't allow zooming out beyond session bounds
+							if (nxMin < 0) {
+								nxMin = 0;
+							}
+							if (nxMax > sessionDuration) {
+								nxMax = sessionDuration;
+							}
 
-							const onUp = () => {
-								document.removeEventListener('mousemove', onMove);
-								document.removeEventListener('mouseup', onUp);
-							};
-
-							document.addEventListener('mousemove', onMove);
-							document.addEventListener('mouseup', onUp);
-						}
-					});
-
-					// Wheel zoom
-					over.addEventListener('wheel', (e) => {
-						e.preventDefault();
-						const { left, top } = u.cursor;
-						const leftPct = left! / u.bbox.width;
-						const xVal = u.posToVal(left!, 'x');
-						const oxRange = u.scales.x.max! - u.scales.x.min!;
-						const factor = 0.75;
-						let nxRange = e.deltaY < 0 ? oxRange * factor : oxRange / factor;
-
-						// If trying to zoom out beyond max window, ignore the event
-						if (e.deltaY > 0 && oxRange >= MAX_WINDOW_SECONDS) {
-							return;
-						}
-
-						// Limit maximum zoom out to MAX_WINDOW_SECONDS
-						if (nxRange > MAX_WINDOW_SECONDS) {
-							nxRange = MAX_WINDOW_SECONDS;
-						}
-
-						let nxMin = xVal - leftPct * nxRange;
-						let nxMax = nxMin + nxRange;
-
-						// Clamp to session bounds (relative time: 0 to session duration)
-						const sessionDuration = session.duration_seconds ?? INITIAL_WINDOW_SECONDS;
-
-						if (nxMin < 0) {
-							nxMin = 0;
-							nxMax = nxRange;
-						}
-						if (nxMax > sessionDuration) {
-							nxMax = sessionDuration;
-							nxMin = sessionDuration - nxRange;
-						}
-						// Don't allow zooming out beyond session bounds
-						if (nxMin < 0) {
-							nxMin = 0;
-						}
-						if (nxMax > sessionDuration) {
-							nxMax = sessionDuration;
-						}
-
-						u.setScale('x', { min: nxMin, max: nxMax });
-					});
-				}]
+							u.setScale('x', { min: nxMin, max: nxMax });
+						});
+					}
+				]
 			}
 		};
 	}
@@ -434,8 +442,9 @@
 					</div>
 					{#if currentViewport}
 						<div class="text-xs font-mono text-gray-600">
-							Viewing: {currentViewport.sampleCount.toLocaleString()} samples
-							({(currentViewport.end - currentViewport.start).toFixed(1)}s window)
+							Viewing: {currentViewport.sampleCount.toLocaleString()} samples ({(
+								currentViewport.end - currentViewport.start
+							).toFixed(1)}s window)
 						</div>
 						<div class="text-xs text-gray-400">
 							{currentViewport.start.toFixed(1)}s - {currentViewport.end.toFixed(1)}s into session

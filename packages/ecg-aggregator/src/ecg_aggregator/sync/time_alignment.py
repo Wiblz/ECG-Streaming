@@ -109,7 +109,7 @@ class DeviceTimeModel:
             # Calculate offset for each sample pair
             offsets = [
                 host_time - device_time
-                for device_time, host_time in zip(self._device_times, self._host_times)
+                for device_time, host_time in zip(self._device_times, self._host_times, strict=True)
             ]
 
             # Use median for robustness

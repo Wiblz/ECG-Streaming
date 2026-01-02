@@ -1,13 +1,17 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { getSessions } from '$lib/api/client';
+	import { goto } from '$app/navigation';
+	import { getSessions, importSession } from '$lib/api/client';
 	import type { Session } from '$lib/types/api';
 
 	let sessions = $state<Session[]>([]);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
+	let importing = $state(false);
+	let importMessage = $state<string | null>(null);
+	let fileInput: HTMLInputElement;
 
-	onMount(async () => {
+	async function loadSessions() {
 		try {
 			const response = await getSessions();
 			sessions = response.sessions;
@@ -16,7 +20,9 @@
 		} finally {
 			loading = false;
 		}
-	});
+	}
+
+	onMount(loadSessions);
 
 	function formatDate(timestamp: number): string {
 		return new Date(timestamp * 1000).toLocaleString();
@@ -31,37 +37,117 @@
 		}
 		return `${secs}s`;
 	}
+
+	function handleImportClick() {
+		fileInput.click();
+	}
+
+	async function handleFileSelected(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const file = target.files?.[0];
+
+		if (!file) return;
+
+		importing = true;
+		importMessage = null;
+
+		try {
+			const result = await importSession(file);
+
+			if (result.success && result.session_id) {
+				importMessage = `Successfully imported session #${result.session_id}`;
+				// Reload sessions to show the new one
+				await loadSessions();
+				// Navigate to the new session after a brief delay
+				setTimeout(() => {
+					goto(`/sessions/${result.session_id}`);
+				}, 1000);
+			} else {
+				importMessage = result.error || 'Failed to import session';
+			}
+		} catch (e) {
+			importMessage = e instanceof Error ? e.message : 'Import failed';
+		} finally {
+			importing = false;
+			target.value = ''; // Reset file input
+		}
+	}
 </script>
 
 <div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
 	<!-- Header -->
 	<header class="border-b border-gray-200 bg-white/80 backdrop-blur-sm sticky top-0 z-10">
 		<div class="container mx-auto px-6 py-4 max-w-7xl">
-			<div class="flex items-center gap-4">
-				<a
-					href="/"
-					class="text-gray-500 hover:text-gray-700 transition-colors"
-					aria-label="Back to dashboard"
+			<div class="flex items-center justify-between w-full">
+				<div class="flex items-center gap-4">
+					<a
+						href="/"
+						class="text-gray-500 hover:text-gray-700 transition-colors"
+						aria-label="Back to dashboard"
+					>
+						<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								stroke-width="2"
+								d="M10 19l-7-7m0 0l7-7m-7 7h18"
+							/>
+						</svg>
+					</a>
+					<div>
+						<h1 class="text-2xl font-bold text-gray-900">Recording Sessions</h1>
+						<p class="text-sm text-gray-500">Browse and view past ECG recordings</p>
+					</div>
+				</div>
+
+				<!-- Import Button -->
+				<input
+					type="file"
+					accept=".csv"
+					bind:this={fileInput}
+					onchange={handleFileSelected}
+					class="hidden"
+				/>
+				<button
+					onclick={handleImportClick}
+					disabled={importing}
+					class="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white text-sm font-medium rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed"
 				>
-					<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<svg
+						class="w-4 h-4"
+						fill="none"
+						stroke="currentColor"
+						viewBox="0 0 24 24"
+						xmlns="http://www.w3.org/2000/svg"
+					>
 						<path
 							stroke-linecap="round"
 							stroke-linejoin="round"
 							stroke-width="2"
-							d="M10 19l-7-7m0 0l7-7m-7 7h18"
+							d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
 						/>
 					</svg>
-				</a>
-				<div>
-					<h1 class="text-2xl font-bold text-gray-900">Recording Sessions</h1>
-					<p class="text-sm text-gray-500">Browse and view past ECG recordings</p>
-				</div>
+					{importing ? 'Importing...' : 'Import CSV'}
+				</button>
 			</div>
 		</div>
 	</header>
 
 	<!-- Main Content -->
 	<main class="container mx-auto px-6 py-8 max-w-7xl">
+		<!-- Import Message -->
+		{#if importMessage}
+			<div
+				class="mb-6 p-4 rounded-lg {importMessage.includes('Success')
+					? 'bg-green-50 border border-green-200'
+					: 'bg-red-50 border border-red-200'}"
+			>
+				<p class="text-sm {importMessage.includes('Success') ? 'text-green-800' : 'text-red-800'}">
+					{importMessage}
+				</p>
+			</div>
+		{/if}
+
 		{#if loading}
 			<div class="flex items-center justify-center py-16">
 				<div class="text-center">
@@ -96,9 +182,7 @@
 									{formatDate(session.start_time)}
 								</p>
 							</div>
-							<div
-								class="bg-green-100 text-green-700 text-xs font-medium px-2 py-1 rounded-full"
-							>
+							<div class="bg-green-100 text-green-700 text-xs font-medium px-2 py-1 rounded-full">
 								{session.sample_count.toLocaleString()} samples
 							</div>
 						</div>
@@ -119,7 +203,7 @@
 							{#if session.devices.length > 0}
 								<div class="pt-3 border-t border-gray-100">
 									<div class="flex flex-wrap gap-2">
-										{#each session.devices as device}
+										{#each session.devices as device (device)}
 											<span
 												class="bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded-md font-mono"
 											>

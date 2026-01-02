@@ -151,7 +151,7 @@ class ECGDataBuffer:
             List of unique device IDs
         """
         with self._lock:
-            return list(set(s.device_id for s in self._buffer))
+            return list({s.device_id for s in self._buffer})
 
     def get_stats(self) -> dict:
         """Get buffer statistics.

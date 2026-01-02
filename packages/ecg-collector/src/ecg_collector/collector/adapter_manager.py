@@ -166,7 +166,7 @@ class BLEAdapterManager:
 
         # Map results back to device IDs
         connection_status: dict[str, bool] = {}
-        for device_id, result in zip(device_ids, results):
+        for device_id, result in zip(device_ids, results, strict=True):
             if isinstance(result, Exception):
                 logger.error(f"Error connecting {device_id}: {result}")
                 connection_status[device_id] = False
@@ -205,7 +205,7 @@ class BLEAdapterManager:
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         streaming_status: dict[str, bool] = {}
-        for device_id, result in zip(device_ids, results):
+        for device_id, result in zip(device_ids, results, strict=True):
             if isinstance(result, Exception):
                 logger.error(f"Error starting streaming {device_id}: {result}")
                 streaming_status[device_id] = False

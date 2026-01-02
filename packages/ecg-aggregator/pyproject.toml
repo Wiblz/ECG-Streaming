@@ -17,6 +17,7 @@ dependencies = [
     "pydantic-settings>=2.6.0",
     "typer>=0.15.1",
     "rich>=13.9.4",
+    "python-multipart>=0.0.20",
 ]
 
 [project.optional-dependencies]
@@ -29,6 +30,9 @@ dev = [
 
 [project.scripts]
 ecg-aggregator = "ecg_aggregator.main:main"
+
+[tool.uv.sources]
+ecg-common = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

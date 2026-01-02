@@ -140,14 +140,14 @@
 								<td colspan="3" class="px-3 py-4 text-center text-slate-500">Loading…</td>
 							</tr>
 						{:else if data && data.connections.length > 0}
-							{#each data.connections as conn}
+							{#each data.connections as conn (conn.id)}
 								<tr class="hover:bg-slate-50">
 									<td class="px-3 py-2 font-mono text-xs text-slate-700">{conn.id}</td>
 									<td class="px-3 py-2 text-slate-800">{formatClient(conn.client)}</td>
 									<td class="px-3 py-2">
 										{#if conn.headers}
 											<div class="flex flex-wrap gap-1 text-[11px] text-slate-700">
-												{#each Object.entries(conn.headers).slice(0, 6) as [k, v]}
+												{#each Object.entries(conn.headers).slice(0, 6) as [k, v] (k)}
 													<span class="rounded bg-slate-100 px-2 py-1">
 														<strong>{k}:</strong>
 														{v}

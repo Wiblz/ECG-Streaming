@@ -1,9 +1,10 @@
 """SQLite persistence layer for ECG samples."""
 
+import csv
 import sqlite3
 import time
 from pathlib import Path
-from threading import Lock
+from threading import RLock
 
 from ecg_common.logging import get_logger
 
@@ -20,7 +21,7 @@ class ECGDatabase:
             db_path: Path to SQLite database file
         """
         self.db_path = Path(db_path)
-        self._lock = Lock()
+        self._lock = RLock()
         self._conn: sqlite3.Connection | None = None
 
         # Create database and tables
@@ -108,7 +109,9 @@ class ECGDatabase:
                 if "session_id" not in columns:
                     logger.info("Adding session_id column to ecg_samples table")
                     cursor.execute("ALTER TABLE ecg_samples ADD COLUMN session_id INTEGER")
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_session_id ON ecg_samples (session_id)")
+                    cursor.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_session_id ON ecg_samples (session_id)"
+                    )
                     conn.commit()
                     logger.info("Schema migration completed")
 
@@ -770,11 +773,14 @@ class ECGDatabase:
                 last_time: float | None = None
                 session_sample_ids: list[int] = []
 
-                def save_current_session():
+                def save_current_session() -> None:
                     """Helper to save or discard current session based on duration."""
                     nonlocal sessions_created, sessions_discarded, current_session_id
 
                     if not current_session_id or not session_sample_ids:
+                        return
+
+                    if current_session_end is None or current_session_start is None:
                         return
 
                     session_duration = current_session_end - current_session_start
@@ -797,7 +803,7 @@ class ECGDatabase:
                             [(current_session_id, sid) for sid in session_sample_ids],
                         )
 
-                for sample_id, device_id, global_time in samples:
+                for sample_id, _device_id, global_time in samples:
                     # Check if we need to start a new session
                     if last_time is None or (global_time - last_time) > gap_threshold:
                         # Save previous session (may be discarded if too short)
@@ -847,6 +853,190 @@ class ECGDatabase:
             except Exception as e:
                 logger.error(f"Error creating sessions from samples: {e}")
                 return 0
+
+    def export_session_to_csv(self, session_id: int, output_path: Path | str) -> bool:
+        """Export a session's samples to CSV format.
+
+        Args:
+            session_id: Session ID to export
+            output_path: Path to output CSV file
+
+        Returns:
+            True if successful, False otherwise
+        """
+        output_path = Path(output_path)
+
+        with self._lock:
+            try:
+                # Get session metadata
+                session = self.get_session(session_id)
+                if not session:
+                    logger.error(f"Session {session_id} not found")
+                    return False
+
+                # Get all samples for the session
+                samples = self.get_session_samples(session_id=session_id)
+                if not samples:
+                    logger.warning(f"Session {session_id} has no samples")
+                    return False
+
+                # Write CSV with metadata header
+                with open(output_path, "w", newline="") as csvfile:
+                    writer = csv.writer(csvfile)
+
+                    # Write metadata as comments
+                    writer.writerow(["# Session Export"])
+                    writer.writerow(["# session_id", session_id])
+                    writer.writerow(["# start_time", session["start_time"]])
+                    writer.writerow(["# end_time", session["end_time"]])
+                    writer.writerow(["# duration_seconds", session["duration_seconds"]])
+                    writer.writerow(["# sample_count", session["sample_count"]])
+                    writer.writerow(["# device_count", session["device_count"]])
+                    writer.writerow(["# devices", ",".join(session["devices"])])
+                    writer.writerow([])
+
+                    # Write column headers
+                    writer.writerow(["device_id", "global_time", "raw_value", "confidence"])
+
+                    # Write sample data
+                    for sample in samples:
+                        writer.writerow(
+                            [
+                                sample["device_id"],
+                                sample["global_time"],
+                                sample["raw_value"],
+                                sample["confidence"],
+                            ]
+                        )
+
+                logger.info(
+                    f"Exported session {session_id} ({len(samples)} samples) to {output_path}"
+                )
+                return True
+
+            except Exception as e:
+                logger.error(f"Error exporting session to CSV: {e}")
+                return False
+
+    def import_session_from_csv(self, input_path: Path | str) -> int | None:
+        """Import a session from CSV format.
+
+        Args:
+            input_path: Path to input CSV file
+
+        Returns:
+            Session ID of imported session, or None if failed
+        """
+        input_path = Path(input_path)
+
+        if not input_path.exists():
+            logger.error(f"CSV file not found: {input_path}")
+            return None
+
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                # Read CSV and parse metadata
+                metadata = {}
+                samples_data = []
+
+                with open(input_path, newline="") as csvfile:
+                    reader = csv.reader(csvfile)
+
+                    # Parse metadata from comment lines
+                    in_metadata = True
+                    for row in reader:
+                        if not row:
+                            continue
+
+                        # Check if metadata line
+                        if row[0].startswith("#"):
+                            if len(row) >= 2 and row[0] == "# session_id":
+                                continue  # Skip session_id, we'll create a new one
+                            elif len(row) >= 2:
+                                key = row[0][2:]  # Remove "# " prefix
+                                value = row[1] if len(row) > 1 else None
+                                metadata[key] = value
+                            continue
+
+                        # Column header row
+                        if in_metadata and row[0] == "device_id":
+                            in_metadata = False
+                            continue
+
+                        # Sample data row
+                        if not in_metadata:
+                            samples_data.append(
+                                {
+                                    "device_id": row[0],
+                                    "global_time": float(row[1]),
+                                    "raw_value": int(float(row[2])),
+                                    "confidence": int(float(row[3])),
+                                }
+                            )
+
+                if not samples_data:
+                    logger.error("No sample data found in CSV")
+                    return None
+
+                # Create new session
+                start_time_value = metadata.get("start_time")
+                start_time = (
+                    float(start_time_value)
+                    if start_time_value is not None
+                    else samples_data[0]["global_time"]
+                )
+                cursor.execute("INSERT INTO sessions (start_time) VALUES (?)", (start_time,))
+                session_id = cursor.lastrowid
+
+                # Import samples
+                current_time = time.time()
+                for sample in samples_data:
+                    cursor.execute(
+                        """
+                        INSERT INTO ecg_samples (device_id, global_time, device_timestamp, raw_value, confidence, session_id, inserted_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            sample["device_id"],
+                            sample["global_time"],
+                            sample["global_time"],  # Use global_time as device_timestamp for imported data
+                            sample["raw_value"],
+                            sample["confidence"],
+                            session_id,
+                            current_time,
+                        ),
+                    )
+
+                # Update session end_time and statistics
+                end_time_value = metadata.get("end_time")
+                end_time = (
+                    float(end_time_value)
+                    if end_time_value is not None
+                    else samples_data[-1]["global_time"]
+                )
+                cursor.execute(
+                    """
+                    UPDATE sessions
+                    SET end_time = ?,
+                        sample_count = (SELECT COUNT(*) FROM ecg_samples WHERE session_id = ?),
+                        device_count = (SELECT COUNT(DISTINCT device_id) FROM ecg_samples WHERE session_id = ?)
+                    WHERE id = ?
+                    """,
+                    (end_time, session_id, session_id, session_id),
+                )
+
+                conn.commit()
+                logger.info(
+                    f"Imported session {session_id} ({len(samples_data)} samples) from {input_path}"
+                )
+                return session_id
+
+            except Exception as e:
+                logger.error(f"Error importing session from CSV: {e}")
+                return None
 
     def close(self) -> None:
         """Close database connection."""

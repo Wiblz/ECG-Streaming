@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { getSession } from '$lib/api/client';
+	import { getSession, getSessionExportUrl } from '$lib/api/client';
 	import type { Session } from '$lib/types/api';
 	import HistoricalWaveform from '$lib/components/HistoricalWaveform.svelte';
 
@@ -40,6 +40,12 @@
 		}
 		return `${secs}s`;
 	}
+
+	function handleExport() {
+		if (!session) return;
+		const exportUrl = getSessionExportUrl(session.id);
+		window.open(exportUrl, '_blank');
+	}
 </script>
 
 <div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
@@ -69,10 +75,7 @@
 						<h1 class="text-2xl font-bold text-gray-900">Loading...</h1>
 					{/if}
 				</div>
-				<a
-					href="/"
-					class="text-sm text-gray-600 hover:text-gray-900 transition-colors font-medium"
-				>
+				<a href="/" class="text-sm text-gray-600 hover:text-gray-900 transition-colors font-medium">
 					Live Dashboard →
 				</a>
 			</div>
@@ -99,7 +102,29 @@
 			<div class="space-y-6">
 				<!-- Session Stats -->
 				<div class="bg-white border border-gray-200 rounded-xl shadow-lg p-6">
-					<h2 class="text-lg font-semibold text-gray-900 mb-4">Session Information</h2>
+					<div class="flex items-center justify-between mb-4">
+						<h2 class="text-lg font-semibold text-gray-900">Session Information</h2>
+						<button
+							onclick={handleExport}
+							class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors cursor-pointer"
+						>
+							<svg
+								class="w-4 h-4"
+								fill="none"
+								stroke="currentColor"
+								viewBox="0 0 24 24"
+								xmlns="http://www.w3.org/2000/svg"
+							>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									stroke-width="2"
+									d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+								/>
+							</svg>
+							Export CSV
+						</button>
+					</div>
 					<dl class="grid grid-cols-2 md:grid-cols-4 gap-4">
 						<div class="bg-gray-50 rounded-lg p-4">
 							<dt class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
@@ -137,7 +162,7 @@
 						<div class="mt-6 pt-6 border-t border-gray-200">
 							<h3 class="text-sm font-semibold text-gray-700 mb-3">Connected Devices</h3>
 							<div class="flex flex-wrap gap-2">
-								{#each session.devices as device}
+								{#each session.devices as device (device)}
 									<span
 										class="bg-blue-50 text-blue-700 text-sm px-3 py-1.5 rounded-lg font-mono border border-blue-200"
 									>

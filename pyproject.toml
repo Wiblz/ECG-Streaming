@@ -1,5 +1,11 @@
-[tool.workspace]
-# Monorepo workspace configuration for ECG-Streaming project
+[project]
+name = "ecg-streaming"
+version = "0.1.0"
+description = "ECG Streaming workspace - multi-device ECG data collection and aggregation"
+requires-python = ">=3.14"
+dependencies = []
+
+[tool.uv.workspace]
 members = [
     "packages/ecg-common",
     "packages/ecg-collector",

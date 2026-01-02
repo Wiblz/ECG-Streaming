@@ -1,6 +1,7 @@
 """gRPC client for streaming ECG data to the aggregator."""
 
 import asyncio
+import contextlib
 import time
 from collections.abc import AsyncIterator
 
@@ -91,10 +92,8 @@ class AggregatorClient:
 
         if self._stream_task:
             self._stream_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._stream_task
-            except asyncio.CancelledError:
-                pass
 
         if self._channel:
             await self._channel.close()

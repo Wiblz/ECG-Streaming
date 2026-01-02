@@ -1,12 +1,15 @@
 """FastAPI server for ECG streaming."""
 
 import asyncio
+import contextlib
 import time
+from pathlib import Path
 from typing import Any
 
 from ecg_common.logging import get_logger
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from ecg_aggregator.api.data_buffer import ECGDataBuffer
 from ecg_aggregator.storage.persistence import ECGDatabase
@@ -91,7 +94,7 @@ class ECGStreamingServer:
             """List all devices and their sync status."""
             devices = []
 
-            for device_id in self.time_alignment.get_all_models().keys():
+            for device_id in self.time_alignment.get_all_models():
                 sync_model = self.time_alignment.get_device_model(device_id)
 
                 device_info = {
@@ -223,6 +226,83 @@ class ECGStreamingServer:
                 return {"success": True, "message": f"Session {session_id} deleted"}
             return {"success": False, "error": "Failed to delete session"}
 
+        @self.app.get("/sessions/{session_id}/export", response_model=None)
+        async def export_session_csv(session_id: int) -> FileResponse:
+            """Export a session to CSV format.
+
+            Args:
+                session_id: Session ID to export
+
+            Returns:
+                CSV file download
+            """
+            # Create temporary file path
+            temp_path = Path(f"/tmp/session_{session_id}.csv")
+
+            # Run blocking I/O in thread pool to avoid blocking event loop
+            loop = asyncio.get_event_loop()
+            success = await loop.run_in_executor(
+                None, self.database.export_session_to_csv, session_id, temp_path
+            )
+
+            if not success:
+                raise HTTPException(status_code=404, detail=f"Session {session_id} not found or has no data")
+
+            # Return file for download
+            return FileResponse(
+                path=temp_path,
+                media_type="text/csv",
+                filename=f"session_{session_id}.csv",
+            )
+
+        @self.app.post("/sessions/import")
+        async def import_session_csv(file: UploadFile) -> dict[str, Any]:
+            """Import a session from CSV format.
+
+            Args:
+                file: CSV file upload
+
+            Returns:
+                Session ID of imported session
+            """
+            # Save uploaded file to temporary location
+            temp_path = Path(f"/tmp/import_{file.filename}")
+
+            try:
+                # Read file content
+                content = await file.read()
+
+                # Run blocking I/O in thread pool
+                loop = asyncio.get_event_loop()
+
+                # Write file in executor
+                await loop.run_in_executor(None, temp_path.write_bytes, content)
+
+                # Import the session in executor
+                session_id = await loop.run_in_executor(
+                    None, self.database.import_session_from_csv, temp_path
+                )
+
+                # Clean up temp file in executor
+                await loop.run_in_executor(None, temp_path.unlink)
+
+                if session_id is None:
+                    raise HTTPException(status_code=400, detail="Failed to import session from CSV")
+
+                return {
+                    "success": True,
+                    "session_id": session_id,
+                    "message": f"Successfully imported session {session_id}",
+                }
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error handling CSV import: {e}")
+                if temp_path.exists():
+                    await loop.run_in_executor(None, temp_path.unlink)
+                raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+
         @self.app.websocket("/ws/ecg")
         async def websocket_endpoint(websocket: WebSocket) -> None:
             """WebSocket endpoint for real-time ECG streaming."""
@@ -330,10 +410,8 @@ class ECGStreamingServer:
         """Stop the background broadcast task."""
         if self._broadcast_task and not self._broadcast_task.done():
             self._broadcast_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._broadcast_task
-            except asyncio.CancelledError:
-                pass
             logger.info("Stopped WebSocket broadcast")
 
     async def shutdown(self) -> None:
