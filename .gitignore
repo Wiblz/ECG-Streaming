@@ -10,7 +10,9 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# Only exclude Python's lib/ directories, not frontend's src/lib/
+packages/**/lib/
+packages/**/lib64/
 lib64/
 parts/
 sdist/
