@@ -167,13 +167,26 @@ class ECGStreamingServer:
         async def get_session_samples_endpoint(
             session_id: int,
             device_id: str | None = None,
+            start_time: float | None = None,
+            end_time: float | None = None,
             limit: int | None = None,
             offset: int = 0,
         ) -> dict[str, Any]:
-            """Get samples for a specific session."""
+            """Get samples for a specific session.
+
+            Args:
+                session_id: Session ID
+                device_id: Filter by device ID (optional)
+                start_time: Start of time range in Unix timestamp (optional)
+                end_time: End of time range in Unix timestamp (optional)
+                limit: Maximum samples to return (optional)
+                offset: Number of samples to skip (optional)
+            """
             samples = self.database.get_session_samples(
                 session_id=session_id,
                 device_id=device_id,
+                start_time=start_time,
+                end_time=end_time,
                 limit=limit,
                 offset=offset,
             )

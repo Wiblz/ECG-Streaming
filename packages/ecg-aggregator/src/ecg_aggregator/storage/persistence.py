@@ -663,6 +663,8 @@ class ECGDatabase:
         self,
         session_id: int,
         device_id: str | None = None,
+        start_time: float | None = None,
+        end_time: float | None = None,
         limit: int | None = None,
         offset: int = 0,
     ) -> list[dict]:
@@ -671,6 +673,8 @@ class ECGDatabase:
         Args:
             session_id: Session ID
             device_id: Filter by device ID (optional)
+            start_time: Start of time range in Unix timestamp (optional)
+            end_time: End of time range in Unix timestamp (optional)
             limit: Maximum samples to return
             offset: Number of samples to skip
 
@@ -687,11 +691,19 @@ class ECGDatabase:
                     FROM ecg_samples
                     WHERE session_id = ?
                 """
-                params: list[int | str] = [session_id]
+                params: list[int | str | float] = [session_id]
 
                 if device_id:
                     query += " AND device_id = ?"
                     params.append(device_id)
+
+                if start_time is not None:
+                    query += " AND global_time >= ?"
+                    params.append(start_time)
+
+                if end_time is not None:
+                    query += " AND global_time <= ?"
+                    params.append(end_time)
 
                 query += " ORDER BY global_time ASC"
 

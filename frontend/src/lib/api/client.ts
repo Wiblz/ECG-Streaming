@@ -59,12 +59,16 @@ export async function getSessionSamples(
 	sessionId: number,
 	params?: {
 		device_id?: string;
+		start_time?: number;
+		end_time?: number;
 		limit?: number;
 		offset?: number;
 	}
 ): Promise<SessionSamplesResponse> {
 	const searchParams = new URLSearchParams();
 	if (params?.device_id) searchParams.set('device_id', params.device_id);
+	if (params?.start_time !== undefined) searchParams.set('start_time', params.start_time.toString());
+	if (params?.end_time !== undefined) searchParams.set('end_time', params.end_time.toString());
 	if (params?.limit) searchParams.set('limit', params.limit.toString());
 	if (params?.offset) searchParams.set('offset', params.offset.toString());
 

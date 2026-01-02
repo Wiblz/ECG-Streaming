@@ -1,32 +1,24 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { getSession, getSessionSamples } from '$lib/api/client';
-	import type { Session, SessionSample } from '$lib/types/api';
+	import { getSession } from '$lib/api/client';
+	import type { Session } from '$lib/types/api';
 	import HistoricalWaveform from '$lib/components/HistoricalWaveform.svelte';
 
 	let session = $state<Session | null>(null);
-	let samples = $state<SessionSample[]>([]);
 	let loading = $state(true);
-	let loadingSamples = $state(true);
 	let error = $state<string | null>(null);
 
 	const sessionId = $derived(parseInt($page.url.pathname.split('/').pop() || '0'));
 
 	onMount(async () => {
 		try {
-			// Load session details
+			// Load session details (waveform component will load samples dynamically)
 			session = await getSession(sessionId);
-			loading = false;
-
-			// Load all samples for the session
-			const response = await getSessionSamples(sessionId);
-			samples = response.samples;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load session';
 		} finally {
 			loading = false;
-			loadingSamples = false;
 		}
 	});
 
@@ -158,7 +150,9 @@
 				</div>
 
 				<!-- Waveform Visualization -->
-				<HistoricalWaveform {samples} loading={loadingSamples} />
+				{#if session}
+					<HistoricalWaveform {session} loading={false} />
+				{/if}
 			</div>
 		{/if}
 	</main>
