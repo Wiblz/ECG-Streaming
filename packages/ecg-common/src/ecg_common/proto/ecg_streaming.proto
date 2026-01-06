@@ -35,6 +35,7 @@ message CollectorRegistration {
   repeated string device_ids = 2;
   string version = 3;
   map<string, string> metadata = 4;  // Optional metadata (e.g., location, hardware)
+  string display_name = 5;  // Human-readable name for the collector
 }
 
 // Registration acknowledgment

@@ -111,7 +111,7 @@
 				<button
 					onclick={handleImportClick}
 					disabled={importing}
-					class="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white text-sm font-medium rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed"
+					class="flex items-center gap-2 px-4 py-2 bg-status-success-fg hover:bg-status-success-border disabled:bg-gray-400 text-white text-sm font-medium rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed"
 				>
 					<svg
 						class="w-4 h-4"
@@ -139,10 +139,14 @@
 		{#if importMessage}
 			<div
 				class="mb-6 p-4 rounded-lg {importMessage.includes('Success')
-					? 'bg-green-50 border border-green-200'
-					: 'bg-red-50 border border-red-200'}"
+					? 'bg-status-success border border-status-success-border'
+					: 'bg-status-error border border-status-error-border'}"
 			>
-				<p class="text-sm {importMessage.includes('Success') ? 'text-green-800' : 'text-red-800'}">
+				<p
+					class="text-sm {importMessage.includes('Success')
+						? 'text-status-success-fg'
+						: 'text-status-error-fg'}"
+				>
 					{importMessage}
 				</p>
 			</div>
@@ -182,7 +186,9 @@
 									{formatDate(session.start_time)}
 								</p>
 							</div>
-							<div class="bg-green-100 text-green-700 text-xs font-medium px-2 py-1 rounded-full">
+							<div
+								class="bg-status-success text-status-success-fg text-xs font-medium px-2 py-1 rounded-full"
+							>
 								{session.sample_count.toLocaleString()} samples
 							</div>
 						</div>

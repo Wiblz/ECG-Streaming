@@ -27,13 +27,13 @@ vet:
 # Linting
 lint:
 	@echo "Running linter with ruff..."
-	$(RUN) ruff check $(PACKAGES)
+	$(RUN) ruff check $(PACKAGES) --exclude "*_pb2*.py"
 	@echo "✓ Linting complete"
 
 # Lint and auto-fix
 lint-fix:
 	@echo "Running linter with auto-fix..."
-	$(RUN) ruff check --fix $(PACKAGES)
+	$(RUN) ruff check --fix $(PACKAGES) --exclude "*_pb2*.py"
 
 # Run all checks (format + lint + type check)
 check: fmt lint vet

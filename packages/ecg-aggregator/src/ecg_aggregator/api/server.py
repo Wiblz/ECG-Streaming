@@ -26,6 +26,7 @@ class ECGStreamingServer:
         time_alignment: TimeAlignmentService,
         data_buffer: ECGDataBuffer,
         database: ECGDatabase,
+        grpc_servicer: Any | None = None,
         websocket_fps: int = 30,
         cors_origins: list[str] | None = None,
     ):
@@ -35,12 +36,14 @@ class ECGStreamingServer:
             time_alignment: Time alignment service instance
             data_buffer: Data buffer instance
             database: Database instance
+            grpc_servicer: Optional gRPC servicer for accessing device status
             websocket_fps: WebSocket broadcast rate in FPS
             cors_origins: CORS allowed origins
         """
         self.time_alignment = time_alignment
         self.data_buffer = data_buffer
         self.database = database
+        self.grpc_servicer = grpc_servicer
         self.websocket_fps = websocket_fps
         self.broadcast_interval = 1.0 / websocket_fps
 
@@ -84,6 +87,8 @@ class ECGStreamingServer:
                 "endpoints": {
                     "websocket": "/ws/ecg",
                     "devices": "/devices",
+                    "devices_status": "/devices/status",
+                    "collectors": "/collectors",
                     "stats": "/stats",
                     "buffer": "/buffer/stats",
                 },
@@ -112,6 +117,76 @@ class ECGStreamingServer:
                 devices.append(device_info)
 
             return {"devices": devices, "count": len(devices)}
+
+        @self.app.get("/collectors")
+        async def get_collectors() -> dict[str, Any]:
+            """Get all connected collectors with connection health status."""
+            if not self.grpc_servicer:
+                return {"collectors": [], "count": 0, "error": "gRPC servicer not available"}
+
+            current_time = time.time()
+            collectors_list = []
+            for collector_id, collector_info in self.grpc_servicer.collectors.items():
+                last_heartbeat = collector_info.get("last_heartbeat", 0)
+                time_since_heartbeat = current_time - last_heartbeat
+
+                # Determine connection health
+                # Healthy: < 15s, Warning: 15-30s, Disconnected: > 30s
+                if time_since_heartbeat < 15:
+                    health = "healthy"
+                elif time_since_heartbeat < 30:
+                    health = "warning"
+                else:
+                    health = "disconnected"
+
+                collectors_list.append(
+                    {
+                        "collector_id": collector_id,
+                        "display_name": collector_info.get("display_name", collector_id),
+                        "device_ids": collector_info.get("device_ids", []),
+                        "version": collector_info.get("version"),
+                        "metadata": collector_info.get("metadata", {}),
+                        "connected_at": collector_info.get("connected_at"),
+                        "last_heartbeat": last_heartbeat,
+                        "time_since_heartbeat": time_since_heartbeat,
+                        "health": health,
+                        "samples_sent": collector_info.get("samples_sent", 0),
+                        "active_devices": collector_info.get("active_devices", 0),
+                    }
+                )
+
+            return {"collectors": collectors_list, "count": len(collectors_list)}
+
+        @self.app.get("/devices/status")
+        async def get_device_status() -> dict[str, Any]:
+            """Get status of all configured devices (from collectors)."""
+            if not self.grpc_servicer:
+                return {"devices": [], "count": 0, "error": "gRPC servicer not available"}
+
+            # Build collector lookup for display names
+            collector_names = {
+                cid: cinfo.get("display_name", cid)
+                for cid, cinfo in self.grpc_servicer.collectors.items()
+            }
+
+            devices_status = []
+            for device_id, status_info in self.grpc_servicer.device_statuses.items():
+                collector_id = status_info.get("collector_id")
+                devices_status.append(
+                    {
+                        "device_id": device_id,
+                        "collector_id": collector_id,
+                        "collector_name": collector_names.get(collector_id, collector_id)
+                        if collector_id
+                        else None,
+                        "status": status_info.get("status"),
+                        "last_update": status_info.get("last_update"),
+                        "battery_level": status_info.get("battery_level"),
+                        "error_message": status_info.get("error_message"),
+                    }
+                )
+
+            return {"devices": devices_status, "count": len(devices_status)}
 
         @self.app.get("/stats")
         async def get_stats() -> dict[str, object]:
@@ -246,7 +321,9 @@ class ECGStreamingServer:
             )
 
             if not success:
-                raise HTTPException(status_code=404, detail=f"Session {session_id} not found or has no data")
+                raise HTTPException(
+                    status_code=404, detail=f"Session {session_id} not found or has no data"
+                )
 
             # Return file for download
             return FileResponse(
@@ -301,7 +378,7 @@ class ECGStreamingServer:
                 logger.error(f"Error handling CSV import: {e}")
                 if temp_path.exists():
                     await loop.run_in_executor(None, temp_path.unlink)
-                raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}") from e
 
         @self.app.websocket("/ws/ecg")
         async def websocket_endpoint(websocket: WebSocket) -> None:
@@ -436,6 +513,7 @@ def create_app(
     time_alignment: TimeAlignmentService,
     data_buffer: ECGDataBuffer,
     database: ECGDatabase,
+    grpc_servicer: Any | None = None,
     websocket_fps: int = 30,
     cors_origins: list[str] | None = None,
 ) -> tuple[FastAPI, ECGStreamingServer]:
@@ -445,6 +523,7 @@ def create_app(
         time_alignment: Time alignment service
         data_buffer: Data buffer
         database: Database instance
+        grpc_servicer: Optional gRPC servicer for device status
         websocket_fps: WebSocket broadcast rate
         cors_origins: CORS allowed origins
 
@@ -455,6 +534,7 @@ def create_app(
         time_alignment=time_alignment,
         data_buffer=data_buffer,
         database=database,
+        grpc_servicer=grpc_servicer,
         websocket_fps=websocket_fps,
         cors_origins=cors_origins,
     )

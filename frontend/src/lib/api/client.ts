@@ -3,7 +3,9 @@ import type {
 	BufferStats,
 	Session,
 	SessionsResponse,
-	SessionSamplesResponse
+	SessionSamplesResponse,
+	DeviceStatusResponse,
+	CollectorsResponse
 } from '$lib/types/api';
 
 const envBase = import.meta.env.VITE_AGGREGATOR_HTTP as string | undefined;
@@ -15,6 +17,16 @@ const API_BASE =
 
 export async function getDevices(): Promise<{ devices: DeviceInfo[]; count: number }> {
 	const res = await fetch(`${API_BASE}/devices`);
+	return res.json();
+}
+
+export async function getDeviceStatus(): Promise<DeviceStatusResponse> {
+	const res = await fetch(`${API_BASE}/devices/status`);
+	return res.json();
+}
+
+export async function getCollectors(): Promise<CollectorsResponse> {
+	const res = await fetch(`${API_BASE}/collectors`);
 	return res.json();
 }
 

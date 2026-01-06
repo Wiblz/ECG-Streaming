@@ -430,8 +430,8 @@
 		<h2 class="text-lg font-semibold text-gray-900">ECG Waveform</h2>
 		<div class="flex items-center gap-4">
 			{#if isLoadingData}
-				<div class="flex items-center gap-2 text-xs text-blue-600">
-					<div class="w-2 h-2 bg-blue-600 rounded-full animate-pulse"></div>
+				<div class="flex items-center gap-2 text-xs text-status-info-fg">
+					<div class="w-2 h-2 bg-status-info-fg rounded-full animate-pulse"></div>
 					<span>Loading data...</span>
 				</div>
 			{/if}

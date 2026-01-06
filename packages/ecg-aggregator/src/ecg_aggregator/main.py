@@ -129,6 +129,7 @@ class ECGAggregator:
             time_alignment=self.time_alignment,
             data_buffer=self.data_buffer,
             database=self.database,
+            grpc_servicer=self.grpc_servicer,
             websocket_fps=self.config.api.websocket_fps,
             cors_origins=self.config.api.cors_origins,
         )

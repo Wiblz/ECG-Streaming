@@ -72,6 +72,11 @@ class CollectorSettings(BaseSettings):
         description="Unique identifier for this collector",
     )
 
+    display_name: str = Field(
+        default="ECG Collector 1",
+        description="Human-readable display name for this collector",
+    )
+
     device_ids: list[str] = Field(
         default_factory=list,
         description="List of device IDs to connect to",

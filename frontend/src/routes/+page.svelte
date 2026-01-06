@@ -6,6 +6,7 @@
 	import DeviceCard from '$lib/components/DeviceCard.svelte';
 	import StatsPanel from '$lib/components/StatsPanel.svelte';
 	import ConnectionStatus from '$lib/components/ConnectionStatus.svelte';
+	import DeviceStatusPanel from '$lib/components/DeviceStatusPanel.svelte';
 
 	let ws: ECGWebSocket;
 
@@ -56,9 +57,11 @@
 			<div class="space-y-6">
 				<StatsPanel />
 
+				<DeviceStatusPanel />
+
 				<div class="space-y-4">
 					<div class="flex items-center justify-between">
-						<h2 class="text-lg font-semibold text-gray-900">Connected Devices</h2>
+						<h2 class="text-lg font-semibold text-gray-900">Streaming Devices</h2>
 						<span class="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
 							{devices.length}
 						</span>
@@ -66,8 +69,8 @@
 					{#if devices.length === 0}
 						<div class="bg-white border border-gray-200 rounded-xl shadow-sm p-8 text-center">
 							<div class="text-4xl mb-2">📡</div>
-							<p class="text-sm font-medium text-gray-900 mb-1">No devices connected</p>
-							<p class="text-xs text-gray-500">Waiting for ECG devices...</p>
+							<p class="text-sm font-medium text-gray-900 mb-1">No devices streaming</p>
+							<p class="text-xs text-gray-500">Waiting for ECG data...</p>
 						</div>
 					{:else}
 						<div class="space-y-3">

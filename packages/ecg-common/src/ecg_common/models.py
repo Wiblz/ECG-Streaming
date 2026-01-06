@@ -5,13 +5,14 @@ from enum import Enum
 
 
 class DeviceStatus(Enum):
-    """Device connection status."""
+    """Device connection status (maps to protobuf enum values)."""
 
-    DISCONNECTED = "disconnected"
-    CONNECTING = "connecting"
-    CONNECTED = "connected"
-    STREAMING = "streaming"
-    ERROR = "error"
+    UNKNOWN = 0
+    DISCONNECTED = 1
+    CONNECTING = 2
+    CONNECTED = 3
+    STREAMING = 4
+    ERROR = 5
 
 
 @dataclass

@@ -39,10 +39,15 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
         # Track connected collectors
         self.collectors: dict[str, dict] = {}  # collector_id -> metadata
 
+        # Track device statuses
+        self.device_statuses: dict[
+            str, dict
+        ] = {}  # device_id -> {status, collector_id, last_update, ...}
+
         # Statistics
         self._samples_received = 0
 
-    async def StreamECG(
+    async def StreamECG(  # noqa: N802
         self,
         request_iterator: AsyncIterator[ecg_streaming_pb2.CollectorMessage],
         context: grpc.aio.ServicerContext,
@@ -68,18 +73,40 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
                     reg = message.registration
                     collector_id = reg.collector_id
                     device_ids = list(reg.device_ids)
+                    display_name = reg.display_name or collector_id
 
                     logger.info(
-                        f"Collector {collector_id} registered with {len(device_ids)} devices: "
+                        f"Collector {display_name} ({collector_id}) registered with {len(device_ids)} devices: "
                         f"{', '.join(device_ids)}"
                     )
 
                     self.collectors[collector_id] = {
+                        "collector_id": collector_id,
+                        "display_name": display_name,
                         "device_ids": device_ids,
                         "version": reg.version,
                         "metadata": dict(reg.metadata),
                         "connected_at": time.time(),
+                        "last_heartbeat": time.time(),
+                        "samples_sent": 0,
+                        "active_devices": 0,
                     }
+
+                    # Initialize device statuses for all configured devices
+                    for device_id in device_ids:
+                        if device_id not in self.device_statuses:
+                            self.device_statuses[device_id] = {
+                                "device_id": device_id,
+                                "collector_id": collector_id,
+                                "status": "DISCONNECTED",  # Initially disconnected
+                                "last_update": time.time(),
+                                "battery_level": None,
+                                "error_message": None,
+                            }
+                        else:
+                            # Device already known, update collector_id
+                            self.device_statuses[device_id]["collector_id"] = collector_id
+                            self.device_statuses[device_id]["last_update"] = time.time()
 
                     # Send registration acknowledgment
                     ack = ecg_streaming_pb2.RegistrationAck(
@@ -118,11 +145,51 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
                 elif msg_type == "status_update":
                     # Handle device status update
                     status = message.status_update
-                    logger.debug(f"Status update from {status.device_id}: {status.status}")
+                    device_id = status.device_id
+
+                    # Map proto enum to string
+                    status_map = {
+                        0: "UNKNOWN",
+                        1: "DISCONNECTED",
+                        2: "CONNECTING",
+                        3: "CONNECTED",
+                        4: "STREAMING",
+                        5: "ERROR",
+                    }
+                    status_str = status_map.get(status.status, "UNKNOWN")
+
+                    # Update device status
+                    if device_id not in self.device_statuses:
+                        self.device_statuses[device_id] = {
+                            "device_id": device_id,
+                            "collector_id": collector_id,
+                        }
+
+                    self.device_statuses[device_id].update(
+                        {
+                            "status": status_str,
+                            "last_update": time.time(),
+                            "battery_level": status.battery_level
+                            if status.HasField("battery_level")
+                            else None,
+                            "error_message": status.error_message
+                            if status.HasField("error_message")
+                            else None,
+                        }
+                    )
+
+                    logger.debug(f"Status update from {device_id}: {status_str}")
 
                 elif msg_type == "heartbeat":
                     # Handle heartbeat
                     hb = message.heartbeat
+
+                    # Update collector heartbeat info
+                    if collector_id and collector_id in self.collectors:
+                        self.collectors[collector_id]["last_heartbeat"] = time.time()
+                        self.collectors[collector_id]["samples_sent"] = hb.samples_sent
+                        self.collectors[collector_id]["active_devices"] = hb.active_devices
+
                     logger.debug(
                         f"Heartbeat from {collector_id}: "
                         f"{hb.samples_sent} samples, {hb.active_devices} active devices"
@@ -139,6 +206,13 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
         finally:
             if collector_id and collector_id in self.collectors:
                 logger.info(f"Collector {collector_id} disconnected")
+
+                # Mark all devices from this collector as disconnected
+                for _device_id, dev_status in self.device_statuses.items():
+                    if dev_status.get("collector_id") == collector_id:
+                        dev_status["status"] = "DISCONNECTED"
+                        dev_status["last_update"] = time.time()
+
                 del self.collectors[collector_id]
 
     async def _process_sample(

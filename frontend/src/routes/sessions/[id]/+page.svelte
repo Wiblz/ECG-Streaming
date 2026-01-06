@@ -164,7 +164,7 @@
 							<div class="flex flex-wrap gap-2">
 								{#each session.devices as device (device)}
 									<span
-										class="bg-blue-50 text-blue-700 text-sm px-3 py-1.5 rounded-lg font-mono border border-blue-200"
+										class="bg-status-info text-status-info-fg text-sm px-3 py-1.5 rounded-lg font-mono border border-status-info-border"
 									>
 										{device}
 									</span>

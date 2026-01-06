@@ -63,7 +63,7 @@ class AggregatorMessage(_message.Message):
     ) -> None: ...
 
 class CollectorRegistration(_message.Message):
-    __slots__ = ("collector_id", "device_ids", "version", "metadata")
+    __slots__ = ("collector_id", "device_ids", "version", "metadata", "display_name")
 
     class MetadataEntry(_message.Message):
         __slots__ = ("key", "value")
@@ -78,10 +78,12 @@ class CollectorRegistration(_message.Message):
     DEVICE_IDS_FIELD_NUMBER: _ClassVar[int]
     VERSION_FIELD_NUMBER: _ClassVar[int]
     METADATA_FIELD_NUMBER: _ClassVar[int]
+    DISPLAY_NAME_FIELD_NUMBER: _ClassVar[int]
     collector_id: str
     device_ids: _containers.RepeatedScalarFieldContainer[str]
     version: str
     metadata: _containers.ScalarMap[str, str]
+    display_name: str
 
     def __init__(
         self,
@@ -89,6 +91,7 @@ class CollectorRegistration(_message.Message):
         device_ids: _Iterable[str] | None = ...,
         version: str | None = ...,
         metadata: _Mapping[str, str] | None = ...,
+        display_name: str | None = ...,
     ) -> None: ...
 
 class RegistrationAck(_message.Message):

@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 
 import grpc
 from ecg_common.logging import get_logger
-from ecg_common.models import ECGSample
+from ecg_common.models import DeviceStatus, ECGSample
 from ecg_common.proto import ecg_streaming_pb2, ecg_streaming_pb2_grpc
 
 logger = get_logger(__name__)
@@ -22,6 +22,7 @@ class AggregatorClient:
         aggregator_host: str,
         aggregator_port: int,
         device_ids: list[str],
+        display_name: str = "",
         batch_size: int = 50,
         batch_interval: float = 0.1,
     ):
@@ -32,10 +33,12 @@ class AggregatorClient:
             aggregator_host: Aggregator server hostname/IP
             aggregator_port: Aggregator server port
             device_ids: List of device IDs this collector manages
+            display_name: Human-readable name for this collector
             batch_size: Number of samples per batch
             batch_interval: Interval between batch sends (seconds)
         """
         self.collector_id = collector_id
+        self.display_name = display_name or collector_id
         self.aggregator_host = aggregator_host
         self.aggregator_port = aggregator_port
         self.device_ids = device_ids
@@ -51,6 +54,14 @@ class AggregatorClient:
         self._sample_queues: dict[str, asyncio.Queue[ECGSample]] = {
             device_id: asyncio.Queue() for device_id in device_ids
         }
+
+        # Device status tracking (start as UNKNOWN so first update triggers)
+        self._device_statuses: dict[str, DeviceStatus] = dict.fromkeys(
+            device_ids, DeviceStatus.UNKNOWN
+        )
+
+        # Status update queue
+        self._status_updates: asyncio.Queue[tuple[str, DeviceStatus]] = asyncio.Queue()
 
         # Statistics
         self._samples_sent = 0
@@ -113,6 +124,33 @@ class AggregatorClient:
 
         await self._sample_queues[sample.device_id].put(sample)
 
+    async def update_device_status(
+        self,
+        device_id: str,
+        status: DeviceStatus,
+        battery_level: int | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        """Update device status and queue it for sending to aggregator.
+
+        Args:
+            device_id: Device ID
+            status: Device status
+            battery_level: Optional battery level (0-100)
+            error_message: Optional error message
+        """
+        if device_id not in self._device_statuses:
+            logger.warning(f"Status update for unknown device {device_id}, ignoring")
+            return
+
+        # Only send update if status actually changed
+        if self._device_statuses[device_id] != status:
+            self._device_statuses[device_id] = status
+            await self._status_updates.put((device_id, status))
+            logger.info(f"Device {device_id} status queued for update: {status.name}")
+        else:
+            logger.debug(f"Device {device_id} status unchanged ({status.name}), skipping update")
+
     async def _message_generator(self) -> AsyncIterator[ecg_streaming_pb2.CollectorMessage]:
         """Generate messages to send to the aggregator."""
         # First, send registration
@@ -121,6 +159,7 @@ class AggregatorClient:
             device_ids=self.device_ids,
             version="0.1.0",
             metadata={"type": "polar_h10_collector"},
+            display_name=self.display_name,
         )
 
         yield ecg_streaming_pb2.CollectorMessage(registration=registration)
@@ -166,6 +205,33 @@ class AggregatorClient:
 
                     self._samples_sent += len(samples_batch)
                     logger.debug(f"Sent batch of {len(samples_batch)} samples from {device_id}")
+
+            # Send queued status updates
+            while not self._status_updates.empty():
+                try:
+                    device_id, status = self._status_updates.get_nowait()
+
+                    # Map DeviceStatus enum to protobuf enum value
+                    status_map = {
+                        DeviceStatus.UNKNOWN: ecg_streaming_pb2.DEVICE_STATUS_UNKNOWN,
+                        DeviceStatus.DISCONNECTED: ecg_streaming_pb2.DEVICE_STATUS_DISCONNECTED,
+                        DeviceStatus.CONNECTING: ecg_streaming_pb2.DEVICE_STATUS_CONNECTING,
+                        DeviceStatus.CONNECTED: ecg_streaming_pb2.DEVICE_STATUS_CONNECTED,
+                        DeviceStatus.STREAMING: ecg_streaming_pb2.DEVICE_STATUS_STREAMING,
+                        DeviceStatus.ERROR: ecg_streaming_pb2.DEVICE_STATUS_ERROR,
+                    }
+
+                    pb_status = status_map.get(status, ecg_streaming_pb2.DEVICE_STATUS_UNKNOWN)
+
+                    status_update = ecg_streaming_pb2.DeviceStatusUpdate(
+                        device_id=device_id,
+                        status=pb_status,
+                    )
+                    yield ecg_streaming_pb2.CollectorMessage(status_update=status_update)
+                    logger.info(f"Sent status update for {device_id}: {status.name}")
+
+                except asyncio.QueueEmpty:
+                    break
 
             # Send heartbeat periodically
             if time.time() - self._last_heartbeat > 10.0:

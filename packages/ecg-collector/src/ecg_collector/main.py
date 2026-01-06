@@ -1,13 +1,16 @@
 """Main entry point for the ECG Collector."""
 
 import asyncio
+import contextlib
 import signal
 import sys
 from pathlib import Path
 
 from ecg_common.logging import get_logger, setup_logging
+from ecg_common.models import DeviceStatus
 
 from ecg_collector.collector.adapter_manager import BLEAdapterManager
+from ecg_collector.collector.device_state_manager import DeviceStateManager
 from ecg_collector.config import CollectorSettings
 from ecg_collector.grpc_client import AggregatorClient
 
@@ -30,22 +33,26 @@ class ECGCollector:
             max_devices_per_adapter=config.ble.max_devices_per_adapter
         )
 
+        self.device_manager = DeviceStateManager(monitor_interval=5.0)
+
         self.grpc_client = AggregatorClient(
             collector_id=config.collector_id,
             aggregator_host=config.aggregator.host,
             aggregator_port=config.aggregator.port,
             device_ids=config.device_ids,
+            display_name=config.display_name,
             batch_size=config.aggregator.batch_size,
             batch_interval=config.aggregator.batch_interval,
         )
 
         self._running = False
-        self._collection_tasks: list[asyncio.Task] = []
+        self._collection_tasks: dict[str, asyncio.Task] = {}
 
     async def start(self) -> None:
         """Start the collector."""
         logger.info("Starting ECG Collector...")
         logger.info(f"Collector ID: {self.config.collector_id}")
+        logger.info(f"Display Name: {self.config.display_name}")
         logger.info(f"Devices: {self.config.device_ids}")
         logger.info(f"Aggregator: {self.config.aggregator.host}:{self.config.aggregator.port}")
 
@@ -54,31 +61,27 @@ class ECGCollector:
             logger.error("Failed to connect to aggregator, exiting")
             return
 
-        # Register and connect devices
+        # Add devices to adapter manager and state manager
         for device_id in self.config.device_ids:
             try:
-                self.adapter_manager.add_device(
+                driver = self.adapter_manager.add_device(
                     device_id=device_id,
                     address=None,  # Let driver discover MAC address by device name
                 )
+                self.device_manager.add_device(driver)
+                await self.grpc_client.update_device_status(device_id, DeviceStatus.DISCONNECTED)
             except Exception as e:
                 logger.error(f"Failed to add device {device_id}: {e}")
 
-        # Connect all devices
-        logger.info("Connecting to devices...")
-        await self.adapter_manager.connect_all()
+        # Start device state manager (handles connections and reconnections)
+        await self.device_manager.start()
 
-        # Start streaming on all devices
-        logger.info("Starting ECG streaming on all devices...")
-        await self.adapter_manager.start_streaming_all()
-
-        # Start data collection loops
+        # Start monitoring and sampling
         self._running = True
-        for device_id in self.config.device_ids:
-            task = asyncio.create_task(self._data_collection_loop(device_id))
-            self._collection_tasks.append(task)
+        self._monitor_task = asyncio.create_task(self._device_monitor_loop())
 
         logger.info("ECG Collector started successfully")
+        logger.info("Device state manager will attempt connections automatically")
 
         # Wait for shutdown
         await self._wait_for_shutdown()
@@ -89,11 +92,21 @@ class ECGCollector:
 
         self._running = False
 
-        # Cancel collection tasks
-        for task in self._collection_tasks:
+        # Stop monitor task
+        if hasattr(self, "_monitor_task"):
+            self._monitor_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._monitor_task
+
+        # Cancel all collection tasks
+        for task in self._collection_tasks.values():
             task.cancel()
 
-        await asyncio.gather(*self._collection_tasks, return_exceptions=True)
+        await asyncio.gather(*self._collection_tasks.values(), return_exceptions=True)
+        self._collection_tasks.clear()
+
+        # Stop device state manager
+        await self.device_manager.stop()
 
         # Stop streaming on all devices
         logger.info("Stopping ECG streaming on all devices...")
@@ -108,13 +121,76 @@ class ECGCollector:
 
         logger.info("ECG Collector stopped")
 
+    async def _device_monitor_loop(self) -> None:
+        """Monitor device states and manage sampling tasks."""
+        logger.info("Device monitor loop started")
+
+        while self._running:
+            try:
+                # Check each managed device
+                for managed_device in self.device_manager.get_all_devices():
+                    device_id = managed_device.device_id
+
+                    # Start sampling task if device is streaming and task not running
+                    if (
+                        managed_device.state.value == "streaming"
+                        and device_id not in self._collection_tasks
+                    ):
+                        logger.info(f"Starting data collection for {device_id}")
+                        task = asyncio.create_task(self._data_collection_loop(device_id))
+                        self._collection_tasks[device_id] = task
+                        logger.info(f"Updating device status to STREAMING for {device_id}")
+                        await self.grpc_client.update_device_status(
+                            device_id, DeviceStatus.STREAMING
+                        )
+
+                    # Stop sampling task if device not streaming but task is running
+                    elif (
+                        managed_device.state.value != "streaming"
+                        and device_id in self._collection_tasks
+                    ):
+                        logger.info(f"Stopping data collection for {device_id}")
+                        task = self._collection_tasks[device_id]
+                        task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await task
+                        del self._collection_tasks[device_id]
+
+                        # Update status based on device state
+                        if managed_device.driver._status == DeviceStatus.DISCONNECTED:
+                            await self.grpc_client.update_device_status(
+                                device_id, DeviceStatus.DISCONNECTED
+                            )
+                        elif managed_device.driver._status == DeviceStatus.CONNECTED:
+                            await self.grpc_client.update_device_status(
+                                device_id, DeviceStatus.CONNECTED
+                            )
+
+                # Clean up completed tasks
+                completed = [
+                    device_id for device_id, task in self._collection_tasks.items() if task.done()
+                ]
+                for device_id in completed:
+                    del self._collection_tasks[device_id]
+                    logger.warning(f"Data collection task for {device_id} completed unexpectedly")
+
+                await asyncio.sleep(2.0)  # Check every 2 seconds
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in device monitor loop: {e}")
+                await asyncio.sleep(2.0)
+
+        logger.info("Device monitor loop stopped")
+
     async def _data_collection_loop(self, device_id: str) -> None:
         """Collect ECG samples from a device and send to aggregator.
 
         Args:
             device_id: Device to collect from
         """
-        logger.info(f"Starting data collection for {device_id}")
+        logger.info(f"Data collection started for {device_id}")
 
         driver = self.adapter_manager.get_device(device_id)
         if not driver:
@@ -140,7 +216,7 @@ class ECGCollector:
                     await asyncio.sleep(0.001)
 
         except asyncio.CancelledError:
-            logger.info(f"Data collection cancelled for {device_id}")
+            logger.info(f"Data collection stopped for {device_id} ({sample_count} samples)")
             raise
 
         except Exception as e:

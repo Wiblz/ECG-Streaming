@@ -11,16 +11,19 @@
 	const confidencePercent = $derived(
 		device.sync?.confidence ? (device.sync.confidence * 100).toFixed(1) : 'N/A'
 	);
+
+	// Use unified theme colors for sync status
+	const syncColors = $derived(
+		device.sync_ready
+			? 'bg-status-success text-status-success-fg'
+			: 'bg-status-warning text-status-warning-fg'
+	);
 </script>
 
 <div class="bg-white border border-gray-200 rounded-lg shadow-sm p-4">
 	<div class="flex items-center justify-between mb-3">
 		<h3 class="text-sm font-medium text-gray-900">{device.device_id}</h3>
-		<span
-			class="px-2 py-1 text-xs rounded-full {device.sync_ready
-				? 'bg-green-100 text-green-800'
-				: 'bg-yellow-100 text-yellow-800'}"
-		>
+		<span class="px-2 py-1 text-xs rounded-full {syncColors}">
 			{syncLabel}
 		</span>
 	</div>

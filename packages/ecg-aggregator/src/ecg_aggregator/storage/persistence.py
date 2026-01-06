@@ -1002,7 +1002,9 @@ class ECGDatabase:
                         (
                             sample["device_id"],
                             sample["global_time"],
-                            sample["global_time"],  # Use global_time as device_timestamp for imported data
+                            sample[
+                                "global_time"
+                            ],  # Use global_time as device_timestamp for imported data
                             sample["raw_value"],
                             sample["confidence"],
                             session_id,

@@ -98,7 +98,7 @@
 	<div class="flex items-center justify-between mb-4">
 		<h2 class="text-lg font-semibold text-gray-900">Live Waveforms</h2>
 		<div class="flex items-center gap-2 text-xs text-gray-500">
-			<div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+			<div class="w-2 h-2 bg-status-success-fg rounded-full animate-pulse"></div>
 			<span>Streaming</span>
 		</div>
 	</div>

@@ -70,3 +70,43 @@ export interface SessionSamplesResponse {
 	samples: SessionSample[];
 	count: number;
 }
+
+// Device status types
+
+export interface DeviceStatus {
+	device_id: string;
+	collector_id: string | null;
+	collector_name: string | null;
+	status: 'UNKNOWN' | 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'STREAMING' | 'ERROR';
+	last_update: number;
+	battery_level: number | null;
+	error_message: string | null;
+}
+
+export interface DeviceStatusResponse {
+	devices: DeviceStatus[];
+	count: number;
+	error?: string;
+}
+
+// Collector types
+
+export interface Collector {
+	collector_id: string;
+	display_name: string;
+	device_ids: string[];
+	version: string | null;
+	metadata: Record<string, string>;
+	connected_at: number;
+	last_heartbeat: number;
+	time_since_heartbeat: number;
+	health: 'healthy' | 'warning' | 'disconnected';
+	samples_sent: number;
+	active_devices: number;
+}
+
+export interface CollectorsResponse {
+	collectors: Collector[];
+	count: number;
+	error?: string;
+}
