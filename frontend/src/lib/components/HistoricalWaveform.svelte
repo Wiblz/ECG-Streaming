@@ -1,9 +1,14 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { browser } from '$app/environment';
 	import { SvelteMap } from 'svelte/reactivity';
-	import uPlot from 'uplot';
+	import type uPlot from 'uplot';
 	import type { Session, SessionSample } from '$lib/types/api';
 	import { getSessionSamples } from '$lib/api/client';
+
+	let uPlotLib = $state<typeof uPlot | null>(null);
+	let createDeviceSeries: any;
+	let createAxes: any;
 
 	interface Props {
 		session: Session;
@@ -264,45 +269,12 @@
 		console.log('[Waveform] Creating chart...');
 
 		const { data, devices } = prepareChartData(loadedSamples);
-		const colors = ['#ff3e00', '#40b3ff', '#676778', '#ff6b6b', '#4ecdc4'];
-
-		// Build series configuration
-		const series: uPlot.Series[] = [{ label: 'Time' }];
-
-		devices.forEach((deviceId, idx) => {
-			series.push({
-				label: deviceId,
-				stroke: colors[idx % colors.length],
-				width: 2,
-				points: { show: false }
-			});
-		});
 
 		const opts: uPlot.Options = {
 			width: plotContainer.clientWidth,
 			height: 400,
-			series,
-			axes: [
-				{
-					label: 'Time (s)',
-					values: (u, vals) =>
-						vals.map((v) => {
-							// Format relative seconds nicely
-							if (v < 60) {
-								return v.toFixed(1) + 's';
-							} else {
-								const mins = Math.floor(v / 60);
-								const secs = (v % 60).toFixed(0);
-								return `${mins}m ${secs}s`;
-							}
-						})
-				},
-				{
-					label: 'Raw Value',
-					space: 80,
-					gap: 5
-				}
-			],
+			series: createDeviceSeries(devices),
+			axes: createAxes(),
 			scales: {
 				x: {
 					time: false
@@ -368,7 +340,8 @@
 			chart.destroy();
 		}
 
-		chart = new uPlot(opts, data, plotContainer);
+		if (!uPlotLib) return;
+		chart = new uPlotLib(opts, data, plotContainer);
 		console.log('[Waveform] Chart created');
 	};
 
@@ -406,12 +379,26 @@
 		}
 	};
 
-	onMount(() => {
+	onMount(async () => {
+		if (!browser) return;
+
+		// Dynamically import uPlot and utilities only in browser
+		const [uPlotModule, utilsModule] = await Promise.all([
+			import('uplot'),
+			import('$lib/utils/uplot')
+		]);
+
+		uPlotLib = uPlotModule.default;
+		createDeviceSeries = utilsModule.createDeviceSeries;
+		createAxes = utilsModule.createAxes;
+
 		window.addEventListener('resize', handleResize);
 	});
 
 	onDestroy(() => {
-		window.removeEventListener('resize', handleResize);
+		if (browser) {
+			window.removeEventListener('resize', handleResize);
+		}
 		if (chart) {
 			chart.destroy();
 		}

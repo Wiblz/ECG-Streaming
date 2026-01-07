@@ -1,9 +1,10 @@
+import { SvelteMap } from 'svelte/reactivity';
 import type { BufferedECGSample } from '$lib/types/api';
 
-const MAX_DURATION = 30; // seconds
+const MAX_DURATION = 10; // seconds
 
-// Reactive state for ECG samples
-const _samples = $state(new Map<string, BufferedECGSample[]>());
+// Reactive state for ECG samples - using SvelteMap for proper reactivity
+const _samples = new SvelteMap<string, BufferedECGSample[]>();
 
 export function getSamples() {
 	return _samples;
@@ -17,6 +18,7 @@ export function addSamples(newSamples: BufferedECGSample[]) {
 	newSamples.forEach((sample) => {
 		if (!_samples.has(sample.device_id)) {
 			_samples.set(sample.device_id, []);
+			console.log(`[ecg-data] ✓ New device: ${sample.device_id}`);
 		}
 
 		const deviceSamples = _samples.get(sample.device_id)!;

@@ -53,7 +53,7 @@ export class ECGWebSocket {
 			};
 
 			this.ws.onmessage = (event) => {
-				console.log('[WebSocket] Message received:', event.data);
+				// console.log('[WebSocket] Message received:', event.data);
 				const msg = JSON.parse(event.data);
 
 				if (msg.type === 'init') {

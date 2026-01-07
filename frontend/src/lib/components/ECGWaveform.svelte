@@ -1,112 +1,221 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import * as d3 from 'd3';
+	import { onMount, onDestroy } from 'svelte';
+	import { browser } from '$app/environment';
+	import type uPlot from 'uplot';
+	import type { AlignedData } from 'uplot';
 	import { getSamples } from '$lib/state/ecg-data.svelte';
+	import { getWsState, ConnectionState } from '$lib/state/websocket.svelte';
+	import type { BufferedECGSample } from '$lib/types/api';
 
-	let canvas: HTMLCanvasElement;
-	let mounted = $state(false);
+	let plotContainer: HTMLDivElement;
+	let chart: uPlot | null = null;
+	let uPlotLib = $state<typeof uPlot | null>(null);
+	let createDeviceSeries: any;
+	let createAxes: any;
 
-	// Get reactive samples
+	// Get reactive samples from WebSocket
 	const samples = $derived(getSamples());
+	const wsState = $derived(getWsState());
+	const isStreaming = $derived(wsState === ConnectionState.CONNECTED && samples.size > 0);
 
-	onMount(() => {
-		mounted = true;
-		return () => {
-			mounted = false;
-		};
-	});
+	// Track the start time of the session (first sample received)
+	let sessionStartTime = $state<number | null>(null);
 
-	// Effect to redraw when samples change
-	$effect(() => {
-		if (!mounted || !canvas) return;
+	// Prepare data for uPlot from live samples
+	function prepareChartData(sampleMap: Map<string, BufferedECGSample[]>): {
+		data: AlignedData;
+		devices: string[];
+	} {
+		const devices = Array.from(sampleMap.keys());
 
-		const ctx = canvas.getContext('2d');
-		if (!ctx) return;
-
-		const width = canvas.width;
-		const height = canvas.height;
-
-		// Clear canvas
-		ctx.fillStyle = '#ffffff';
-		ctx.fillRect(0, 0, width, height);
-
-		// Draw grid
-		ctx.strokeStyle = '#f0f0f0';
-		ctx.lineWidth = 1;
-		for (let i = 0; i <= 10; i++) {
-			const y = (i / 10) * height;
-			ctx.beginPath();
-			ctx.moveTo(0, y);
-			ctx.lineTo(width, y);
-			ctx.stroke();
-
-			const x = (i / 10) * width;
-			ctx.beginPath();
-			ctx.moveTo(x, 0);
-			ctx.lineTo(x, height);
-			ctx.stroke();
+		if (devices.length === 0 || sampleMap.size === 0) {
+			return { data: [[], []], devices: [] };
 		}
 
-		// Draw each device's data
-		const colors = ['#ff3e00', '#40b3ff', '#676778', '#ff6b6b', '#4ecdc4'];
-		let colorIndex = 0;
+		// Single device case
+		if (devices.length === 1) {
+			const deviceSamples = sampleMap.get(devices[0])!;
+			if (deviceSamples.length === 0) {
+				return { data: [[], []], devices };
+			}
 
-		for (const [deviceId, deviceSamples] of samples) {
-			if (deviceSamples.length === 0) continue;
+			// Set session start time from first sample if not set
+			if (sessionStartTime === null && deviceSamples.length > 0) {
+				sessionStartTime = deviceSamples[0].global_time;
+			}
 
-			ctx.strokeStyle = colors[colorIndex % colors.length];
-			ctx.lineWidth = 2;
-			ctx.globalAlpha = 0.8;
-			ctx.beginPath();
+			// Use absolute time (seconds from session start)
+			const timestamps = deviceSamples.map((s) => s.global_time - sessionStartTime!);
+			const values = deviceSamples.map((s) => s.raw_value);
 
-			// Use D3 scales for proper mapping
-			const xScale = d3
-				.scaleLinear()
-				.domain([0, deviceSamples.length - 1])
-				.range([0, width]);
+			return {
+				data: [timestamps, values],
+				devices
+			};
+		}
 
-			const yScale = d3
-				.scaleLinear()
-				.domain([0, 1024]) // Typical ECG ADC range
-				.range([height, 0]);
+		// Multiple devices - align by timestamp
+		// Find the device with the most samples to use as time base
+		let maxDevice = devices[0];
+		let maxLength = 0;
+		for (const deviceId of devices) {
+			const len = sampleMap.get(deviceId)!.length;
+			if (len > maxLength) {
+				maxLength = len;
+				maxDevice = deviceId;
+			}
+		}
 
-			deviceSamples.forEach((sample, i) => {
-				const x = xScale(i);
-				const y = yScale(sample.raw_value);
+		const baseSamples = sampleMap.get(maxDevice)!;
+		if (baseSamples.length === 0) {
+			return { data: [[], []], devices: [] };
+		}
 
-				if (i === 0) {
-					ctx.moveTo(x, y);
-				} else {
-					ctx.lineTo(x, y);
+		// Set session start time from first sample if not set
+		if (sessionStartTime === null && baseSamples.length > 0) {
+			sessionStartTime = baseSamples[0].global_time;
+		}
+
+		// Use absolute time (seconds from session start)
+		const timestamps = baseSamples.map((s) => s.global_time - sessionStartTime!);
+
+		// Create value arrays for each device
+		const seriesData = devices.map((deviceId) => {
+			const deviceSamples = sampleMap.get(deviceId)!;
+			return deviceSamples.map((s) => s.raw_value);
+		});
+
+		return {
+			data: [timestamps, ...seriesData],
+			devices
+		};
+	}
+
+	// Create the chart
+	function createChart() {
+		if (!plotContainer || !uPlotLib) return;
+
+		const { data, devices } = prepareChartData(samples);
+
+		if (devices.length === 0) {
+			// No data yet, skip chart creation
+			return;
+		}
+
+		const opts: uPlot.Options = {
+			width: plotContainer.clientWidth,
+			height: 400,
+			series: createDeviceSeries(devices),
+			axes: createAxes(),
+			scales: {
+				x: {
+					time: false
 				}
+			},
+			legend: {
+				show: true
+			}
+		};
+
+		if (chart) {
+			chart.destroy();
+		}
+
+		chart = new uPlotLib(opts, data, plotContainer);
+	}
+
+	// Update chart when samples change
+	$effect(() => {
+		if (!plotContainer || !uPlotLib) {
+			console.log('[ECGWaveform] Waiting for plotContainer or uPlotLib', { plotContainer: !!plotContainer, uPlotLib: !!uPlotLib });
+			return;
+		}
+
+		const { data, devices } = prepareChartData(samples);
+
+		console.log('[ECGWaveform] Data prepared', { deviceCount: devices.length, sampleCount: data[0]?.length || 0 });
+
+		if (devices.length === 0) {
+			// No data yet
+			return;
+		}
+
+		if (!chart) {
+			// Create chart on first data
+			console.log('[ECGWaveform] Creating chart for first time');
+			createChart();
+		} else {
+			// Update existing chart
+			console.log('[ECGWaveform] Updating chart data');
+			chart.setData(data);
+		}
+	});
+
+	// Handle window resize
+	function handleResize() {
+		if (chart && plotContainer) {
+			chart.setSize({
+				width: plotContainer.clientWidth,
+				height: 400
 			});
+		}
+	}
 
-			ctx.stroke();
+	onMount(async () => {
+		if (!browser) return;
 
-			// Draw device label
-			ctx.globalAlpha = 1;
-			ctx.fillStyle = colors[colorIndex % colors.length];
-			ctx.font = '12px sans-serif';
-			ctx.fillText(deviceId, 10, 20 + colorIndex * 20);
+		console.log('[ECGWaveform] Loading uPlot...');
 
-			colorIndex++;
+		// Dynamically import uPlot and utilities only in browser
+		const [uPlotModule, utilsModule] = await Promise.all([
+			import('uplot'),
+			import('$lib/utils/uplot')
+		]);
+
+		uPlotLib = uPlotModule.default;
+		createDeviceSeries = utilsModule.createDeviceSeries;
+		createAxes = utilsModule.createAxes;
+
+		console.log('[ECGWaveform] uPlot loaded successfully');
+
+		window.addEventListener('resize', handleResize);
+	});
+
+	onDestroy(() => {
+		if (browser) {
+			window.removeEventListener('resize', handleResize);
+		}
+		if (chart) {
+			chart.destroy();
 		}
 	});
 </script>
 
+<svelte:head>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.min.css" />
+</svelte:head>
+
 <div class="bg-white border border-gray-200 rounded-xl shadow-lg p-6">
 	<div class="flex items-center justify-between mb-4">
 		<h2 class="text-lg font-semibold text-gray-900">Live Waveforms</h2>
-		<div class="flex items-center gap-2 text-xs text-gray-500">
-			<div class="w-2 h-2 bg-status-success-fg rounded-full animate-pulse"></div>
-			<span>Streaming</span>
-		</div>
+		{#if isStreaming}
+			<div class="flex items-center gap-2 text-xs text-gray-500">
+				<div class="w-2 h-2 bg-status-success-fg rounded-full animate-pulse"></div>
+				<span>Streaming</span>
+			</div>
+		{:else}
+			<div class="flex items-center gap-2 text-xs text-gray-500">
+				<div class="w-2 h-2 bg-status-neutral-fg rounded-full"></div>
+				<span>No data</span>
+			</div>
+		{/if}
 	</div>
-	<canvas
-		bind:this={canvas}
-		width="800"
-		height="400"
-		class="w-full h-auto border border-gray-200 rounded-lg bg-white"
-		style="max-width: 100%;"
-	></canvas>
+
+	<div bind:this={plotContainer} class="border border-gray-200 rounded-lg">
+		{#if samples.size === 0}
+			<div class="bg-gray-50 p-12 text-center">
+				<p class="text-gray-500">Waiting for ECG data...</p>
+			</div>
+		{/if}
+	</div>
 </div>
