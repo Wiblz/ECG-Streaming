@@ -10,8 +10,8 @@
 	let plotContainer: HTMLDivElement;
 	let chart: uPlot | null = null;
 	let uPlotLib = $state<typeof uPlot | null>(null);
-	let createDeviceSeries: any;
-	let createAxes: any;
+	let createDeviceSeries: ((deviceIds: string[]) => uPlot.Series[]) | null = null;
+	let createAxes: (() => uPlot.Axis[]) | null = null;
 
 	// Get reactive samples from WebSocket
 	const samples = $derived(getSamples());
@@ -127,13 +127,19 @@
 	// Update chart when samples change
 	$effect(() => {
 		if (!plotContainer || !uPlotLib) {
-			console.log('[ECGWaveform] Waiting for plotContainer or uPlotLib', { plotContainer: !!plotContainer, uPlotLib: !!uPlotLib });
+			console.log('[ECGWaveform] Waiting for plotContainer or uPlotLib', {
+				plotContainer: !!plotContainer,
+				uPlotLib: !!uPlotLib
+			});
 			return;
 		}
 
 		const { data, devices } = prepareChartData(samples);
 
-		console.log('[ECGWaveform] Data prepared', { deviceCount: devices.length, sampleCount: data[0]?.length || 0 });
+		console.log('[ECGWaveform] Data prepared', {
+			deviceCount: devices.length,
+			sampleCount: data[0]?.length || 0
+		});
 
 		if (devices.length === 0) {
 			// No data yet

@@ -36,7 +36,6 @@ export interface BufferStats {
 	oldest_timestamp: number;
 	newest_timestamp: number;
 	total_processed: number;
-	dropped_samples: number;
 	buffer_utilization: number;
 }
 

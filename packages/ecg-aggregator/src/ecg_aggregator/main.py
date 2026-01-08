@@ -117,6 +117,7 @@ class ECGAggregator:
             self.grpc_servicer, self.grpc_server
         )
 
+        # Listen on all interfaces - [::]  accepts both IPv4 and IPv6
         listen_addr = f"[::]:{self.config.grpc.port}"
         self.grpc_server.add_insecure_port(listen_addr)
 

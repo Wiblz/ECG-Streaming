@@ -7,8 +7,8 @@
 	import { getSessionSamples } from '$lib/api/client';
 
 	let uPlotLib = $state<typeof uPlot | null>(null);
-	let createDeviceSeries: any;
-	let createAxes: any;
+	let createDeviceSeries: ((deviceIds: string[]) => uPlot.Series[]) | null = null;
+	let createAxes: (() => uPlot.Axis[]) | null = null;
 
 	interface Props {
 		session: Session;

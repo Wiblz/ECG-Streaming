@@ -30,7 +30,6 @@ class ECGDataBuffer:
 
         # Statistics
         self._total_samples = 0
-        self._dropped_samples = 0
 
     def add_sample(
         self, device_id: str, global_time: float, raw_value: int, confidence: float
@@ -67,7 +66,6 @@ class ECGDataBuffer:
         # Remove old samples from the left
         while self._buffer and self._buffer[0].global_time < cutoff_time:
             self._buffer.popleft()
-            self._dropped_samples += 1
 
     def get_recent_samples(
         self,
@@ -181,7 +179,6 @@ class ECGDataBuffer:
                 "oldest_timestamp": oldest,
                 "newest_timestamp": newest,
                 "total_processed": self._total_samples,
-                "dropped_samples": self._dropped_samples,
                 "buffer_utilization": len(self._buffer) / self.max_samples,
             }
 
@@ -190,7 +187,6 @@ class ECGDataBuffer:
         with self._lock:
             self._buffer.clear()
             self._total_samples = 0
-            self._dropped_samples = 0
 
     def clear_device(self, device_id: str) -> int:
         """Clear samples for a specific device.

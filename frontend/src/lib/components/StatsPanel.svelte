@@ -43,20 +43,16 @@
 				</dd>
 			</div>
 			<div class="bg-gray-50 rounded-lg p-4">
-				<dt class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Dropped</dt>
+				<dt class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Processed</dt>
 				<dd class="text-xl font-bold text-gray-900">
-					{stats.dropped_samples.toLocaleString()}
+					{stats.total_processed.toLocaleString()}
 				</dd>
 			</div>
 		</dl>
-		<div class="mt-5 pt-4 border-t border-gray-200 space-y-2">
-			<div class="flex items-center justify-between text-xs">
-				<span class="text-gray-500">Total Processed</span>
-				<span class="font-medium text-gray-900">{stats.total_processed.toLocaleString()}</span>
-			</div>
+		<div class="mt-5 pt-4 border-t border-gray-200">
 			<div class="flex items-center justify-between text-xs">
 				<span class="text-gray-500">Buffer Duration</span>
-				<span class="font-medium text-gray-900">{stats.duration_seconds}s</span>
+				<span class="font-medium text-gray-900">{stats.duration_seconds.toFixed(1)}s</span>
 			</div>
 		</div>
 	{:else}
