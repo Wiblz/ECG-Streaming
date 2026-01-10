@@ -3,6 +3,7 @@
 	import { browser } from '$app/environment';
 	import type uPlot from 'uplot';
 	import type { AlignedData } from 'uplot';
+	import Card from './Card.svelte';
 	import { getSamples } from '$lib/state/ecg-data.svelte';
 	import { getWsState, ConnectionState } from '$lib/state/websocket.svelte';
 	import type { BufferedECGSample } from '$lib/types/api';
@@ -201,9 +202,8 @@
 	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.min.css" />
 </svelte:head>
 
-<div class="bg-white border border-gray-200 rounded-xl shadow-lg p-6">
-	<div class="flex items-center justify-between mb-4">
-		<h2 class="text-lg font-semibold text-gray-900">Live Waveforms</h2>
+<Card title="Live Waveforms">
+	{#snippet headerActions()}
 		{#if isStreaming}
 			<div class="flex items-center gap-2 text-xs text-gray-500">
 				<div class="w-2 h-2 bg-status-success-fg rounded-full animate-pulse"></div>
@@ -215,7 +215,7 @@
 				<span>No data</span>
 			</div>
 		{/if}
-	</div>
+	{/snippet}
 
 	<div bind:this={plotContainer} class="border border-gray-200 rounded-lg">
 		{#if samples.size === 0}
@@ -224,4 +224,4 @@
 			</div>
 		{/if}
 	</div>
-</div>
+</Card>

@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { getBufferStats } from '$lib/api/client';
 	import type { BufferStats } from '$lib/types/api';
+	import Card from './Card.svelte';
 
 	let stats = $state<BufferStats | null>(null);
 	let interval: ReturnType<typeof setInterval>;
@@ -22,8 +23,7 @@
 	});
 </script>
 
-<div class="bg-white border border-gray-200 rounded-xl shadow-lg p-6">
-	<h2 class="text-lg font-semibold text-gray-900 mb-5">Statistics</h2>
+<Card title="Statistics">
 	{#if stats}
 		<dl class="grid grid-cols-2 gap-3">
 			<div class="bg-gray-50 rounded-lg p-4">
@@ -65,4 +65,4 @@
 			</div>
 		</div>
 	{/if}
-</div>
+</Card>

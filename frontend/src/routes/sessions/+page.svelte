@@ -3,6 +3,8 @@
 	import { goto } from '$app/navigation';
 	import { getSessions, importSession, deleteSession } from '$lib/api/client';
 	import type { Session } from '$lib/types/api';
+	import Header from '$lib/components/Header.svelte';
+	import { formatTimestamp, formatDuration } from '$lib/utils/format';
 
 	let sessions = $state<Session[]>([]);
 	let loading = $state(true);
@@ -24,20 +26,6 @@
 	}
 
 	onMount(loadSessions);
-
-	function formatDate(timestamp: number): string {
-		return new Date(timestamp * 1000).toLocaleString();
-	}
-
-	function formatDuration(seconds: number | null): string {
-		if (seconds === null || seconds === 0) return '0s';
-		const mins = Math.floor(seconds / 60);
-		const secs = Math.floor(seconds % 60);
-		if (mins > 0) {
-			return `${mins}m ${secs}s`;
-		}
-		return `${secs}s`;
-	}
 
 	function handleImportClick() {
 		fileInput.click();
@@ -113,64 +101,42 @@
 	}
 </script>
 
-<div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-	<!-- Header -->
-	<header class="border-b border-gray-200 bg-white/80 backdrop-blur-sm sticky top-0 z-10">
-		<div class="container mx-auto px-6 py-4 max-w-7xl">
-			<div class="flex items-center justify-between w-full">
-				<div class="flex items-center gap-4">
-					<a
-						href="/"
-						class="text-gray-500 hover:text-gray-700 transition-colors"
-						aria-label="Back to dashboard"
-					>
-						<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								stroke-width="2"
-								d="M10 19l-7-7m0 0l7-7m-7 7h18"
-							/>
-						</svg>
-					</a>
-					<div>
-						<h1 class="text-2xl font-bold text-gray-900">Recording Sessions</h1>
-						<p class="text-sm text-gray-500">Browse and view past ECG recordings</p>
-					</div>
-				</div>
+<svelte:head>
+	<title>Sessions - ECG Streaming</title>
+</svelte:head>
 
-				<!-- Import Button -->
-				<input
-					type="file"
-					accept=".csv"
-					bind:this={fileInput}
-					onchange={handleFileSelected}
-					class="hidden"
+<div class="min-h-screen bg-linear-to-br from-gray-50 to-gray-100">
+	<Header>
+		<!-- Import Button -->
+		<input
+			type="file"
+			accept=".csv"
+			bind:this={fileInput}
+			onchange={handleFileSelected}
+			class="hidden"
+		/>
+		<button
+			onclick={handleImportClick}
+			disabled={importing}
+			class="flex items-center gap-2 px-4 py-2 bg-status-success-fg hover:bg-status-success-border disabled:bg-gray-400 text-white text-sm font-medium rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed"
+		>
+			<svg
+				class="w-4 h-4"
+				fill="none"
+				stroke="currentColor"
+				viewBox="0 0 24 24"
+				xmlns="http://www.w3.org/2000/svg"
+			>
+				<path
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					stroke-width="2"
+					d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
 				/>
-				<button
-					onclick={handleImportClick}
-					disabled={importing}
-					class="flex items-center gap-2 px-4 py-2 bg-status-success-fg hover:bg-status-success-border disabled:bg-gray-400 text-white text-sm font-medium rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed"
-				>
-					<svg
-						class="w-4 h-4"
-						fill="none"
-						stroke="currentColor"
-						viewBox="0 0 24 24"
-						xmlns="http://www.w3.org/2000/svg"
-					>
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							stroke-width="2"
-							d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
-						/>
-					</svg>
-					{importing ? 'Importing...' : 'Import CSV'}
-				</button>
-			</div>
-		</div>
-	</header>
+			</svg>
+			{importing ? 'Importing...' : 'Import CSV'}
+		</button>
+	</Header>
 
 	<!-- Toast Notification -->
 	{#if importMessage}
@@ -191,7 +157,6 @@
 		</div>
 	{/if}
 
-	<!-- Main Content -->
 	<main class="container mx-auto px-6 py-8 max-w-7xl">
 		{#if loading}
 			<div class="flex items-center justify-center py-16">
@@ -228,7 +193,7 @@
 										Session #{session.id}
 									</h3>
 									<p class="text-xs text-gray-500 mt-1">
-										{formatDate(session.start_time)}
+										{formatTimestamp(session.start_time)}
 									</p>
 								</a>
 								<div class="flex items-center gap-2 flex-shrink-0">

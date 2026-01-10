@@ -1,17 +1,19 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { getSession, getSessionExportUrl, deleteSession } from '$lib/api/client';
 	import type { Session } from '$lib/types/api';
+	import Header from '$lib/components/Header.svelte';
 	import HistoricalWaveform from '$lib/components/HistoricalWaveform.svelte';
+	import { formatFullTimestamp, formatDuration } from '$lib/utils/format';
 
 	let session = $state<Session | null>(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let deleting = $state(false);
 
-	const sessionId = $derived(parseInt($page.url.pathname.split('/').pop() || '0'));
+	const sessionId = $derived(parseInt(page.url.pathname.split('/').pop() || '0'));
 
 	onMount(async () => {
 		try {
@@ -23,25 +25,6 @@
 			loading = false;
 		}
 	});
-
-	function formatDate(timestamp: number): string {
-		return new Date(timestamp * 1000).toLocaleString();
-	}
-
-	function formatDuration(seconds: number | null): string {
-		if (seconds === null || seconds === 0) return '0s';
-		const mins = Math.floor(seconds / 60);
-		const secs = Math.floor(seconds % 60);
-		const hours = Math.floor(mins / 60);
-		const remainingMins = mins % 60;
-
-		if (hours > 0) {
-			return `${hours}h ${remainingMins}m ${secs}s`;
-		} else if (mins > 0) {
-			return `${mins}m ${secs}s`;
-		}
-		return `${secs}s`;
-	}
 
 	function handleExport() {
 		if (!session) return;
@@ -64,7 +47,7 @@
 			const result = await deleteSession(session.id);
 			if (result.success) {
 				// Navigate back to sessions list
-				goto('/sessions');
+				await goto('/sessions');
 			} else {
 				alert('Failed to delete session');
 				deleting = false;
@@ -76,41 +59,57 @@
 	}
 </script>
 
-<div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-	<!-- Header -->
-	<header class="border-b border-gray-200 bg-white/80 backdrop-blur-sm sticky top-0 z-10">
-		<div class="container mx-auto px-6 py-4 max-w-7xl">
-			<div class="flex items-center gap-4">
-				<a
-					href="/sessions"
-					class="text-gray-500 hover:text-gray-700 transition-colors"
-					aria-label="Back to sessions"
+<svelte:head>
+	<title>{session ? `Session #${session.id}` : 'Loading...'} - ECG Streaming</title>
+</svelte:head>
+
+<div class="min-h-screen bg-linear-to-br from-gray-50 to-gray-100">
+	<Header>
+		{#if session}
+			<button
+				onclick={handleExport}
+				class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors cursor-pointer"
+			>
+				<svg
+					class="w-4 h-4"
+					fill="none"
+					stroke="currentColor"
+					viewBox="0 0 24 24"
+					xmlns="http://www.w3.org/2000/svg"
 				>
-					<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						stroke-width="2"
+						d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+					/>
+				</svg>
+				Export CSV
+			</button>
+			<button
+				onclick={handleDelete}
+				disabled={deleting}
+				class="flex items-center gap-2 px-4 py-2 bg-status-error-fg hover:bg-status-error-border disabled:bg-gray-400 text-white text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed cursor-pointer"
+			>
+				{#if deleting}
+					<div
+						class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"
+					></div>
+				{:else}
+					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path
 							stroke-linecap="round"
 							stroke-linejoin="round"
 							stroke-width="2"
-							d="M10 19l-7-7m0 0l7-7m-7 7h18"
+							d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
 						/>
 					</svg>
-				</a>
-				<div class="flex-1">
-					{#if session}
-						<h1 class="text-2xl font-bold text-gray-900">Session #{session.id}</h1>
-						<p class="text-sm text-gray-500">{formatDate(session.start_time)}</p>
-					{:else}
-						<h1 class="text-2xl font-bold text-gray-900">Loading...</h1>
-					{/if}
-				</div>
-				<a href="/" class="text-sm text-gray-600 hover:text-gray-900 transition-colors font-medium">
-					Live Dashboard →
-				</a>
-			</div>
-		</div>
-	</header>
+				{/if}
+				Delete
+			</button>
+		{/if}
+	</Header>
 
-	<!-- Main Content -->
 	<main class="container mx-auto px-6 py-8 max-w-7xl">
 		{#if loading}
 			<div class="flex items-center justify-center py-16">
@@ -130,52 +129,7 @@
 			<div class="space-y-6">
 				<!-- Session Stats -->
 				<div class="bg-white border border-gray-200 rounded-xl shadow-lg p-6">
-					<div class="flex items-center justify-between mb-4">
-						<h2 class="text-lg font-semibold text-gray-900">Session Information</h2>
-						<div class="flex items-center gap-2">
-							<button
-								onclick={handleExport}
-								class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors cursor-pointer"
-							>
-								<svg
-									class="w-4 h-4"
-									fill="none"
-									stroke="currentColor"
-									viewBox="0 0 24 24"
-									xmlns="http://www.w3.org/2000/svg"
-								>
-									<path
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										stroke-width="2"
-										d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-									/>
-								</svg>
-								Export CSV
-							</button>
-							<button
-								onclick={handleDelete}
-								disabled={deleting}
-								class="flex items-center gap-2 px-4 py-2 bg-status-error-fg hover:bg-status-error-border disabled:bg-gray-400 text-white text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed cursor-pointer"
-							>
-								{#if deleting}
-									<div
-										class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"
-									></div>
-								{:else}
-									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path
-											stroke-linecap="round"
-											stroke-linejoin="round"
-											stroke-width="2"
-											d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-										/>
-									</svg>
-								{/if}
-								Delete
-							</button>
-						</div>
-					</div>
+					<h2 class="text-lg font-semibold text-gray-900 mb-4">Session Information</h2>
 					<dl class="grid grid-cols-2 md:grid-cols-4 gap-4">
 						<div class="bg-gray-50 rounded-lg p-4">
 							<dt class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
@@ -201,10 +155,10 @@
 						</div>
 						<div class="bg-gray-50 rounded-lg p-4">
 							<dt class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
-								Start Time
+								Started
 							</dt>
-							<dd class="text-sm font-medium text-gray-900">
-								{new Date(session.start_time * 1000).toLocaleTimeString()}
+							<dd class="text-xl font-bold text-gray-900">
+								{formatFullTimestamp(session.start_time)}
 							</dd>
 						</div>
 					</dl>
