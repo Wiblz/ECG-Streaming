@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { getSessions, importSession } from '$lib/api/client';
+	import { getSessions, importSession, deleteSession } from '$lib/api/client';
 	import type { Session } from '$lib/types/api';
 
 	let sessions = $state<Session[]>([]);
@@ -10,6 +10,7 @@
 	let importing = $state(false);
 	let importMessage = $state<string | null>(null);
 	let fileInput: HTMLInputElement;
+	let deletingId = $state<number | null>(null);
 
 	async function loadSessions() {
 		try {
@@ -70,6 +71,44 @@
 		} finally {
 			importing = false;
 			target.value = ''; // Reset file input
+		}
+	}
+
+	async function handleDelete(sessionId: number, event: MouseEvent) {
+		event.preventDefault();
+		event.stopPropagation();
+
+		if (!confirm(`Are you sure you want to delete session #${sessionId}? This cannot be undone.`)) {
+			return;
+		}
+
+		deletingId = sessionId;
+
+		try {
+			const result = await deleteSession(sessionId);
+			if (result.success) {
+				// Remove from list
+				sessions = sessions.filter((s) => s.id !== sessionId);
+				importMessage = `Session #${sessionId} deleted successfully`;
+				// Auto-dismiss success message after 3 seconds
+				setTimeout(() => {
+					importMessage = null;
+				}, 3000);
+			} else {
+				importMessage = `Failed to delete session #${sessionId}`;
+				// Auto-dismiss error message after 5 seconds
+				setTimeout(() => {
+					importMessage = null;
+				}, 5000);
+			}
+		} catch (e) {
+			importMessage = e instanceof Error ? e.message : 'Delete failed';
+			// Auto-dismiss error message after 5 seconds
+			setTimeout(() => {
+				importMessage = null;
+			}, 5000);
+		} finally {
+			deletingId = null;
 		}
 	}
 </script>
@@ -133,25 +172,27 @@
 		</div>
 	</header>
 
-	<!-- Main Content -->
-	<main class="container mx-auto px-6 py-8 max-w-7xl">
-		<!-- Import Message -->
-		{#if importMessage}
+	<!-- Toast Notification -->
+	{#if importMessage}
+		<div class="fixed top-20 left-1/2 -translate-x-1/2 z-50 animate-slide-down">
 			<div
-				class="mb-6 p-4 rounded-lg {importMessage.includes('Success')
+				class="px-6 py-4 rounded-lg shadow-xl {importMessage.includes('Success')
 					? 'bg-status-success border border-status-success-border'
 					: 'bg-status-error border border-status-error-border'}"
 			>
 				<p
-					class="text-sm {importMessage.includes('Success')
+					class="text-sm font-medium {importMessage.includes('Success')
 						? 'text-status-success-fg'
 						: 'text-status-error-fg'}"
 				>
 					{importMessage}
 				</p>
 			</div>
-		{/if}
+		</div>
+	{/if}
 
+	<!-- Main Content -->
+	<main class="container mx-auto px-6 py-8 max-w-7xl">
 		{#if loading}
 			<div class="flex items-center justify-center py-16">
 				<div class="text-center">
@@ -175,58 +216,88 @@
 		{:else}
 			<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 				{#each sessions as session (session.id)}
-					<a
-						href="/sessions/{session.id}"
-						class="bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-lg transition-shadow p-6 block"
+					<div
+						class="bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-lg transition-shadow"
 					>
-						<div class="flex items-start justify-between mb-4">
-							<div>
-								<h3 class="text-lg font-semibold text-gray-900">Session #{session.id}</h3>
-								<p class="text-xs text-gray-500 mt-1">
-									{formatDate(session.start_time)}
-								</p>
-							</div>
-							<div
-								class="bg-status-success text-status-success-fg text-xs font-medium px-2 py-1 rounded-full"
-							>
-								{session.sample_count.toLocaleString()} samples
-							</div>
-						</div>
-
-						<div class="space-y-3">
-							<div class="flex items-center justify-between text-sm">
-								<span class="text-gray-500">Duration</span>
-								<span class="font-medium text-gray-900">
-									{formatDuration(session.duration_seconds)}
-								</span>
-							</div>
-
-							<div class="flex items-center justify-between text-sm">
-								<span class="text-gray-500">Devices</span>
-								<span class="font-medium text-gray-900">{session.device_count}</span>
-							</div>
-
-							{#if session.devices.length > 0}
-								<div class="pt-3 border-t border-gray-100">
-									<div class="flex flex-wrap gap-2">
-										{#each session.devices as device (device)}
-											<span
-												class="bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded-md font-mono"
-											>
-												{device.split(' ').slice(-1)[0]}
-											</span>
-										{/each}
+						<div class="p-6">
+							<div class="flex items-center justify-between mb-4 gap-2">
+								<a href="/sessions/{session.id}" class="flex-1 min-w-0">
+									<h3
+										class="text-lg font-semibold text-gray-900 hover:text-blue-600 transition-colors"
+									>
+										Session #{session.id}
+									</h3>
+									<p class="text-xs text-gray-500 mt-1">
+										{formatDate(session.start_time)}
+									</p>
+								</a>
+								<div class="flex items-center gap-2 flex-shrink-0">
+									<div
+										class="bg-status-success text-status-success-fg text-xs font-medium px-2 py-1 rounded-full"
+									>
+										{session.sample_count.toLocaleString()} samples
 									</div>
+									<button
+										onclick={(e) => handleDelete(session.id, e)}
+										disabled={deletingId === session.id}
+										class="p-2 text-gray-400 hover:text-status-error-fg hover:bg-status-error rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+										title="Delete session"
+									>
+										{#if deletingId === session.id}
+											<div
+												class="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"
+											></div>
+										{:else}
+											<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path
+													stroke-linecap="round"
+													stroke-linejoin="round"
+													stroke-width="2"
+													d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+												/>
+											</svg>
+										{/if}
+									</button>
 								</div>
-							{/if}
-						</div>
+							</div>
 
-						<div class="mt-4 pt-4 border-t border-gray-100">
-							<span class="text-sm text-blue-600 font-medium hover:text-blue-700">
-								View Recording →
-							</span>
+							<a href="/sessions/{session.id}" class="block">
+								<div class="space-y-3">
+									<div class="flex items-center justify-between text-sm">
+										<span class="text-gray-500">Duration</span>
+										<span class="font-medium text-gray-900">
+											{formatDuration(session.duration_seconds)}
+										</span>
+									</div>
+
+									<div class="flex items-center justify-between text-sm">
+										<span class="text-gray-500">Devices</span>
+										<span class="font-medium text-gray-900">{session.device_count}</span>
+									</div>
+
+									{#if session.devices.length > 0}
+										<div class="pt-3 border-t border-gray-100">
+											<div class="flex flex-wrap gap-2">
+												{#each session.devices as device (device)}
+													<span
+														class="bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded-md font-mono"
+													>
+														{device.split(' ').slice(-1)[0]}
+													</span>
+												{/each}
+											</div>
+										</div>
+									{/if}
+								</div>
+
+								<div class="mt-4 pt-4 border-t border-gray-100">
+									<span class="text-sm text-blue-600 font-medium hover:text-blue-700">
+										View Recording →
+									</span>
+								</div>
+							</a>
 						</div>
-					</a>
+					</div>
 				{/each}
 			</div>
 

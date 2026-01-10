@@ -1,13 +1,15 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { getSession, getSessionExportUrl } from '$lib/api/client';
+	import { goto } from '$app/navigation';
+	import { getSession, getSessionExportUrl, deleteSession } from '$lib/api/client';
 	import type { Session } from '$lib/types/api';
 	import HistoricalWaveform from '$lib/components/HistoricalWaveform.svelte';
 
 	let session = $state<Session | null>(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
+	let deleting = $state(false);
 
 	const sessionId = $derived(parseInt($page.url.pathname.split('/').pop() || '0'));
 
@@ -45,6 +47,32 @@
 		if (!session) return;
 		const exportUrl = getSessionExportUrl(session.id);
 		window.open(exportUrl, '_blank');
+	}
+
+	async function handleDelete() {
+		if (!session) return;
+
+		if (
+			!confirm(`Are you sure you want to delete session #${session.id}? This cannot be undone.`)
+		) {
+			return;
+		}
+
+		deleting = true;
+
+		try {
+			const result = await deleteSession(session.id);
+			if (result.success) {
+				// Navigate back to sessions list
+				goto('/sessions');
+			} else {
+				alert('Failed to delete session');
+				deleting = false;
+			}
+		} catch (e) {
+			alert(e instanceof Error ? e.message : 'Delete failed');
+			deleting = false;
+		}
 	}
 </script>
 
@@ -104,26 +132,49 @@
 				<div class="bg-white border border-gray-200 rounded-xl shadow-lg p-6">
 					<div class="flex items-center justify-between mb-4">
 						<h2 class="text-lg font-semibold text-gray-900">Session Information</h2>
-						<button
-							onclick={handleExport}
-							class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors cursor-pointer"
-						>
-							<svg
-								class="w-4 h-4"
-								fill="none"
-								stroke="currentColor"
-								viewBox="0 0 24 24"
-								xmlns="http://www.w3.org/2000/svg"
+						<div class="flex items-center gap-2">
+							<button
+								onclick={handleExport}
+								class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors cursor-pointer"
 							>
-								<path
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									stroke-width="2"
-									d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-								/>
-							</svg>
-							Export CSV
-						</button>
+								<svg
+									class="w-4 h-4"
+									fill="none"
+									stroke="currentColor"
+									viewBox="0 0 24 24"
+									xmlns="http://www.w3.org/2000/svg"
+								>
+									<path
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										stroke-width="2"
+										d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+									/>
+								</svg>
+								Export CSV
+							</button>
+							<button
+								onclick={handleDelete}
+								disabled={deleting}
+								class="flex items-center gap-2 px-4 py-2 bg-status-error-fg hover:bg-status-error-border disabled:bg-gray-400 text-white text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed cursor-pointer"
+							>
+								{#if deleting}
+									<div
+										class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"
+									></div>
+								{:else}
+									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											stroke-width="2"
+											d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+										/>
+									</svg>
+								{/if}
+								Delete
+							</button>
+						</div>
 					</div>
 					<dl class="grid grid-cols-2 md:grid-cols-4 gap-4">
 						<div class="bg-gray-50 rounded-lg p-4">
