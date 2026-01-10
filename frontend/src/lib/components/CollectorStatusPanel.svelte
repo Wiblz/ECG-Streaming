@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { getCollectors } from '$lib/api/client';
+	import { api } from '$lib/api/client';
 	import type { Collector } from '$lib/types/api';
 	import { formatUptime } from '$lib/utils/format';
 
@@ -10,7 +10,7 @@
 
 	async function fetchCollectors() {
 		try {
-			const response = await getCollectors();
+			const response = await api.getCollectors();
 			if (response.error) {
 				error = response.error;
 			} else {
@@ -114,29 +114,53 @@
 							<span class="label">Version:</span>
 							<span class="value">{collector.version || 'N/A'}</span>
 						</div>
-						<div class="info-row">
-							<span class="label">Devices:</span>
-							<span class="value">{collector.device_ids.length}</span>
-						</div>
-						<div class="info-row">
-							<span class="label">Active:</span>
-							<span class="value">{collector.active_devices}</span>
-						</div>
-						<div class="info-row">
-							<span class="label">Samples:</span>
-							<span class="value">{collector.samples_sent.toLocaleString()}</span>
-						</div>
-						<div class="info-row">
-							<span class="label">Connected:</span>
-							<span class="value">{formatUptime(Date.now() / 1000 - collector.connected_at)}</span>
-						</div>
-						<div class="info-row">
-							<span class="label">Last Heartbeat:</span>
-							<span class="value">{formatUptime(collector.time_since_heartbeat)} ago</span>
-						</div>
+						{#if collector.device_ids}
+							<div class="info-row">
+								<span class="label">Devices:</span>
+								<span class="value">{collector.device_ids.length}</span>
+							</div>
+						{/if}
+						{#if collector.active_devices !== undefined}
+							<div class="info-row">
+								<span class="label">Active:</span>
+								<span class="value">{collector.active_devices}</span>
+							</div>
+						{/if}
+						{#if collector.samples_sent !== undefined}
+							<div class="info-row">
+								<span class="label">Samples:</span>
+								<span class="value">{collector.samples_sent.toLocaleString()}</span>
+							</div>
+						{/if}
+						{#if collector.connected_at}
+							<div class="info-row">
+								<span class="label">Connected:</span>
+								<span class="value">{formatUptime(Date.now() / 1000 - collector.connected_at)}</span
+								>
+							</div>
+						{/if}
+						{#if collector.time_since_heartbeat !== null && collector.time_since_heartbeat !== undefined}
+							<div class="info-row">
+								<span class="label">Last Heartbeat:</span>
+								<span class="value">{formatUptime(collector.time_since_heartbeat)} ago</span>
+							</div>
+						{/if}
+						{#if collector.connected}
+							<div class="info-row">
+								<span class="label">Status:</span>
+								<span class="value">Connected</span>
+							</div>
+						{:else if collector.last_seen}
+							<div class="info-row">
+								<span class="label">Last Seen:</span>
+								<span class="value"
+									>{formatUptime(Date.now() / 1000 - collector.last_seen)} ago</span
+								>
+							</div>
+						{/if}
 					</div>
 
-					{#if collector.device_ids.length > 0}
+					{#if collector.device_ids && collector.device_ids.length > 0}
 						<div class="device-list">
 							<span class="devices-label">Devices:</span>
 							<div class="device-tags">

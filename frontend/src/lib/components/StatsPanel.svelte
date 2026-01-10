@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { getBufferStats } from '$lib/api/client';
+	import { api } from '$lib/api/client';
 	import type { BufferStats } from '$lib/types/api';
 	import Card from './Card.svelte';
 
@@ -9,7 +9,7 @@
 
 	async function fetchStats() {
 		try {
-			stats = await getBufferStats();
+			stats = await api.getBufferStats();
 		} catch (error) {
 			console.error('Failed to fetch stats:', error);
 		}

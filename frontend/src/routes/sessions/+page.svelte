@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { getSessions, importSession, deleteSession } from '$lib/api/client';
+	import { api } from '$lib/api/client';
 	import type { Session } from '$lib/types/api';
 	import Header from '$lib/components/Header.svelte';
 	import { formatTimestamp, formatDuration } from '$lib/utils/format';
@@ -16,7 +16,7 @@
 
 	async function loadSessions() {
 		try {
-			const response = await getSessions();
+			const response = await api.getSessions();
 			sessions = response.sessions;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load sessions';
@@ -41,7 +41,7 @@
 		importMessage = null;
 
 		try {
-			const result = await importSession(file);
+			const result = await api.importSession(file);
 
 			if (result.success && result.session_id) {
 				importMessage = `Successfully imported session #${result.session_id}`;
@@ -73,7 +73,7 @@
 		deletingId = sessionId;
 
 		try {
-			const result = await deleteSession(sessionId);
+			const result = await api.deleteSession(sessionId);
 			if (result.success) {
 				// Remove from list
 				sessions = sessions.filter((s) => s.id !== sessionId);
@@ -118,7 +118,7 @@
 		<button
 			onclick={handleImportClick}
 			disabled={importing}
-			class="flex items-center gap-2 px-4 py-2 bg-status-success-fg hover:bg-status-success-border disabled:bg-gray-400 text-white text-sm font-medium rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed"
+			class="flex items-center gap-2 px-4 py-2 bg-status-success-fg hover:bg-status-success-border disabled:bg-gray-400 text-white text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed"
 		>
 			<svg
 				class="w-4 h-4"
@@ -205,7 +205,7 @@
 									<button
 										onclick={(e) => handleDelete(session.id, e)}
 										disabled={deletingId === session.id}
-										class="p-2 text-gray-400 hover:text-status-error-fg hover:bg-status-error rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+										class="p-2 text-gray-400 hover:text-status-error-fg hover:bg-status-error rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
 										title="Delete session"
 									>
 										{#if deletingId === session.id}

@@ -92,6 +92,21 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
                         "active_devices": 0,
                     }
 
+                    # Persist collector to database
+                    if self.database:
+                        self.database.upsert_collector(
+                            collector_id=collector_id,
+                            display_name=display_name,
+                            version=reg.version,
+                            metadata=dict(reg.metadata),
+                        )
+
+                        # Persist device-collector mappings
+                        for device_id in device_ids:
+                            self.database.upsert_device_collector_mapping(
+                                device_id=device_id, collector_id=collector_id
+                            )
+
                     # Initialize device statuses for all configured devices
                     for device_id in device_ids:
                         if device_id not in self.device_statuses:
@@ -189,6 +204,10 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
                         self.collectors[collector_id]["last_heartbeat"] = time.time()
                         self.collectors[collector_id]["samples_sent"] = hb.samples_sent
                         self.collectors[collector_id]["active_devices"] = hb.active_devices
+
+                        # Persist heartbeat to database
+                        if self.database:
+                            self.database.update_collector_heartbeat(collector_id)
 
                     logger.debug(
                         f"Heartbeat from {collector_id}: "

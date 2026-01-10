@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { getSession, getSessionExportUrl, deleteSession } from '$lib/api/client';
+	import { api } from '$lib/api/client';
 	import type { Session } from '$lib/types/api';
 	import Header from '$lib/components/Header.svelte';
 	import HistoricalWaveform from '$lib/components/HistoricalWaveform.svelte';
@@ -18,7 +18,7 @@
 	onMount(async () => {
 		try {
 			// Load session details (waveform component will load samples dynamically)
-			session = await getSession(sessionId);
+			session = await api.getSession(sessionId);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load session';
 		} finally {
@@ -28,7 +28,7 @@
 
 	function handleExport() {
 		if (!session) return;
-		const exportUrl = getSessionExportUrl(session.id);
+		const exportUrl = api.getSessionExportUrl(session.id);
 		window.open(exportUrl, '_blank');
 	}
 
@@ -44,7 +44,7 @@
 		deleting = true;
 
 		try {
-			const result = await deleteSession(session.id);
+			const result = await api.deleteSession(session.id);
 			if (result.success) {
 				// Navigate back to sessions list
 				await goto('/sessions');
@@ -68,7 +68,7 @@
 		{#if session}
 			<button
 				onclick={handleExport}
-				class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors cursor-pointer"
+				class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
 			>
 				<svg
 					class="w-4 h-4"
@@ -89,7 +89,7 @@
 			<button
 				onclick={handleDelete}
 				disabled={deleting}
-				class="flex items-center gap-2 px-4 py-2 bg-status-error-fg hover:bg-status-error-border disabled:bg-gray-400 text-white text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed cursor-pointer"
+				class="flex items-center gap-2 px-4 py-2 bg-status-error-fg hover:bg-status-error-border disabled:bg-gray-400 text-white text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed"
 			>
 				{#if deleting}
 					<div

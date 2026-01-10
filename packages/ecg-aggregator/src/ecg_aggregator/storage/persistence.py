@@ -78,6 +78,32 @@ class ECGDatabase:
                 )
             """)
 
+            # Collector registry table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS collectors (
+                    collector_id TEXT PRIMARY KEY,
+                    display_name TEXT,
+                    version TEXT,
+                    metadata TEXT,
+                    first_seen REAL NOT NULL,
+                    last_seen REAL NOT NULL,
+                    last_heartbeat REAL
+                )
+            """)
+
+            # Device-collector mappings table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS device_collector_mappings (
+                    device_id TEXT NOT NULL,
+                    collector_id TEXT NOT NULL,
+                    first_associated REAL NOT NULL,
+                    last_associated REAL NOT NULL,
+                    PRIMARY KEY (device_id, collector_id),
+                    FOREIGN KEY (device_id) REFERENCES devices(device_id),
+                    FOREIGN KEY (collector_id) REFERENCES collectors(collector_id)
+                )
+            """)
+
             conn.commit()
 
             # Migrate schema if needed
@@ -102,7 +128,7 @@ class ECGDatabase:
                 conn = self._get_connection()
                 cursor = conn.cursor()
 
-                # Check if session_id column exists
+                # Check if session_id column exists in ecg_samples
                 cursor.execute("PRAGMA table_info(ecg_samples)")
                 columns = [row[1] for row in cursor.fetchall()]
 
@@ -113,7 +139,17 @@ class ECGDatabase:
                         "CREATE INDEX IF NOT EXISTS idx_session_id ON ecg_samples (session_id)"
                     )
                     conn.commit()
-                    logger.info("Schema migration completed")
+                    logger.info("Added session_id column to ecg_samples")
+
+                # Check if nickname column exists in devices
+                cursor.execute("PRAGMA table_info(devices)")
+                device_columns = [row[1] for row in cursor.fetchall()]
+
+                if "nickname" not in device_columns:
+                    logger.info("Adding nickname column to devices table")
+                    cursor.execute("ALTER TABLE devices ADD COLUMN nickname TEXT")
+                    conn.commit()
+                    logger.info("Added nickname column to devices")
 
             except Exception as e:
                 logger.error(f"Error during schema migration: {e}")
@@ -1039,6 +1075,283 @@ class ECGDatabase:
             except Exception as e:
                 logger.error(f"Error importing session from CSV: {e}")
                 return None
+
+    def get_all_devices(self) -> list[dict]:
+        """Get all known devices from database.
+
+        Returns:
+            List of device dictionaries with metadata
+        """
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                cursor.execute("""
+                    SELECT device_id, first_seen, last_seen, total_samples, nickname
+                    FROM devices
+                    ORDER BY last_seen DESC
+                """)
+
+                results = []
+                for row in cursor.fetchall():
+                    results.append(
+                        {
+                            "device_id": row[0],
+                            "first_seen": row[1],
+                            "last_seen": row[2],
+                            "total_samples": row[3],
+                            "nickname": row[4],
+                        }
+                    )
+
+                return results
+
+            except Exception as e:
+                logger.error(f"Error retrieving devices: {e}")
+                return []
+
+    def update_device_nickname(self, device_id: str, nickname: str | None) -> bool:
+        """Update a device's nickname.
+
+        Args:
+            device_id: Device identifier
+            nickname: New nickname (or None to clear)
+
+        Returns:
+            True if successful
+        """
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                cursor.execute(
+                    "UPDATE devices SET nickname = ? WHERE device_id = ?",
+                    (nickname, device_id),
+                )
+
+                conn.commit()
+
+                if cursor.rowcount > 0:
+                    logger.info(f"Updated nickname for device {device_id} to '{nickname}'")
+                    return True
+                else:
+                    logger.warning(f"Device {device_id} not found in database")
+                    return False
+
+            except Exception as e:
+                logger.error(f"Error updating device nickname: {e}")
+                return False
+
+    def upsert_collector(
+        self,
+        collector_id: str,
+        display_name: str | None = None,
+        version: str | None = None,
+        metadata: dict | None = None,
+    ) -> bool:
+        """Insert or update collector information.
+
+        Args:
+            collector_id: Collector identifier
+            display_name: Human-readable name
+            version: Collector software version
+            metadata: Additional metadata as dict
+
+        Returns:
+            True if successful
+        """
+        with self._lock:
+            try:
+                import json
+
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                current_time = time.time()
+                metadata_json = json.dumps(metadata) if metadata else None
+
+                cursor.execute(
+                    """
+                    INSERT INTO collectors (collector_id, display_name, version, metadata, first_seen, last_seen, last_heartbeat)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(collector_id) DO UPDATE SET
+                        display_name = ?,
+                        version = ?,
+                        metadata = ?,
+                        last_seen = ?
+                    """,
+                    (
+                        collector_id,
+                        display_name,
+                        version,
+                        metadata_json,
+                        current_time,
+                        current_time,
+                        current_time,
+                        display_name,
+                        version,
+                        metadata_json,
+                        current_time,
+                    ),
+                )
+
+                conn.commit()
+                logger.debug(f"Upserted collector {collector_id}")
+                return True
+
+            except Exception as e:
+                logger.error(f"Error upserting collector: {e}")
+                return False
+
+    def update_collector_heartbeat(self, collector_id: str) -> bool:
+        """Update collector's last heartbeat timestamp.
+
+        Args:
+            collector_id: Collector identifier
+
+        Returns:
+            True if successful
+        """
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                current_time = time.time()
+                cursor.execute(
+                    "UPDATE collectors SET last_heartbeat = ?, last_seen = ? WHERE collector_id = ?",
+                    (current_time, current_time, collector_id),
+                )
+
+                conn.commit()
+                return cursor.rowcount > 0
+
+            except Exception as e:
+                logger.error(f"Error updating collector heartbeat: {e}")
+                return False
+
+    def get_all_collectors(self) -> list[dict]:
+        """Get all known collectors from database.
+
+        Returns:
+            List of collector dictionaries
+        """
+        with self._lock:
+            try:
+                import json
+
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                cursor.execute("""
+                    SELECT collector_id, display_name, version, metadata, first_seen, last_seen, last_heartbeat
+                    FROM collectors
+                    ORDER BY last_seen DESC
+                """)
+
+                results = []
+                for row in cursor.fetchall():
+                    metadata = json.loads(row[3]) if row[3] else {}
+                    results.append(
+                        {
+                            "collector_id": row[0],
+                            "display_name": row[1],
+                            "version": row[2],
+                            "metadata": metadata,
+                            "first_seen": row[4],
+                            "last_seen": row[5],
+                            "last_heartbeat": row[6],
+                        }
+                    )
+
+                return results
+
+            except Exception as e:
+                logger.error(f"Error retrieving collectors: {e}")
+                return []
+
+    def upsert_device_collector_mapping(self, device_id: str, collector_id: str) -> bool:
+        """Insert or update device-collector mapping.
+
+        Args:
+            device_id: Device identifier
+            collector_id: Collector identifier
+
+        Returns:
+            True if successful
+        """
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                current_time = time.time()
+                cursor.execute(
+                    """
+                    INSERT INTO device_collector_mappings (device_id, collector_id, first_associated, last_associated)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(device_id, collector_id) DO UPDATE SET
+                        last_associated = ?
+                    """,
+                    (device_id, collector_id, current_time, current_time, current_time),
+                )
+
+                conn.commit()
+                return True
+
+            except Exception as e:
+                logger.error(f"Error upserting device-collector mapping: {e}")
+                return False
+
+    def get_device_collectors(self, device_id: str) -> list[dict]:
+        """Get all collectors associated with a device.
+
+        Args:
+            device_id: Device identifier
+
+        Returns:
+            List of collector information
+        """
+        with self._lock:
+            try:
+                import json
+
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                cursor.execute(
+                    """
+                    SELECT c.collector_id, c.display_name, c.version, c.metadata,
+                           m.first_associated, m.last_associated
+                    FROM device_collector_mappings m
+                    JOIN collectors c ON m.collector_id = c.collector_id
+                    WHERE m.device_id = ?
+                    ORDER BY m.last_associated DESC
+                    """,
+                    (device_id,),
+                )
+
+                results = []
+                for row in cursor.fetchall():
+                    metadata = json.loads(row[3]) if row[3] else {}
+                    results.append(
+                        {
+                            "collector_id": row[0],
+                            "display_name": row[1],
+                            "version": row[2],
+                            "metadata": metadata,
+                            "first_associated": row[4],
+                            "last_associated": row[5],
+                        }
+                    )
+
+                return results
+
+            except Exception as e:
+                logger.error(f"Error retrieving device collectors: {e}")
+                return []
 
     def close(self) -> None:
         """Close database connection."""

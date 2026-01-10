@@ -5,6 +5,14 @@
  * Unified color scheme for consistent UI across all components
  */
 
+/* Fix for Tailwind v4 missing cursor pointer on buttons */
+@layer base {
+	button:not(:disabled),
+	[role='button']:not(:disabled) {
+		cursor: pointer;
+	}
+}
+
 @theme {
 	/* Status colors - Semantic naming for different states */
 

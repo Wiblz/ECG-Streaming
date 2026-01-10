@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import favicon from '$lib/assets/favicon.svg';
+	import { setMockMode, isMockMode } from '$lib/api/client';
 
 	interface Props {
 		/**
@@ -11,6 +12,18 @@
 
 	let { children }: Props = $props();
 
+	// Mock mode state
+	let mockMode = $state(isMockMode());
+
+	function toggleMockMode() {
+		mockMode = !mockMode;
+		setMockMode(mockMode);
+		// Reload page to refresh data
+		if (typeof window !== 'undefined') {
+			window.location.reload();
+		}
+	}
+
 	// Determine current route for active nav styling
 	function isActive(path: string): boolean {
 		return page.url.pathname === path || page.url.pathname.startsWith(path + '/');
@@ -20,6 +33,7 @@
 	const breadcrumbs = $derived.by(() => {
 		const path = page.url.pathname;
 		if (path === '/') return [{ label: 'Dashboard', href: '/' }];
+		if (path === '/devices') return [{ label: 'Devices', href: '/devices' }];
 		if (path === '/sessions') return [{ label: 'Sessions', href: '/sessions' }];
 		if (path.startsWith('/sessions/')) {
 			const sessionId = path.split('/').pop();
@@ -53,11 +67,20 @@
 				<nav class="hidden md:flex items-center gap-1">
 					<a
 						href="/"
-						class="px-3 py-2 text-sm font-medium rounded-lg transition-colors {isActive('/')
+						class="px-3 py-2 text-sm font-medium rounded-lg transition-colors {isActive('/') &&
+						page.url.pathname === '/'
 							? 'bg-gray-100 text-gray-900'
 							: 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'}"
 					>
 						Dashboard
+					</a>
+					<a
+						href="/devices"
+						class="px-3 py-2 text-sm font-medium rounded-lg transition-colors {isActive('/devices')
+							? 'bg-gray-100 text-gray-900'
+							: 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'}"
+					>
+						Devices
 					</a>
 					<a
 						href="/sessions"
@@ -104,6 +127,23 @@
 
 			<!-- Page-specific actions (slot) -->
 			<div class="flex items-center gap-3">
+				<!-- Mock Mode Toggle -->
+				<button
+					onclick={toggleMockMode}
+					class="px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors {mockMode
+						? 'bg-blue-100 text-blue-700 border-blue-300 hover:bg-blue-200'
+						: 'bg-gray-100 text-gray-600 border-gray-300 hover:bg-gray-200'}"
+					title={mockMode
+						? 'Using mock data - Click to use real API'
+						: 'Using real API - Click to use mock data'}
+				>
+					{#if mockMode}
+						🧪 Mock Mode
+					{:else}
+						📡 Live Mode
+					{/if}
+				</button>
+
 				{#if children}
 					{@render children()}
 				{/if}

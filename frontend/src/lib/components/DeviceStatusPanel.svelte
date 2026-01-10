@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { getDeviceStatus, getCollectors } from '$lib/api/client';
-	import type { DeviceStatus, Collector } from '$lib/types/api';
+	import { api } from '$lib/api/client';
+	import type { DeviceInfo, Collector } from '$lib/types/api';
 	import { formatTimeSince, formatUptime } from '$lib/utils/format';
 	import Card from './Card.svelte';
 
-	let devices = $state<DeviceStatus[]>([]);
+	let devices = $state<DeviceInfo[]>([]);
 	let collectors = $state<Collector[]>([]);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
@@ -14,19 +14,16 @@
 	async function fetchData() {
 		try {
 			const [devicesResponse, collectorsResponse] = await Promise.all([
-				getDeviceStatus(),
-				getCollectors()
+				api.getAllDevices(),
+				api.getCollectors()
 			]);
 
-			if (devicesResponse.error) {
-				error = devicesResponse.error;
-			} else if (collectorsResponse.error) {
-				error = collectorsResponse.error;
-			} else {
-				devices = devicesResponse.devices;
-				collectors = collectorsResponse.collectors;
-				error = null;
-			}
+			// Only show currently connected/active devices
+			devices = devicesResponse.devices.filter(
+				(d) => d.status && d.status !== 'DISCONNECTED' && d.status !== 'UNKNOWN'
+			);
+			collectors = collectorsResponse.collectors;
+			error = null;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to fetch status';
 		} finally {
@@ -47,7 +44,7 @@
 	});
 
 	// Helper functions for color mapping
-	function getDeviceStatusColors(status: DeviceStatus['status']) {
+	function getDeviceStatusColors(status: DeviceInfo['status']) {
 		switch (status) {
 			case 'STREAMING':
 				return {
@@ -113,16 +110,18 @@
 	const groupedDevices = $derived.by(() => {
 		const groups: Record<
 			string,
-			{ name: string; devices: DeviceStatus[]; collector: Collector | null }
+			{ name: string; devices: DeviceInfo[]; collector: Collector | null }
 		> = {};
 
+		// Add devices to their respective collectors
 		for (const device of devices) {
 			const collectorKey = device.collector_id || 'unknown';
-			const collectorName = device.collector_name || device.collector_id || 'Unknown Collector';
 
 			if (!groups[collectorKey]) {
 				// Find matching collector info
 				const collectorInfo = collectors.find((c) => c.collector_id === collectorKey) || null;
+				const collectorName = collectorInfo?.display_name || collectorKey;
+
 				groups[collectorKey] = { name: collectorName, devices: [], collector: collectorInfo };
 			}
 			groups[collectorKey].devices.push(device);
@@ -138,10 +137,19 @@
 </script>
 
 <Card
-	title="Device Status"
+	title="Active Devices"
 	badge="{devices.length} {devices.length === 1 ? 'device' : 'devices'}"
 	divider={true}
 >
+	{#snippet headerActions()}
+		<a
+			href="/devices"
+			class="text-xs text-blue-600 hover:text-blue-700 font-medium hover:underline"
+		>
+			Manage All Devices →
+		</a>
+	{/snippet}
+
 	{#if loading}
 		<div class="flex items-center justify-center py-8">
 			<div
@@ -156,9 +164,9 @@
 		</div>
 	{:else if devices.length === 0}
 		<div class="text-center py-8">
-			<div class="text-4xl mb-2">🔌</div>
-			<p class="text-sm font-medium text-gray-900 mb-1">No devices configured</p>
-			<p class="text-xs text-gray-500">Check collector configuration</p>
+			<div class="text-4xl mb-2">💤</div>
+			<p class="text-sm font-medium text-gray-900 mb-1">No active devices</p>
+			<p class="text-xs text-gray-500">Devices will appear when they start streaming</p>
 		</div>
 	{:else}
 		<div class="space-y-4">
@@ -185,16 +193,12 @@
 									{collector.devices.length}
 									{collector.devices.length === 1 ? 'device' : 'devices'}
 								</span>
-								{#if collector.collector}
-									<span>
-										{collector.collector.active_devices} active
-									</span>
-									<span>
-										{collector.collector.samples_sent.toLocaleString()} samples
-									</span>
-									<span>
-										⏱️ {formatUptime(collector.collector.time_since_heartbeat)} ago
-									</span>
+								{#if collector.collector && collector.collector.connected}
+									{#if collector.collector.time_since_heartbeat !== null}
+										<span>
+											⏱️ {formatUptime(collector.collector.time_since_heartbeat)} ago
+										</span>
+									{/if}
 								{/if}
 							</div>
 						</div>
@@ -207,9 +211,16 @@
 							<div class="border {colors.border} rounded-lg p-3 {colors.bg}">
 								<div class="flex items-start justify-between mb-2">
 									<div class="flex-1 min-w-0">
-										<h4 class="text-sm font-mono font-semibold {colors.text} truncate">
-											{device.device_id}
-										</h4>
+										{#if device.nickname}
+											<h4 class="text-sm font-semibold {colors.text}">
+												{device.nickname}
+											</h4>
+											<span class="text-xs text-gray-500 font-mono">{device.device_id}</span>
+										{:else}
+											<h4 class="text-sm font-mono font-semibold {colors.text} truncate">
+												{device.device_id}
+											</h4>
+										{/if}
 									</div>
 									<span
 										class="flex-shrink-0 text-xs font-bold px-2 py-1 rounded {colors.bg} {colors.text} {colors.border} border ml-2"
@@ -219,18 +230,20 @@
 								</div>
 
 								<div class="flex items-center gap-4 text-xs text-gray-600 mt-2">
-									<div class="flex items-center gap-1">
-										<svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-											<path
-												fill-rule="evenodd"
-												d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z"
-												clip-rule="evenodd"
-											/>
-										</svg>
-										<span>{formatTimeSince(device.last_update)}</span>
-									</div>
+									{#if device.last_update}
+										<div class="flex items-center gap-1">
+											<svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+												<path
+													fill-rule="evenodd"
+													d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z"
+													clip-rule="evenodd"
+												/>
+											</svg>
+											<span>{formatTimeSince(device.last_update)}</span>
+										</div>
+									{/if}
 
-									{#if device.battery_level !== null}
+									{#if device.battery_level !== null && device.battery_level !== undefined}
 										<div class="flex items-center gap-1">
 											<svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
 												<path
@@ -238,6 +251,12 @@
 												/>
 											</svg>
 											<span>{device.battery_level}%</span>
+										</div>
+									{/if}
+
+									{#if device.sync_ready}
+										<div class="flex items-center gap-1">
+											<span class="text-green-600">✓ Synced</span>
 										</div>
 									{/if}
 								</div>

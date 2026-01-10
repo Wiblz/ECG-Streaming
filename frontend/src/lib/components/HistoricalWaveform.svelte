@@ -4,7 +4,7 @@
 	import { SvelteMap } from 'svelte/reactivity';
 	import type uPlot from 'uplot';
 	import type { Session, SessionSample } from '$lib/types/api';
-	import { getSessionSamples } from '$lib/api/client';
+	import { api } from '$lib/api/client';
 
 	let uPlotLib = $state<typeof uPlot | null>(null);
 	let createDeviceSeries: ((deviceIds: string[]) => uPlot.Series[]) | null = null;
@@ -58,7 +58,7 @@
 		try {
 			// Don't request limit - let server return all samples in the time range
 			// This ensures we get complete data even for large windows
-			const response = await getSessionSamples(session.id, {
+			const response = await api.getSessionSamples(session.id, {
 				start_time: startTime,
 				end_time: endTime
 			});

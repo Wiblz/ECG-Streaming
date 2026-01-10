@@ -10,12 +10,19 @@ from ecg_common.logging import get_logger
 from fastapi import FastAPI, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 from ecg_aggregator.api.data_buffer import ECGDataBuffer
 from ecg_aggregator.storage.persistence import ECGDatabase
 from ecg_aggregator.sync.time_alignment import TimeAlignmentService
 
 logger = get_logger(__name__)
+
+
+class DeviceNicknameUpdate(BaseModel):
+    """Request model for updating device nickname."""
+
+    nickname: str | None
 
 
 class ECGStreamingServer:
@@ -87,7 +94,9 @@ class ECGStreamingServer:
                 "endpoints": {
                     "websocket": "/ws/ecg",
                     "devices": "/devices",
+                    "devices_all": "/devices/all",
                     "devices_status": "/devices/status",
+                    "device_nickname": "/devices/{device_id}/nickname",
                     "collectors": "/collectors",
                     "stats": "/stats",
                     "buffer": "/buffer/stats",
@@ -120,40 +129,87 @@ class ECGStreamingServer:
 
         @self.app.get("/collectors")
         async def get_collectors() -> dict[str, Any]:
-            """Get all connected collectors with connection health status."""
-            if not self.grpc_servicer:
-                return {"collectors": [], "count": 0, "error": "gRPC servicer not available"}
+            """Get all collectors (both connected and known from database).
 
+            Merges current connection status with persistent collector metadata.
+            """
             current_time = time.time()
-            collectors_list = []
-            for collector_id, collector_info in self.grpc_servicer.collectors.items():
-                last_heartbeat = collector_info.get("last_heartbeat", 0)
-                time_since_heartbeat = current_time - last_heartbeat
 
-                # Determine connection health
-                # Healthy: < 15s, Warning: 15-30s, Disconnected: > 30s
-                if time_since_heartbeat < 15:
-                    health = "healthy"
-                elif time_since_heartbeat < 30:
-                    health = "warning"
+            # Get all known collectors from database
+            db_collectors = {c["collector_id"]: c for c in self.database.get_all_collectors()}
+
+            # Get currently connected collectors
+            connected_collectors = {}
+            if self.grpc_servicer:
+                connected_collectors = self.grpc_servicer.collectors
+
+            # Merge all collector IDs
+            all_collector_ids = set(db_collectors.keys()) | set(connected_collectors.keys())
+
+            collectors_list = []
+            for collector_id in all_collector_ids:
+                collector_info: dict[str, Any] = {"collector_id": collector_id}
+
+                # Add database metadata if available
+                if collector_id in db_collectors:
+                    db_info = db_collectors[collector_id]
+                    collector_info.update(
+                        {
+                            "display_name": db_info["display_name"] or collector_id,
+                            "version": db_info["version"],
+                            "metadata": db_info["metadata"],
+                            "first_seen": db_info["first_seen"],
+                            "last_seen": db_info["last_seen"],
+                            "last_heartbeat": db_info["last_heartbeat"],
+                        }
+                    )
+
+                # Override with current connection info if connected
+                if collector_id in connected_collectors:
+                    conn_info = connected_collectors[collector_id]
+                    collector_info.update(
+                        {
+                            "display_name": conn_info.get("display_name", collector_id),
+                            "device_ids": conn_info.get("device_ids", []),
+                            "version": conn_info.get("version"),
+                            "metadata": conn_info.get("metadata", {}),
+                            "connected_at": conn_info.get("connected_at"),
+                            "last_heartbeat": conn_info.get("last_heartbeat", 0),
+                            "samples_sent": conn_info.get("samples_sent", 0),
+                            "active_devices": conn_info.get("active_devices", 0),
+                        }
+                    )
+
+                # Calculate connection health
+                last_heartbeat = collector_info.get("last_heartbeat", 0)
+                if last_heartbeat:
+                    time_since_heartbeat = current_time - last_heartbeat
+                    collector_info["time_since_heartbeat"] = time_since_heartbeat
+
+                    # Healthy: < 15s, Warning: 15-30s, Disconnected: > 30s
+                    if time_since_heartbeat < 15:
+                        health = "healthy"
+                    elif time_since_heartbeat < 30:
+                        health = "warning"
+                    else:
+                        health = "disconnected"
                 else:
                     health = "disconnected"
+                    collector_info["time_since_heartbeat"] = None
 
-                collectors_list.append(
-                    {
-                        "collector_id": collector_id,
-                        "display_name": collector_info.get("display_name", collector_id),
-                        "device_ids": collector_info.get("device_ids", []),
-                        "version": collector_info.get("version"),
-                        "metadata": collector_info.get("metadata", {}),
-                        "connected_at": collector_info.get("connected_at"),
-                        "last_heartbeat": last_heartbeat,
-                        "time_since_heartbeat": time_since_heartbeat,
-                        "health": health,
-                        "samples_sent": collector_info.get("samples_sent", 0),
-                        "active_devices": collector_info.get("active_devices", 0),
-                    }
+                collector_info["health"] = health
+                collector_info["connected"] = collector_id in connected_collectors
+
+                collectors_list.append(collector_info)
+
+            # Sort by health (healthy first), then by last_heartbeat
+            health_order = {"healthy": 0, "warning": 1, "disconnected": 2}
+            collectors_list.sort(
+                key=lambda c: (
+                    health_order.get(c["health"], 3),
+                    -(c.get("last_heartbeat", 0)),
                 )
+            )
 
             return {"collectors": collectors_list, "count": len(collectors_list)}
 
@@ -187,6 +243,109 @@ class ECGStreamingServer:
                 )
 
             return {"devices": devices_status, "count": len(devices_status)}
+
+        @self.app.get("/devices/all")
+        async def get_all_devices() -> dict[str, Any]:
+            """Get all known devices from database, including disconnected ones.
+
+            Returns both currently connected devices and previously seen devices from database.
+            Merges sync status, connection status, and persistent metadata (like nicknames).
+            """
+            # Get all devices from database (persistent storage)
+            db_devices = {d["device_id"]: d for d in self.database.get_all_devices()}
+
+            # Get current sync status
+            sync_devices = {
+                device_id: self.time_alignment.get_device_model(device_id)
+                for device_id in self.time_alignment.get_all_models()
+            }
+
+            # Get current connection status from gRPC
+            device_statuses = {}
+            if self.grpc_servicer:
+                device_statuses = self.grpc_servicer.device_statuses
+
+            # Merge all information
+            all_device_ids = (
+                set(db_devices.keys()) | set(sync_devices.keys()) | set(device_statuses.keys())
+            )
+
+            devices = []
+            for device_id in all_device_ids:
+                device_info: dict[str, Any] = {"device_id": device_id}
+
+                # Add database metadata
+                if device_id in db_devices:
+                    device_info.update(
+                        {
+                            "first_seen": db_devices[device_id]["first_seen"],
+                            "last_seen": db_devices[device_id]["last_seen"],
+                            "total_samples": db_devices[device_id]["total_samples"],
+                            "nickname": db_devices[device_id]["nickname"],
+                        }
+                    )
+
+                # Add sync status
+                if device_id in sync_devices:
+                    sync_model = sync_devices[device_id]
+                    device_info["sync_ready"] = self.time_alignment.is_device_ready(device_id)
+                    if sync_model:
+                        device_info["sync"] = {
+                            "confidence": sync_model.confidence,
+                            "drift_ppm": (sync_model.drift - 1.0) * 1_000_000,
+                            "sample_count": sync_model.sample_count,
+                        }
+                else:
+                    device_info["sync_ready"] = False
+
+                # Add connection status
+                if device_id in device_statuses:
+                    status_info = device_statuses[device_id]
+                    device_info.update(
+                        {
+                            "collector_id": status_info.get("collector_id"),
+                            "status": status_info.get("status"),
+                            "last_update": status_info.get("last_update"),
+                            "battery_level": status_info.get("battery_level"),
+                            "error_message": status_info.get("error_message"),
+                        }
+                    )
+                else:
+                    device_info["status"] = "DISCONNECTED"
+
+                devices.append(device_info)
+
+            # Sort by last_seen (most recent first), then by device_id
+            devices.sort(key=lambda d: (-(d.get("last_seen", 0)), d["device_id"]))
+
+            return {"devices": devices, "count": len(devices)}
+
+        @self.app.put("/devices/{device_id}/nickname")
+        async def update_device_nickname(
+            device_id: str, update: DeviceNicknameUpdate
+        ) -> dict[str, Any]:
+            """Update a device's nickname.
+
+            Args:
+                device_id: Device identifier
+                update: Nickname update request
+
+            Returns:
+                Success status and updated device info
+            """
+            success = self.database.update_device_nickname(device_id, update.nickname)
+
+            if success:
+                return {
+                    "success": True,
+                    "device_id": device_id,
+                    "nickname": update.nickname,
+                }
+            else:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Device {device_id} not found. Device must have sent samples before nickname can be set.",
+                )
 
         @self.app.get("/stats")
         async def get_stats() -> dict[str, object]:

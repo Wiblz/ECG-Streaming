@@ -26,6 +26,17 @@ export interface DeviceInfo {
 		drift_ppm: number;
 		sample_count: number;
 	};
+	// Persistent metadata from database
+	nickname?: string | null;
+	first_seen?: number;
+	last_seen?: number;
+	total_samples?: number;
+	// Connection status
+	collector_id?: string | null;
+	status?: 'UNKNOWN' | 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'STREAMING' | 'ERROR';
+	last_update?: number;
+	battery_level?: number | null;
+	error_message?: string | null;
 }
 
 export interface BufferStats {
@@ -93,19 +104,72 @@ export interface DeviceStatusResponse {
 export interface Collector {
 	collector_id: string;
 	display_name: string;
-	device_ids: string[];
+	device_ids?: string[];
 	version: string | null;
 	metadata: Record<string, string>;
-	connected_at: number;
-	last_heartbeat: number;
-	time_since_heartbeat: number;
+	connected_at?: number;
+	first_seen?: number;
+	last_seen?: number;
+	last_heartbeat: number | null;
+	time_since_heartbeat: number | null;
 	health: 'healthy' | 'warning' | 'disconnected';
-	samples_sent: number;
-	active_devices: number;
+	samples_sent?: number;
+	active_devices?: number;
+	connected: boolean;
 }
 
 export interface CollectorsResponse {
 	collectors: Collector[];
 	count: number;
 	error?: string;
+}
+
+// API Client interface
+
+/**
+ * Interface defining all API client methods.
+ * Both HttpClient and MockClient must implement this interface.
+ */
+export interface ApiClient {
+	// Device methods
+	getDevices(): Promise<{ devices: DeviceInfo[]; count: number }>;
+	getAllDevices(): Promise<{ devices: DeviceInfo[]; count: number }>;
+	getDeviceStatus(): Promise<DeviceStatusResponse>;
+	updateDeviceNickname(
+		deviceId: string,
+		nickname: string | null
+	): Promise<{ success: boolean; device_id: string; nickname: string | null }>;
+
+	// Collector methods
+	getCollectors(): Promise<CollectorsResponse>;
+
+	// Stats methods
+	getStats(): Promise<{
+		sync: unknown;
+		websocket_connections: number;
+		buffer: BufferStats;
+	}>;
+	getBufferStats(): Promise<BufferStats>;
+
+	// Session methods
+	getSessions(params?: { limit?: number; offset?: number }): Promise<SessionsResponse>;
+	getSession(sessionId: number): Promise<Session>;
+	getSessionSamples(
+		sessionId: number,
+		params?: {
+			device_id?: string;
+			start_time?: number;
+			end_time?: number;
+			limit?: number;
+			offset?: number;
+		}
+	): Promise<SessionSamplesResponse>;
+	deleteSession(sessionId: number): Promise<{ success: boolean }>;
+	getSessionExportUrl(sessionId: number): string;
+	importSession(file: File): Promise<{
+		success: boolean;
+		session_id?: number;
+		message?: string;
+		error?: string;
+	}>;
 }
