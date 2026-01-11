@@ -6,10 +6,10 @@ from collections.abc import AsyncIterator
 
 import grpc
 from ecg_common.logging import get_logger
-from ecg_common.models import ECGSample
+from ecg_common.models import AccelerometerSample, ECGSample
 from ecg_common.proto import ecg_streaming_pb2, ecg_streaming_pb2_grpc
 
-from ecg_aggregator.api.data_buffer import ECGDataBuffer
+from ecg_aggregator.api.data_buffer import AccelerometerDataBuffer, ECGDataBuffer
 from ecg_aggregator.storage.persistence import ECGDatabase
 from ecg_aggregator.sync.time_alignment import TimeAlignmentService
 
@@ -22,18 +22,21 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
     def __init__(
         self,
         time_alignment: TimeAlignmentService,
-        data_buffer: ECGDataBuffer,
+        ecg_buffer: ECGDataBuffer,
+        acc_buffer: AccelerometerDataBuffer,
         database: ECGDatabase | None = None,
     ):
         """Initialize the servicer.
 
         Args:
             time_alignment: Time alignment service
-            data_buffer: Data buffer for recent samples
+            ecg_buffer: ECG data buffer for recent samples
+            acc_buffer: Accelerometer data buffer for recent samples
             database: Optional database for persistence
         """
         self.time_alignment = time_alignment
-        self.data_buffer = data_buffer
+        self.ecg_buffer = ecg_buffer
+        self.acc_buffer = acc_buffer
         self.database = database
 
         # Track connected collectors
@@ -46,6 +49,7 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
 
         # Statistics
         self._samples_received = 0
+        self._acc_samples_received = 0
 
     async def StreamECG(  # noqa: N802
         self,
@@ -132,14 +136,14 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
 
                     yield ecg_streaming_pb2.AggregatorMessage(registration_ack=ack)
 
-                elif msg_type == "sample_batch":
+                elif msg_type == "ecg_batch":
                     # Handle ECG sample batch
-                    batch = message.sample_batch
+                    batch = message.ecg_batch
                     device_id = batch.device_id
 
                     # Process each sample in the batch
                     for proto_sample in batch.samples:
-                        await self._process_sample(device_id, proto_sample)
+                        await self._process_ecg_sample(device_id, proto_sample)
 
                     self._samples_received += len(batch.samples)
 
@@ -156,6 +160,17 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
                             )
 
                             yield ecg_streaming_pb2.AggregatorMessage(sync_status=sync_status)
+
+                elif msg_type == "acc_batch":
+                    # Handle accelerometer sample batch
+                    batch = message.acc_batch
+                    device_id = batch.device_id
+
+                    # Process each sample in the batch
+                    for proto_sample in batch.samples:
+                        await self._process_acc_sample(device_id, proto_sample)
+
+                    self._acc_samples_received += len(batch.samples)
 
                 elif msg_type == "status_update":
                     # Handle device status update
@@ -234,7 +249,7 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
 
                 del self.collectors[collector_id]
 
-    async def _process_sample(
+    async def _process_ecg_sample(
         self, device_id: str, proto_sample: ecg_streaming_pb2.ECGSample
     ) -> None:
         """Process a single ECG sample.
@@ -266,7 +281,7 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
 
         # Only add to buffer if sync confidence is high enough
         if synced and synced.confidence >= 0.8:
-            self.data_buffer.add_sample(
+            self.ecg_buffer.add_sample(
                 device_id=device_id,
                 global_time=synced.global_time,
                 raw_value=sample.raw_value,
@@ -286,6 +301,63 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
                 confidence=confidence,
             )
 
+    async def _process_acc_sample(
+        self, device_id: str, proto_sample: ecg_streaming_pb2.AccelerometerSample
+    ) -> None:
+        """Process a single accelerometer sample.
+
+        Args:
+            device_id: Device identifier
+            proto_sample: Protocol buffer accelerometer sample
+        """
+        # Convert proto sample to AccelerometerSample
+        sample = AccelerometerSample(
+            device_id=device_id,
+            device_timestamp=proto_sample.device_timestamp_us,
+            host_receive_time=proto_sample.host_receive_time_s,
+            x=proto_sample.x,
+            y=proto_sample.y,
+            z=proto_sample.z,
+        )
+
+        # Add timestamp pair to time alignment service (reuse same service for both ECG and ACC)
+        self.time_alignment.add_timestamp_pair(
+            device_id=device_id,
+            device_timestamp=sample.device_timestamp,
+            host_receive_time=sample.host_receive_time,
+        )
+
+        # Synchronize timestamp
+        synced = self.time_alignment.sync_timestamp(
+            device_id=device_id, device_timestamp=sample.device_timestamp
+        )
+
+        # Only add to buffer if sync confidence is high enough
+        if synced and synced.confidence >= 0.8:
+            self.acc_buffer.add_sample(
+                device_id=device_id,
+                global_time=synced.global_time,
+                x=sample.x,
+                y=sample.y,
+                z=sample.z,
+                confidence=synced.confidence,
+            )
+
+        # Store in database
+        if self.database:
+            confidence = synced.confidence if synced else 0.0
+            global_time = synced.global_time if synced else sample.host_receive_time
+
+            self.database.add_acc_sample(
+                device_id=device_id,
+                global_time=global_time,
+                device_timestamp=sample.device_timestamp,
+                x=sample.x,
+                y=sample.y,
+                z=sample.z,
+                confidence=confidence,
+            )
+
     def get_stats(self) -> dict:
         """Get server statistics.
 
@@ -296,12 +368,14 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
             "collectors_connected": len(self.collectors),
             "collectors": list(self.collectors.keys()),
             "samples_received": self._samples_received,
+            "acc_samples_received": self._acc_samples_received,
         }
 
 
 async def serve(
     time_alignment: TimeAlignmentService,
-    data_buffer: ECGDataBuffer,
+    ecg_buffer: ECGDataBuffer,
+    acc_buffer: AccelerometerDataBuffer,
     database: ECGDatabase | None = None,
     port: int = 50051,
 ) -> None:
@@ -309,7 +383,8 @@ async def serve(
 
     Args:
         time_alignment: Time alignment service
-        data_buffer: Data buffer
+        ecg_buffer: ECG data buffer
+        acc_buffer: Accelerometer data buffer
         database: Optional database
         port: Server port
     """
@@ -317,7 +392,8 @@ async def serve(
 
     servicer = ECGStreamingServicer(
         time_alignment=time_alignment,
-        data_buffer=data_buffer,
+        ecg_buffer=ecg_buffer,
+        acc_buffer=acc_buffer,
         database=database,
     )
 

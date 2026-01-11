@@ -1,18 +1,29 @@
-"""Circular buffer for storing synchronized ECG data."""
+"""Circular buffer for storing synchronized ECG and accelerometer data."""
 
+import math
 import time
+from abc import ABC, abstractmethod
 from collections import deque
 from dataclasses import asdict
 from threading import RLock
+from typing import Any
 
-from ecg_common.models import BufferedECGSample
+from ecg_common.models import (
+    BufferedAccelerometerSample,
+    BufferedECGSample,
+    BufferedSample,
+)
 
 
-class ECGDataBuffer:
-    """Circular buffer for storing synchronized ECG data.
+class DataBuffer[T: BufferedSample](ABC):
+    """Generic circular buffer for storing synchronized sensor data.
 
-    Maintains a time-based sliding window of ECG samples
-    across all devices.
+    This base class provides all common buffer operations. Subclasses
+    only need to implement the add_sample() method specific to their
+    data type.
+
+    Type-safe through generics - the buffer type T must inherit from
+    BufferedSample (guaranteeing device_id, global_time, and confidence).
     """
 
     def __init__(self, duration_seconds: int = 30, max_samples: int = 100000):
@@ -25,36 +36,20 @@ class ECGDataBuffer:
         self.duration_seconds = duration_seconds
         self.max_samples = max_samples
 
-        self._buffer: deque[BufferedECGSample] = deque(maxlen=max_samples)
+        self._buffer: deque[T] = deque(maxlen=max_samples)
         self._lock = RLock()
 
         # Statistics
         self._total_samples = 0
 
-    def add_sample(
-        self, device_id: str, global_time: float, raw_value: int, confidence: float
-    ) -> None:
-        """Add a synchronized ECG sample to the buffer.
+    @abstractmethod
+    def add_sample(self, *args: Any, **kwargs: Any) -> None:
+        """Add a synchronized sample to the buffer.
 
-        Args:
-            device_id: Device identifier
-            global_time: Synchronized global timestamp
-            raw_value: Raw ECG value
-            confidence: Synchronization confidence
+        This method must be implemented by subclasses to handle
+        their specific sample type and parameters.
         """
-        sample = BufferedECGSample(
-            device_id=device_id,
-            global_time=global_time,
-            raw_value=raw_value,
-            confidence=confidence,
-        )
-
-        with self._lock:
-            self._buffer.append(sample)
-            self._total_samples += 1
-
-            # Clean old samples
-            self._cleanup_old_samples()
+        pass
 
     def _cleanup_old_samples(self) -> None:
         """Remove samples older than the buffer duration."""
@@ -205,3 +200,85 @@ class ECGDataBuffer:
             )
             removed = original_len - len(self._buffer)
             return removed
+
+
+class ECGDataBuffer(DataBuffer[BufferedECGSample]):
+    """Circular buffer for storing synchronized ECG data.
+
+    Maintains a time-based sliding window of ECG samples
+    across all devices.
+    """
+
+    def add_sample(
+        self, device_id: str, global_time: float, raw_value: int, confidence: float
+    ) -> None:
+        """Add a synchronized ECG sample to the buffer.
+
+        Args:
+            device_id: Device identifier
+            global_time: Synchronized global timestamp
+            raw_value: Raw ECG value
+            confidence: Synchronization confidence
+        """
+        sample = BufferedECGSample(
+            device_id=device_id,
+            global_time=global_time,
+            raw_value=raw_value,
+            confidence=confidence,
+        )
+
+        with self._lock:
+            self._buffer.append(sample)
+            self._total_samples += 1
+
+            # Clean old samples
+            self._cleanup_old_samples()
+
+
+class AccelerometerDataBuffer(DataBuffer[BufferedAccelerometerSample]):
+    """Circular buffer for storing synchronized accelerometer data.
+
+    Maintains a time-based sliding window of accelerometer samples
+    across all devices.
+    """
+
+    def add_sample(
+        self,
+        device_id: str,
+        global_time: float,
+        x: float,
+        y: float,
+        z: float,
+        confidence: float,
+    ) -> None:
+        """Add a synchronized accelerometer sample to the buffer.
+
+        Calculates the motion magnitude (total acceleration) from x, y, z components.
+
+        Args:
+            device_id: Device identifier
+            global_time: Synchronized global timestamp
+            x: X-axis acceleration (g)
+            y: Y-axis acceleration (g)
+            z: Z-axis acceleration (g)
+            confidence: Synchronization confidence
+        """
+        # Calculate motion magnitude (total acceleration vector length)
+        magnitude = math.sqrt(x**2 + y**2 + z**2)
+
+        sample = BufferedAccelerometerSample(
+            device_id=device_id,
+            global_time=global_time,
+            x=x,
+            y=y,
+            z=z,
+            magnitude=magnitude,
+            confidence=confidence,
+        )
+
+        with self._lock:
+            self._buffer.append(sample)
+            self._total_samples += 1
+
+            # Clean old samples
+            self._cleanup_old_samples()

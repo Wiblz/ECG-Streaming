@@ -1,6 +1,7 @@
 """SQLite persistence layer for ECG samples."""
 
 import csv
+import math
 import sqlite3
 import time
 from pathlib import Path
@@ -54,6 +55,30 @@ class ECGDatabase:
 
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_global_time ON ecg_samples (global_time)
+            """)
+
+            # Accelerometer samples table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS accelerometer_samples (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    device_id TEXT NOT NULL,
+                    global_time REAL NOT NULL,
+                    device_timestamp REAL NOT NULL,
+                    x REAL NOT NULL,
+                    y REAL NOT NULL,
+                    z REAL NOT NULL,
+                    confidence REAL NOT NULL,
+                    inserted_at REAL NOT NULL
+                )
+            """)
+
+            # Create indexes for accelerometer samples
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_acc_device_time ON accelerometer_samples (device_id, global_time)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_acc_global_time ON accelerometer_samples (global_time)
             """)
 
             # Session tracking table
@@ -141,6 +166,31 @@ class ECGDatabase:
                     conn.commit()
                     logger.info("Added session_id column to ecg_samples")
 
+                # Check if session_id column exists in accelerometer_samples
+                cursor.execute("PRAGMA table_info(accelerometer_samples)")
+                acc_columns = [row[1] for row in cursor.fetchall()]
+
+                if acc_columns and "session_id" not in acc_columns:
+                    logger.info("Adding session_id column to accelerometer_samples table")
+                    cursor.execute(
+                        "ALTER TABLE accelerometer_samples ADD COLUMN session_id INTEGER"
+                    )
+                    cursor.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_acc_session_id ON accelerometer_samples (session_id)"
+                    )
+                    conn.commit()
+                    logger.info("Added session_id column to accelerometer_samples")
+
+                # Check if magnitude column exists in accelerometer_samples
+                cursor.execute("PRAGMA table_info(accelerometer_samples)")
+                acc_mag_columns = [row[1] for row in cursor.fetchall()]
+
+                if acc_mag_columns and "magnitude" not in acc_mag_columns:
+                    logger.info("Adding magnitude column to accelerometer_samples table")
+                    cursor.execute("ALTER TABLE accelerometer_samples ADD COLUMN magnitude REAL")
+                    conn.commit()
+                    logger.info("Added magnitude column to accelerometer_samples")
+
                 # Check if nickname column exists in devices
                 cursor.execute("PRAGMA table_info(devices)")
                 device_columns = [row[1] for row in cursor.fetchall()]
@@ -201,6 +251,74 @@ class ECGDatabase:
 
             except Exception as e:
                 logger.error(f"Error storing sample: {e}")
+
+    def add_acc_sample(
+        self,
+        device_id: str,
+        global_time: float,
+        device_timestamp: float,
+        x: float,
+        y: float,
+        z: float,
+        confidence: float,
+        magnitude: float | None = None,
+    ) -> None:
+        """Store a single accelerometer sample.
+
+        Args:
+            device_id: Device identifier
+            global_time: Synchronized global timestamp
+            device_timestamp: Original device timestamp
+            x: X-axis acceleration (g)
+            y: Y-axis acceleration (g)
+            z: Z-axis acceleration (g)
+            confidence: Time sync confidence (0-1)
+            magnitude: Pre-calculated motion magnitude (optional, will be calculated if not provided)
+        """
+        # Calculate magnitude if not provided
+        if magnitude is None:
+            magnitude = math.sqrt(x**2 + y**2 + z**2)
+
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                cursor.execute(
+                    """
+                    INSERT INTO accelerometer_samples
+                    (device_id, global_time, device_timestamp, x, y, z, magnitude, confidence, inserted_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        device_id,
+                        global_time,
+                        device_timestamp,
+                        x,
+                        y,
+                        z,
+                        magnitude,
+                        confidence,
+                        time.time(),
+                    ),
+                )
+
+                # Update device metadata (same devices table as ECG)
+                cursor.execute(
+                    """
+                    INSERT INTO devices (device_id, first_seen, last_seen, total_samples)
+                    VALUES (?, ?, ?, 1)
+                    ON CONFLICT(device_id) DO UPDATE SET
+                        last_seen = ?,
+                        total_samples = total_samples + 1
+                    """,
+                    (device_id, global_time, global_time, global_time),
+                )
+
+                conn.commit()
+
+            except Exception as e:
+                logger.error(f"Error storing accelerometer sample: {e}")
 
     def add_samples_batch(
         self,
@@ -767,6 +885,80 @@ class ECGDatabase:
 
             except Exception as e:
                 logger.error(f"Error retrieving session samples: {e}")
+                return []
+
+    def get_session_accelerometer_samples(
+        self,
+        session_id: int,
+        device_id: str | None = None,
+        start_time: float | None = None,
+        end_time: float | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[dict]:
+        """Get accelerometer samples for a specific session.
+
+        Args:
+            session_id: Session ID
+            device_id: Filter by device ID (optional)
+            start_time: Start of time range in Unix timestamp (optional)
+            end_time: End of time range in Unix timestamp (optional)
+            limit: Maximum samples to return
+            offset: Number of samples to skip
+
+        Returns:
+            List of accelerometer sample dictionaries
+        """
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                query = """
+                    SELECT device_id, global_time, x, y, z, magnitude, confidence
+                    FROM accelerometer_samples
+                    WHERE session_id = ?
+                """
+                params: list[int | str | float] = [session_id]
+
+                if device_id:
+                    query += " AND device_id = ?"
+                    params.append(device_id)
+
+                if start_time is not None:
+                    query += " AND global_time >= ?"
+                    params.append(start_time)
+
+                if end_time is not None:
+                    query += " AND global_time <= ?"
+                    params.append(end_time)
+
+                query += " ORDER BY global_time ASC"
+
+                if limit:
+                    query += " LIMIT ? OFFSET ?"
+                    params.extend([limit, offset])
+
+                cursor.execute(query, params)
+
+                results = []
+                for row in cursor.fetchall():
+                    results.append(
+                        {
+                            "device_id": row[0],
+                            "global_time": row[1],
+                            "x": row[2],
+                            "y": row[3],
+                            "z": row[4],
+                            "magnitude": row[5],
+                            "confidence": row[6],
+                        }
+                    )
+
+                return results
+
+            except Exception as e:
+                logger.error(f"Error retrieving session accelerometer samples: {e}")
                 return []
 
     def create_sessions_from_samples(

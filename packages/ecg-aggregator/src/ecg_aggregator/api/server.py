@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from ecg_aggregator.api.data_buffer import ECGDataBuffer
+from ecg_aggregator.api.data_buffer import AccelerometerDataBuffer, ECGDataBuffer
 from ecg_aggregator.storage.persistence import ECGDatabase
 from ecg_aggregator.sync.time_alignment import TimeAlignmentService
 
@@ -31,7 +31,8 @@ class ECGStreamingServer:
     def __init__(
         self,
         time_alignment: TimeAlignmentService,
-        data_buffer: ECGDataBuffer,
+        ecg_buffer: ECGDataBuffer,
+        acc_buffer: AccelerometerDataBuffer,
         database: ECGDatabase,
         grpc_servicer: Any | None = None,
         websocket_fps: int = 30,
@@ -41,21 +42,24 @@ class ECGStreamingServer:
 
         Args:
             time_alignment: Time alignment service instance
-            data_buffer: Data buffer instance
+            ecg_buffer: ECG data buffer instance
+            acc_buffer: Accelerometer data buffer instance
             database: Database instance
             grpc_servicer: Optional gRPC servicer for accessing device status
             websocket_fps: WebSocket broadcast rate in FPS
             cors_origins: CORS allowed origins
         """
         self.time_alignment = time_alignment
-        self.data_buffer = data_buffer
+        self.ecg_buffer = ecg_buffer
+        self.acc_buffer = acc_buffer
         self.database = database
         self.grpc_servicer = grpc_servicer
         self.websocket_fps = websocket_fps
         self.broadcast_interval = 1.0 / websocket_fps
 
         # WebSocket connections
-        self.active_connections: list[WebSocket] = []
+        self.ecg_connections: list[WebSocket] = []
+        self.acc_connections: list[WebSocket] = []
 
         # Create FastAPI app
         self.app = FastAPI(
@@ -79,8 +83,9 @@ class ECGStreamingServer:
         # Register routes
         self._register_routes()
 
-        # Background task
+        # Background tasks
         self._broadcast_task: asyncio.Task | None = None
+        self._acc_broadcast_task: asyncio.Task | None = None
 
     def _register_routes(self) -> None:
         """Register API routes."""
@@ -92,14 +97,18 @@ class ECGStreamingServer:
                 "service": "ECG Streaming API",
                 "version": "0.1.0",
                 "endpoints": {
-                    "websocket": "/ws/ecg",
+                    "websocket_ecg": "/ws/ecg",
+                    "websocket_accelerometer": "/ws/accelerometer",
                     "devices": "/devices",
                     "devices_all": "/devices/all",
                     "devices_status": "/devices/status",
                     "device_nickname": "/devices/{device_id}/nickname",
                     "collectors": "/collectors",
                     "stats": "/stats",
-                    "buffer": "/buffer/stats",
+                    "ecg_buffer": "/buffer/stats",
+                    "ecg_latest": "/buffer/latest",
+                    "accelerometer_buffer": "/accelerometer/buffer/stats",
+                    "accelerometer_latest": "/accelerometer/buffer/latest",
                 },
             }
 
@@ -354,8 +363,10 @@ class ECGStreamingServer:
 
             return {
                 "sync": sync_stats,
-                "websocket_connections": len(self.active_connections),
-                "buffer": self.data_buffer.get_stats(),
+                "ecg_websocket_connections": len(self.ecg_connections),
+                "acc_websocket_connections": len(self.acc_connections),
+                "ecg_buffer": self.ecg_buffer.get_stats(),
+                "acc_buffer": self.acc_buffer.get_stats(),
             }
 
         @self.app.get("/debug/connections")
@@ -363,26 +374,47 @@ class ECGStreamingServer:
         async def debug_connections() -> dict[str, Any]:
             """Debug endpoint to inspect active WebSocket connections."""
             return {
-                "count": len(self.active_connections),
-                "connections": [
+                "ecg_count": len(self.ecg_connections),
+                "acc_count": len(self.acc_connections),
+                "ecg_connections": [
                     {
                         "id": id(conn),
                         "client": getattr(conn, "client", None),
                         "headers": dict(conn.headers) if hasattr(conn, "headers") else {},
                     }
-                    for conn in self.active_connections
+                    for conn in self.ecg_connections
+                ],
+                "acc_connections": [
+                    {
+                        "id": id(conn),
+                        "client": getattr(conn, "client", None),
+                        "headers": dict(conn.headers) if hasattr(conn, "headers") else {},
+                    }
+                    for conn in self.acc_connections
                 ],
             }
 
         @self.app.get("/buffer/stats")
         async def get_buffer_stats() -> dict:
-            """Get data buffer statistics."""
-            return self.data_buffer.get_stats()
+            """Get ECG buffer statistics."""
+            return self.ecg_buffer.get_stats()
 
         @self.app.get("/buffer/latest")
         async def get_latest_samples() -> dict[str, dict]:
-            """Get latest sample for each device."""
-            return self.data_buffer.get_latest_by_device()
+            """Get latest ECG sample for each device."""
+            return self.ecg_buffer.get_latest_by_device()
+
+        # Accelerometer buffer endpoints
+
+        @self.app.get("/accelerometer/buffer/stats")
+        async def get_acc_buffer_stats() -> dict:
+            """Get accelerometer buffer statistics."""
+            return self.acc_buffer.get_stats()
+
+        @self.app.get("/accelerometer/buffer/latest")
+        async def get_acc_latest_samples() -> dict[str, dict]:
+            """Get latest accelerometer sample for each device."""
+            return self.acc_buffer.get_latest_by_device()
 
         # Session endpoints
 
@@ -409,7 +441,7 @@ class ECGStreamingServer:
             limit: int | None = None,
             offset: int = 0,
         ) -> dict[str, Any]:
-            """Get samples for a specific session.
+            """Get ECG samples for a specific session.
 
             Args:
                 session_id: Session ID
@@ -420,6 +452,39 @@ class ECGStreamingServer:
                 offset: Number of samples to skip (optional)
             """
             samples = self.database.get_session_samples(
+                session_id=session_id,
+                device_id=device_id,
+                start_time=start_time,
+                end_time=end_time,
+                limit=limit,
+                offset=offset,
+            )
+            return {
+                "session_id": session_id,
+                "samples": samples,
+                "count": len(samples),
+            }
+
+        @self.app.get("/sessions/{session_id}/accelerometer")
+        async def get_session_accelerometer_endpoint(
+            session_id: int,
+            device_id: str | None = None,
+            start_time: float | None = None,
+            end_time: float | None = None,
+            limit: int | None = None,
+            offset: int = 0,
+        ) -> dict[str, Any]:
+            """Get accelerometer samples for a specific session.
+
+            Args:
+                session_id: Session ID
+                device_id: Filter by device ID (optional)
+                start_time: Start of time range in Unix timestamp (optional)
+                end_time: End of time range in Unix timestamp (optional)
+                limit: Maximum samples to return (optional)
+                offset: Number of samples to skip (optional)
+            """
+            samples = self.database.get_session_accelerometer_samples(
                 session_id=session_id,
                 device_id=device_id,
                 start_time=start_time,
@@ -544,19 +609,24 @@ class ECGStreamingServer:
             """WebSocket endpoint for real-time ECG streaming."""
             await self._handle_websocket(websocket)
 
+        @self.app.websocket("/ws/accelerometer")
+        async def websocket_acc_endpoint(websocket: WebSocket) -> None:
+            """WebSocket endpoint for real-time accelerometer streaming."""
+            await self._handle_acc_websocket(websocket)
+
     async def _handle_websocket(self, websocket: WebSocket) -> None:
-        """Handle a WebSocket connection.
+        """Handle an ECG WebSocket connection.
 
         Args:
             websocket: WebSocket connection
         """
         await websocket.accept()
-        self.active_connections.append(websocket)
-        logger.info(f"WebSocket connected. Active connections: {len(self.active_connections)}")
+        self.ecg_connections.append(websocket)
+        logger.info(f"ECG WebSocket connected. Active connections: {len(self.ecg_connections)}")
 
         try:
             # Send initial state
-            devices = self.data_buffer.get_device_list()
+            devices = self.ecg_buffer.get_device_list()
             await websocket.send_json(
                 {
                     "type": "init",
@@ -577,32 +647,77 @@ class ECGStreamingServer:
                     pass
 
         except WebSocketDisconnect:
-            logger.info("WebSocket disconnected")
+            logger.info("ECG WebSocket disconnected")
         except Exception as e:
-            logger.error(f"WebSocket error: {e}")
+            logger.error(f"ECG WebSocket error: {e}")
         finally:
-            if websocket in self.active_connections:
-                self.active_connections.remove(websocket)
-            logger.info(f"WebSocket closed. Active connections: {len(self.active_connections)}")
+            if websocket in self.ecg_connections:
+                self.ecg_connections.remove(websocket)
+            logger.info(f"ECG WebSocket closed. Active connections: {len(self.ecg_connections)}")
+
+    async def _handle_acc_websocket(self, websocket: WebSocket) -> None:
+        """Handle an accelerometer WebSocket connection.
+
+        Args:
+            websocket: WebSocket connection
+        """
+        await websocket.accept()
+        self.acc_connections.append(websocket)
+        logger.info(
+            f"Accelerometer WebSocket connected. Active connections: {len(self.acc_connections)}"
+        )
+
+        try:
+            # Send initial state
+            devices = self.acc_buffer.get_device_list()
+            await websocket.send_json(
+                {
+                    "type": "init",
+                    "devices": devices,
+                    "timestamp": time.time(),
+                }
+            )
+
+            # Keep connection alive and listen for messages
+            while True:
+                try:
+                    # Receive messages (if client sends any)
+                    data = await asyncio.wait_for(websocket.receive_text(), timeout=1.0)
+                    # Handle client messages if needed
+                    logger.debug(f"Received from acc client: {data}")
+                except TimeoutError:
+                    # No message received, continue
+                    pass
+
+        except WebSocketDisconnect:
+            logger.info("Accelerometer WebSocket disconnected")
+        except Exception as e:
+            logger.error(f"Accelerometer WebSocket error: {e}")
+        finally:
+            if websocket in self.acc_connections:
+                self.acc_connections.remove(websocket)
+            logger.info(
+                f"Accelerometer WebSocket closed. Active connections: {len(self.acc_connections)}"
+            )
 
     async def broadcast_data(self) -> None:
-        """Broadcast data to all connected WebSocket clients."""
+        """Broadcast ECG data to all connected WebSocket clients."""
         last_broadcast_time: dict[str, float] = {}
 
         while True:
             try:
                 await asyncio.sleep(self.broadcast_interval)
 
-                if not self.active_connections:
+                if not self.ecg_connections:
                     continue
 
                 current_time = time.time()
 
                 # Get new samples since last broadcast for each device
                 all_samples = []
-                for device_id in self.data_buffer.get_device_list():
+                for device_id in self.ecg_buffer.get_device_list():
                     since = last_broadcast_time.get(device_id, current_time - 1.0)
-                    samples = self.data_buffer.get_recent_samples(since=since, device_id=device_id)
+                    samples = self.ecg_buffer.get_recent_samples(since=since, device_id=device_id)
                     all_samples.extend(samples)
                     if samples:
                         last_broadcast_time[device_id] = samples[-1]["global_time"]
@@ -620,57 +735,128 @@ class ECGStreamingServer:
 
                 # Send to all connections concurrently
                 disconnected = []
-                for connection in self.active_connections:
+                for connection in self.ecg_connections:
                     try:
                         await connection.send_json(message)
                     except Exception as e:
-                        logger.error(f"Error sending to WebSocket: {e}")
+                        logger.error(f"Error sending to ECG WebSocket: {e}")
                         disconnected.append(connection)
 
                 # Remove disconnected clients
                 for connection in disconnected:
-                    if connection in self.active_connections:
-                        self.active_connections.remove(connection)
+                    if connection in self.ecg_connections:
+                        self.ecg_connections.remove(connection)
 
             except Exception as e:
-                logger.error(f"Error in broadcast loop: {e}")
+                logger.error(f"Error in ECG broadcast loop: {e}")
+                await asyncio.sleep(1.0)
+
+    async def broadcast_acc_data(self) -> None:
+        """Broadcast accelerometer data to all connected WebSocket clients."""
+        last_broadcast_time: dict[str, float] = {}
+
+        while True:
+            try:
+                await asyncio.sleep(self.broadcast_interval)
+
+                if not self.acc_connections:
+                    continue
+
+                current_time = time.time()
+
+                # Get new samples since last broadcast for each device
+                all_samples = []
+                for device_id in self.acc_buffer.get_device_list():
+                    since = last_broadcast_time.get(device_id, current_time - 1.0)
+                    samples = self.acc_buffer.get_recent_samples(since=since, device_id=device_id)
+                    all_samples.extend(samples)
+                    if samples:
+                        last_broadcast_time[device_id] = samples[-1]["global_time"]
+
+                if not all_samples:
+                    continue
+
+                # Broadcast to all connections
+                message = {
+                    "type": "data",
+                    "samples": all_samples,
+                    "timestamp": current_time,
+                    "count": len(all_samples),
+                }
+
+                # Send to all connections concurrently
+                disconnected = []
+                for connection in self.acc_connections:
+                    try:
+                        await connection.send_json(message)
+                    except Exception as e:
+                        logger.error(f"Error sending to accelerometer WebSocket: {e}")
+                        disconnected.append(connection)
+
+                # Remove disconnected clients
+                for connection in disconnected:
+                    if connection in self.acc_connections:
+                        self.acc_connections.remove(connection)
+
+            except Exception as e:
+                logger.error(f"Error in accelerometer broadcast loop: {e}")
                 await asyncio.sleep(1.0)
 
     async def start_broadcast(self) -> None:
-        """Start the background broadcast task."""
+        """Start the background broadcast tasks for ECG and accelerometer."""
         if self._broadcast_task is None or self._broadcast_task.done():
             self._broadcast_task = asyncio.create_task(self.broadcast_data())
-            logger.info(f"Started WebSocket broadcast at {self.websocket_fps} FPS")
+            logger.info(f"Started ECG WebSocket broadcast at {self.websocket_fps} FPS")
+
+        if self._acc_broadcast_task is None or self._acc_broadcast_task.done():
+            self._acc_broadcast_task = asyncio.create_task(self.broadcast_acc_data())
+            logger.info(f"Started accelerometer WebSocket broadcast at {self.websocket_fps} FPS")
 
     async def stop_broadcast(self) -> None:
-        """Stop the background broadcast task."""
+        """Stop the background broadcast tasks."""
         if self._broadcast_task and not self._broadcast_task.done():
             self._broadcast_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._broadcast_task
-            logger.info("Stopped WebSocket broadcast")
+            logger.info("Stopped ECG WebSocket broadcast")
+
+        if self._acc_broadcast_task and not self._acc_broadcast_task.done():
+            self._acc_broadcast_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._acc_broadcast_task
+            logger.info("Stopped accelerometer WebSocket broadcast")
 
     async def shutdown(self) -> None:
         """Shutdown the server and close all connections."""
         logger.info("Shutting down server...")
 
-        # Stop broadcast
+        # Stop broadcasts
         await self.stop_broadcast()
 
-        # Close all WebSocket connections
-        for connection in self.active_connections.copy():
+        # Close all ECG WebSocket connections
+        for connection in self.ecg_connections.copy():
             try:
                 await connection.close()
             except Exception as e:
-                logger.error(f"Error closing WebSocket: {e}")
+                logger.error(f"Error closing ECG WebSocket: {e}")
 
-        self.active_connections.clear()
+        self.ecg_connections.clear()
+
+        # Close all accelerometer WebSocket connections
+        for connection in self.acc_connections.copy():
+            try:
+                await connection.close()
+            except Exception as e:
+                logger.error(f"Error closing accelerometer WebSocket: {e}")
+
+        self.acc_connections.clear()
         logger.info("Server shutdown complete")
 
 
 def create_app(
     time_alignment: TimeAlignmentService,
-    data_buffer: ECGDataBuffer,
+    ecg_buffer: ECGDataBuffer,
+    acc_buffer: AccelerometerDataBuffer,
     database: ECGDatabase,
     grpc_servicer: Any | None = None,
     websocket_fps: int = 30,
@@ -680,7 +866,8 @@ def create_app(
 
     Args:
         time_alignment: Time alignment service
-        data_buffer: Data buffer
+        ecg_buffer: ECG data buffer
+        acc_buffer: Accelerometer data buffer
         database: Database instance
         grpc_servicer: Optional gRPC servicer for device status
         websocket_fps: WebSocket broadcast rate
@@ -691,7 +878,8 @@ def create_app(
     """
     server = ECGStreamingServer(
         time_alignment=time_alignment,
-        data_buffer=data_buffer,
+        ecg_buffer=ecg_buffer,
+        acc_buffer=acc_buffer,
         database=database,
         grpc_servicer=grpc_servicer,
         websocket_fps=websocket_fps,

@@ -8,7 +8,7 @@ from pathlib import Path
 import uvicorn
 from ecg_common.logging import get_logger, setup_logging
 
-from ecg_aggregator.api.data_buffer import ECGDataBuffer
+from ecg_aggregator.api.data_buffer import AccelerometerDataBuffer, ECGDataBuffer
 from ecg_aggregator.api.server import ECGStreamingServer
 from ecg_aggregator.config import AggregatorSettings
 from ecg_aggregator.grpc_server import ECGStreamingServicer
@@ -41,7 +41,12 @@ class ECGAggregator:
             min_samples=config.sync.min_samples,
         )
 
-        self.data_buffer = ECGDataBuffer(
+        self.ecg_buffer = ECGDataBuffer(
+            duration_seconds=config.buffer.duration_seconds,
+            max_samples=config.buffer.max_samples,
+        )
+
+        self.acc_buffer = AccelerometerDataBuffer(
             duration_seconds=config.buffer.duration_seconds,
             max_samples=config.buffer.max_samples,
         )
@@ -109,7 +114,8 @@ class ECGAggregator:
 
         self.grpc_servicer = ECGStreamingServicer(
             time_alignment=self.time_alignment,
-            data_buffer=self.data_buffer,
+            ecg_buffer=self.ecg_buffer,
+            acc_buffer=self.acc_buffer,
             database=self.database,
         )
 
@@ -128,7 +134,8 @@ class ECGAggregator:
         """Start the HTTP/WebSocket server."""
         self.http_server = ECGStreamingServer(
             time_alignment=self.time_alignment,
-            data_buffer=self.data_buffer,
+            ecg_buffer=self.ecg_buffer,
+            acc_buffer=self.acc_buffer,
             database=self.database,
             grpc_servicer=self.grpc_servicer,
             websocket_fps=self.config.api.websocket_fps,
