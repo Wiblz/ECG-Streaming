@@ -8,6 +8,9 @@ from pathlib import Path
 from threading import RLock
 
 from ecg_common.logging import get_logger
+from yoyo import get_backend, read_migrations
+from yoyo.backends import DatabaseBackend
+from yoyo.exceptions import LockTimeout
 
 logger = get_logger(__name__)
 
@@ -15,124 +18,117 @@ logger = get_logger(__name__)
 class ECGDatabase:
     """SQLite database for storing ECG samples."""
 
-    def __init__(self, db_path: Path | str = "ecg_data.db"):
+    def __init__(
+        self, db_path: Path | str = "ecg_data.db", migrations_dir: Path | str | None = None
+    ):
         """Initialize the database.
 
         Args:
             db_path: Path to SQLite database file
+            migrations_dir: Path to migrations directory (optional, auto-detected if None)
         """
         self.db_path = Path(db_path)
         self._lock = RLock()
         self._conn: sqlite3.Connection | None = None
 
-        # Create database and tables
+        # Auto-detect migrations directory if not provided
+        if migrations_dir is None:
+            self.migrations_dir = Path(__file__).parent / "migrations"
+        else:
+            self.migrations_dir = Path(migrations_dir)
+
+        # Create database and run migrations
         self._init_db()
 
         logger.info(f"Initialized ECG database at {self.db_path}")
 
     def _init_db(self) -> None:
-        """Initialize database schema."""
+        """Initialize database schema using yoyo migrations."""
+        # Ensure connection exists (creates DB file if needed)
         with self._get_connection() as conn:
-            cursor = conn.cursor()
+            # Enable WAL mode early
+            conn.execute("PRAGMA journal_mode=WAL")
 
-            # Main samples table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS ecg_samples (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    device_id TEXT NOT NULL,
-                    global_time REAL NOT NULL,
-                    device_timestamp REAL NOT NULL,
-                    raw_value INTEGER NOT NULL,
-                    confidence REAL NOT NULL,
-                    inserted_at REAL NOT NULL
+        # Apply migrations
+        self._apply_migrations()
+
+    def _apply_migrations(self) -> None:
+        """Apply pending database migrations using yoyo."""
+        if not self.migrations_dir.exists():
+            logger.warning(
+                f"Migrations directory not found: {self.migrations_dir}. Skipping migrations."
+            )
+            return
+
+        try:
+            # Build SQLite connection URL
+            # yoyo expects format: sqlite:////absolute/path/to/db.sqlite
+            db_url = f"sqlite:///{self.db_path.absolute()}"
+
+            # Get backend and load migrations
+            backend = get_backend(db_url)
+            migrations = read_migrations(str(self.migrations_dir))
+
+            # Check if this is a legacy database (has tables but no yoyo tracking)
+            is_legacy_db = self._is_legacy_database(backend)
+
+            # Apply migrations with lock
+            with backend.lock():
+                if is_legacy_db:
+                    logger.info("Detected legacy database. Marking existing migrations as applied.")
+                    # Mark all migrations as applied without running them
+                    backend.mark_migrations(migrations)
+                    logger.info(f"Marked {len(migrations)} migration(s) as applied")
+                else:
+                    # Normal migration application
+                    pending = backend.to_apply(migrations)
+                    if pending:
+                        logger.info(f"Applying {len(pending)} pending migration(s)")
+                        backend.apply_migrations(pending)
+                        logger.info("All migrations applied successfully")
+                    else:
+                        logger.debug("No pending migrations")
+
+        except LockTimeout:
+            logger.error(
+                "Could not acquire migration lock. Another process may be running migrations."
+            )
+            raise
+        except Exception as e:
+            logger.error(f"Error applying migrations: {e}")
+            raise
+
+    def _is_legacy_database(self, backend: DatabaseBackend) -> bool:
+        """Check if database has tables but no yoyo migration tracking.
+
+        Args:
+            backend: Yoyo backend instance
+
+        Returns:
+            True if this is a legacy database (has tables but no yoyo tracking)
+        """
+        try:
+            # Check if ecg_samples table exists
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='ecg_samples'"
                 )
-            """)
+                has_tables = cursor.fetchone() is not None
 
-            # Create indexes separately
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_device_time ON ecg_samples (device_id, global_time)
-            """)
+            # Check if yoyo tracking table exists
+            try:
+                # This will succeed if yoyo tables exist
+                backend.to_apply([])
+                has_yoyo_tracking = True
+            except Exception:
+                has_yoyo_tracking = False
 
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_global_time ON ecg_samples (global_time)
-            """)
+            # Legacy if has tables but no yoyo tracking
+            return has_tables and not has_yoyo_tracking
 
-            # Accelerometer samples table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS accelerometer_samples (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    device_id TEXT NOT NULL,
-                    global_time REAL NOT NULL,
-                    device_timestamp REAL NOT NULL,
-                    x REAL NOT NULL,
-                    y REAL NOT NULL,
-                    z REAL NOT NULL,
-                    confidence REAL NOT NULL,
-                    inserted_at REAL NOT NULL
-                )
-            """)
-
-            # Create indexes for accelerometer samples
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_acc_device_time ON accelerometer_samples (device_id, global_time)
-            """)
-
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_acc_global_time ON accelerometer_samples (global_time)
-            """)
-
-            # Session tracking table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS sessions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    start_time REAL NOT NULL,
-                    end_time REAL,
-                    device_count INTEGER,
-                    sample_count INTEGER DEFAULT 0,
-                    notes TEXT
-                )
-            """)
-
-            # Device metadata table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS devices (
-                    device_id TEXT PRIMARY KEY,
-                    first_seen REAL NOT NULL,
-                    last_seen REAL NOT NULL,
-                    total_samples INTEGER DEFAULT 0
-                )
-            """)
-
-            # Collector registry table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS collectors (
-                    collector_id TEXT PRIMARY KEY,
-                    display_name TEXT,
-                    version TEXT,
-                    metadata TEXT,
-                    first_seen REAL NOT NULL,
-                    last_seen REAL NOT NULL,
-                    last_heartbeat REAL
-                )
-            """)
-
-            # Device-collector mappings table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS device_collector_mappings (
-                    device_id TEXT NOT NULL,
-                    collector_id TEXT NOT NULL,
-                    first_associated REAL NOT NULL,
-                    last_associated REAL NOT NULL,
-                    PRIMARY KEY (device_id, collector_id),
-                    FOREIGN KEY (device_id) REFERENCES devices(device_id),
-                    FOREIGN KEY (collector_id) REFERENCES collectors(collector_id)
-                )
-            """)
-
-            conn.commit()
-
-            # Migrate schema if needed
-            self._migrate_schema()
+        except Exception:
+            return False
 
     def _get_connection(self) -> sqlite3.Connection:
         """Get database connection (thread-safe).
@@ -145,64 +141,6 @@ class ECGDatabase:
             # Enable WAL mode for better concurrency
             self._conn.execute("PRAGMA journal_mode=WAL")
         return self._conn
-
-    def _migrate_schema(self) -> None:
-        """Migrate database schema to latest version."""
-        with self._lock:
-            try:
-                conn = self._get_connection()
-                cursor = conn.cursor()
-
-                # Check if session_id column exists in ecg_samples
-                cursor.execute("PRAGMA table_info(ecg_samples)")
-                columns = [row[1] for row in cursor.fetchall()]
-
-                if "session_id" not in columns:
-                    logger.info("Adding session_id column to ecg_samples table")
-                    cursor.execute("ALTER TABLE ecg_samples ADD COLUMN session_id INTEGER")
-                    cursor.execute(
-                        "CREATE INDEX IF NOT EXISTS idx_session_id ON ecg_samples (session_id)"
-                    )
-                    conn.commit()
-                    logger.info("Added session_id column to ecg_samples")
-
-                # Check if session_id column exists in accelerometer_samples
-                cursor.execute("PRAGMA table_info(accelerometer_samples)")
-                acc_columns = [row[1] for row in cursor.fetchall()]
-
-                if acc_columns and "session_id" not in acc_columns:
-                    logger.info("Adding session_id column to accelerometer_samples table")
-                    cursor.execute(
-                        "ALTER TABLE accelerometer_samples ADD COLUMN session_id INTEGER"
-                    )
-                    cursor.execute(
-                        "CREATE INDEX IF NOT EXISTS idx_acc_session_id ON accelerometer_samples (session_id)"
-                    )
-                    conn.commit()
-                    logger.info("Added session_id column to accelerometer_samples")
-
-                # Check if magnitude column exists in accelerometer_samples
-                cursor.execute("PRAGMA table_info(accelerometer_samples)")
-                acc_mag_columns = [row[1] for row in cursor.fetchall()]
-
-                if acc_mag_columns and "magnitude" not in acc_mag_columns:
-                    logger.info("Adding magnitude column to accelerometer_samples table")
-                    cursor.execute("ALTER TABLE accelerometer_samples ADD COLUMN magnitude REAL")
-                    conn.commit()
-                    logger.info("Added magnitude column to accelerometer_samples")
-
-                # Check if nickname column exists in devices
-                cursor.execute("PRAGMA table_info(devices)")
-                device_columns = [row[1] for row in cursor.fetchall()]
-
-                if "nickname" not in device_columns:
-                    logger.info("Adding nickname column to devices table")
-                    cursor.execute("ALTER TABLE devices ADD COLUMN nickname TEXT")
-                    conn.commit()
-                    logger.info("Added nickname column to devices")
-
-            except Exception as e:
-                logger.error(f"Error during schema migration: {e}")
 
     def add_sample(
         self,
