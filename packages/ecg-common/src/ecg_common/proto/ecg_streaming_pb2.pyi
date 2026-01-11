@@ -28,22 +28,25 @@ DEVICE_STATUS_STREAMING: DeviceStatus
 DEVICE_STATUS_ERROR: DeviceStatus
 
 class CollectorMessage(_message.Message):
-    __slots__ = ("registration", "sample_batch", "status_update", "heartbeat")
+    __slots__ = ("registration", "ecg_batch", "status_update", "heartbeat", "acc_batch")
     REGISTRATION_FIELD_NUMBER: _ClassVar[int]
-    SAMPLE_BATCH_FIELD_NUMBER: _ClassVar[int]
+    ECG_BATCH_FIELD_NUMBER: _ClassVar[int]
     STATUS_UPDATE_FIELD_NUMBER: _ClassVar[int]
     HEARTBEAT_FIELD_NUMBER: _ClassVar[int]
+    ACC_BATCH_FIELD_NUMBER: _ClassVar[int]
     registration: CollectorRegistration
-    sample_batch: ECGSampleBatch
+    ecg_batch: ECGSampleBatch
     status_update: DeviceStatusUpdate
     heartbeat: CollectorHeartbeat
+    acc_batch: AccelerometerSampleBatch
 
     def __init__(
         self,
         registration: CollectorRegistration | _Mapping | None = ...,
-        sample_batch: ECGSampleBatch | _Mapping | None = ...,
+        ecg_batch: ECGSampleBatch | _Mapping | None = ...,
         status_update: DeviceStatusUpdate | _Mapping | None = ...,
         heartbeat: CollectorHeartbeat | _Mapping | None = ...,
+        acc_batch: AccelerometerSampleBatch | _Mapping | None = ...,
     ) -> None: ...
 
 class AggregatorMessage(_message.Message):
@@ -142,6 +145,47 @@ class ECGSample(_message.Message):
         device_timestamp_us: float | None = ...,
         host_receive_time_s: float | None = ...,
         raw_value: int | None = ...,
+        sample_rate: int | None = ...,
+    ) -> None: ...
+
+class AccelerometerSampleBatch(_message.Message):
+    __slots__ = ("device_id", "samples", "batch_timestamp_ms")
+    DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
+    SAMPLES_FIELD_NUMBER: _ClassVar[int]
+    BATCH_TIMESTAMP_MS_FIELD_NUMBER: _ClassVar[int]
+    device_id: str
+    samples: _containers.RepeatedCompositeFieldContainer[AccelerometerSample]
+    batch_timestamp_ms: int
+
+    def __init__(
+        self,
+        device_id: str | None = ...,
+        samples: _Iterable[AccelerometerSample | _Mapping] | None = ...,
+        batch_timestamp_ms: int | None = ...,
+    ) -> None: ...
+
+class AccelerometerSample(_message.Message):
+    __slots__ = ("device_timestamp_us", "host_receive_time_s", "x", "y", "z", "sample_rate")
+    DEVICE_TIMESTAMP_US_FIELD_NUMBER: _ClassVar[int]
+    HOST_RECEIVE_TIME_S_FIELD_NUMBER: _ClassVar[int]
+    X_FIELD_NUMBER: _ClassVar[int]
+    Y_FIELD_NUMBER: _ClassVar[int]
+    Z_FIELD_NUMBER: _ClassVar[int]
+    SAMPLE_RATE_FIELD_NUMBER: _ClassVar[int]
+    device_timestamp_us: float
+    host_receive_time_s: float
+    x: float
+    y: float
+    z: float
+    sample_rate: int
+
+    def __init__(
+        self,
+        device_timestamp_us: float | None = ...,
+        host_receive_time_s: float | None = ...,
+        x: float | None = ...,
+        y: float | None = ...,
+        z: float | None = ...,
         sample_rate: int | None = ...,
     ) -> None: ...
 

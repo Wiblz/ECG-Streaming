@@ -14,9 +14,10 @@ service ECGStreamingService {
 message CollectorMessage {
   oneof message {
     CollectorRegistration registration = 1;
-    ECGSampleBatch sample_batch = 2;
+    ECGSampleBatch ecg_batch = 2;
     DeviceStatusUpdate status_update = 3;
     CollectorHeartbeat heartbeat = 4;
+    AccelerometerSampleBatch acc_batch = 5;
   }
 }
 
@@ -58,6 +59,23 @@ message ECGSample {
   double host_receive_time_s = 2;  // Host system time when received (seconds since epoch)
   int32 raw_value = 3;              // Raw ECG value from device
   int32 sample_rate = 4;            // Sample rate in Hz
+}
+
+// Batch of accelerometer samples from a single device
+message AccelerometerSampleBatch {
+  string device_id = 1;
+  repeated AccelerometerSample samples = 2;
+  int64 batch_timestamp_ms = 3;  // When this batch was created
+}
+
+// Individual accelerometer sample
+message AccelerometerSample {
+  double device_timestamp_us = 1;  // Device's internal timestamp (microseconds)
+  double host_receive_time_s = 2;  // Host system time when received (seconds since epoch)
+  float x = 3;                      // X-axis acceleration (g)
+  float y = 4;                      // Y-axis acceleration (g)
+  float z = 5;                      // Z-axis acceleration (g)
+  int32 sample_rate = 6;            // Sample rate in Hz
 }
 
 // Device status update

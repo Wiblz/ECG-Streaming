@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 
 import grpc
 from ecg_common.logging import get_logger
-from ecg_common.models import DeviceStatus, ECGSample
+from ecg_common.models import AccelerometerSample, DeviceStatus, ECGSample
 from ecg_common.proto import ecg_streaming_pb2, ecg_streaming_pb2_grpc
 
 logger = get_logger(__name__)
@@ -54,6 +54,9 @@ class AggregatorClient:
         self._sample_queues: dict[str, asyncio.Queue[ECGSample]] = {
             device_id: asyncio.Queue() for device_id in device_ids
         }
+        self._acc_queues: dict[str, asyncio.Queue[AccelerometerSample]] = {
+            device_id: asyncio.Queue() for device_id in device_ids
+        }
 
         # Device status tracking (start as UNKNOWN so first update triggers)
         self._device_statuses: dict[str, DeviceStatus] = dict.fromkeys(
@@ -65,6 +68,7 @@ class AggregatorClient:
 
         # Statistics
         self._samples_sent = 0
+        self._acc_samples_sent = 0
         self._last_heartbeat = time.time()
 
     async def connect(self) -> bool:
@@ -124,6 +128,18 @@ class AggregatorClient:
 
         await self._sample_queues[sample.device_id].put(sample)
 
+    async def send_acc_sample(self, sample: AccelerometerSample) -> None:
+        """Queue an accelerometer sample for sending to the aggregator.
+
+        Args:
+            sample: Accelerometer sample to send
+        """
+        if sample.device_id not in self._acc_queues:
+            logger.warning(f"ACC sample from unknown device {sample.device_id}, ignoring")
+            return
+
+        await self._acc_queues[sample.device_id].put(sample)
+
     async def update_device_status(
         self,
         device_id: str,
@@ -171,6 +187,7 @@ class AggregatorClient:
             # Collect samples from all devices into batches
             batches_ready = False
 
+            # Send ECG batches
             for device_id, queue in self._sample_queues.items():
                 samples_batch: list[ECGSample] = []
 
@@ -201,10 +218,48 @@ class AggregatorClient:
                         batch_timestamp_ms=int(time.time() * 1000),
                     )
 
-                    yield ecg_streaming_pb2.CollectorMessage(sample_batch=batch)
+                    yield ecg_streaming_pb2.CollectorMessage(ecg_batch=batch)
 
                     self._samples_sent += len(samples_batch)
-                    logger.debug(f"Sent batch of {len(samples_batch)} samples from {device_id}")
+                    logger.debug(f"Sent ECG batch of {len(samples_batch)} samples from {device_id}")
+
+            # Send ACC batches
+            for device_id, acc_queue in self._acc_queues.items():
+                acc_batch: list[AccelerometerSample] = []
+
+                # Collect up to batch_size samples from this device's queue
+                while not acc_queue.empty() and len(acc_batch) < self.batch_size:
+                    try:
+                        acc_sample: AccelerometerSample = acc_queue.get_nowait()
+                        acc_batch.append(acc_sample)
+                    except asyncio.QueueEmpty:
+                        break
+
+                # Send batch if we have samples
+                if acc_batch:
+                    batches_ready = True
+                    proto_samples = [
+                        ecg_streaming_pb2.AccelerometerSample(
+                            device_timestamp_us=s.device_timestamp,
+                            host_receive_time_s=s.host_receive_time,
+                            x=s.x,
+                            y=s.y,
+                            z=s.z,
+                            sample_rate=200,  # Polar H10 ACC sample rate
+                        )
+                        for s in acc_batch
+                    ]
+
+                    batch = ecg_streaming_pb2.AccelerometerSampleBatch(
+                        device_id=device_id,
+                        samples=proto_samples,
+                        batch_timestamp_ms=int(time.time() * 1000),
+                    )
+
+                    yield ecg_streaming_pb2.CollectorMessage(acc_batch=batch)
+
+                    self._acc_samples_sent += len(acc_batch)
+                    logger.debug(f"Sent ACC batch of {len(acc_batch)} samples from {device_id}")
 
             # Send queued status updates
             while not self._status_updates.empty():
@@ -235,11 +290,13 @@ class AggregatorClient:
 
             # Send heartbeat periodically
             if time.time() - self._last_heartbeat > 10.0:
-                active_devices = sum(1 for q in self._sample_queues.values() if not q.empty())
+                active_devices = sum(
+                    1 for q in self._sample_queues.values() if not q.empty()
+                ) or sum(1 for q in self._acc_queues.values() if not q.empty())
 
                 heartbeat = ecg_streaming_pb2.CollectorHeartbeat(
                     timestamp_ms=int(time.time() * 1000),
-                    samples_sent=self._samples_sent,
+                    samples_sent=self._samples_sent + self._acc_samples_sent,
                     active_devices=active_devices,
                 )
 
@@ -247,7 +304,8 @@ class AggregatorClient:
 
                 self._last_heartbeat = time.time()
                 logger.debug(
-                    f"Sent heartbeat: {self._samples_sent} samples, {active_devices} active devices"
+                    f"Sent heartbeat: {self._samples_sent} ECG + {self._acc_samples_sent} ACC samples, "
+                    f"{active_devices} active devices"
                 )
 
             # Sleep before next iteration

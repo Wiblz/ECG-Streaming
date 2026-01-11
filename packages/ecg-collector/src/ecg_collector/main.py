@@ -185,7 +185,7 @@ class ECGCollector:
         logger.info("Device monitor loop stopped")
 
     async def _data_collection_loop(self, device_id: str) -> None:
-        """Collect ECG samples from a device and send to aggregator.
+        """Collect ECG and accelerometer samples from a device and send to aggregator.
 
         Args:
             device_id: Device to collect from
@@ -197,26 +197,38 @@ class ECGCollector:
             logger.error(f"Device {device_id} not found")
             return
 
-        sample_count = 0
+        ecg_sample_count = 0
+        acc_sample_count = 0
 
         try:
             while self._running:
                 # Read ECG sample
-                sample = await driver.read_ecg_sample()
+                ecg_sample = await driver.read_ecg_sample()
+                if ecg_sample:
+                    await self.grpc_client.send_sample(ecg_sample)
+                    ecg_sample_count += 1
 
-                if sample:
-                    # Send to aggregator
-                    await self.grpc_client.send_sample(sample)
-                    sample_count += 1
+                    if ecg_sample_count % 1000 == 0:
+                        logger.debug(f"Collected {ecg_sample_count} ECG samples from {device_id}")
 
-                    if sample_count % 1000 == 0:
-                        logger.debug(f"Collected {sample_count} samples from {device_id}")
-                else:
-                    # No sample available, sleep briefly
+                # Read accelerometer sample
+                acc_sample = await driver.read_accelerometer_sample()
+                if acc_sample:
+                    await self.grpc_client.send_acc_sample(acc_sample)
+                    acc_sample_count += 1
+
+                    if acc_sample_count % 1000 == 0:
+                        logger.debug(f"Collected {acc_sample_count} ACC samples from {device_id}")
+
+                # If no samples available, sleep briefly
+                if not ecg_sample and not acc_sample:
                     await asyncio.sleep(0.001)
 
         except asyncio.CancelledError:
-            logger.info(f"Data collection stopped for {device_id} ({sample_count} samples)")
+            logger.info(
+                f"Data collection stopped for {device_id} "
+                f"({ecg_sample_count} ECG, {acc_sample_count} ACC samples)"
+            )
             raise
 
         except Exception as e:

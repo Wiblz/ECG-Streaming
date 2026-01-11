@@ -48,10 +48,30 @@ class SyncedTimestamp:
 
 
 @dataclass
-class BufferedECGSample:
-    """ECG sample with synchronized timestamp for buffering."""
+class BufferedSample:
+    """Base class for buffered sensor samples with synchronized timestamps.
+
+    All buffered samples share these common fields for time synchronization
+    and device identification.
+    """
 
     device_id: str
-    global_time: float  # Synchronized global timestamp
-    raw_value: int
-    confidence: float  # Synchronization confidence
+    global_time: float  # Synchronized global timestamp (seconds since epoch)
+    confidence: float  # Synchronization confidence (0.0 to 1.0)
+
+
+@dataclass
+class BufferedECGSample(BufferedSample):
+    """ECG sample with synchronized timestamp for buffering."""
+
+    raw_value: int  # Raw ECG value from device
+
+
+@dataclass
+class BufferedAccelerometerSample(BufferedSample):
+    """Accelerometer sample with synchronized timestamp for buffering."""
+
+    x: float  # X-axis acceleration (g)
+    y: float  # Y-axis acceleration (g)
+    z: float  # Z-axis acceleration (g)
+    magnitude: float  # Total acceleration magnitude: sqrt(x² + y² + z²) in g
