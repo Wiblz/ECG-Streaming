@@ -10,6 +10,7 @@
 	import StatsPanel from '$lib/components/StatsPanel.svelte';
 	import ConnectionStatus from '$lib/components/ConnectionStatus.svelte';
 	import DeviceStatusPanel from '$lib/components/DeviceStatusPanel.svelte';
+	import SessionControl from '$lib/components/SessionControl.svelte';
 
 	let ecgWs: ECGWebSocket;
 	let accWs: AccelerometerWebSocket;
@@ -49,6 +50,8 @@
 
 			<!-- Sidebar (1/3 width) -->
 			<div class="space-y-6">
+				<SessionControl />
+
 				<StatsPanel />
 
 				<DeviceStatusPanel />

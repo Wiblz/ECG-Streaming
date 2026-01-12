@@ -163,6 +163,13 @@
 						</div>
 					</dl>
 
+					{#if session.notes}
+						<div class="mt-6 pt-6 border-t border-gray-200">
+							<h3 class="text-sm font-semibold text-gray-700 mb-2">Notes</h3>
+							<p class="text-gray-900 text-sm">{session.notes}</p>
+						</div>
+					{/if}
+
 					{#if session.devices.length > 0}
 						<div class="mt-6 pt-6 border-t border-gray-200">
 							<h3 class="text-sm font-semibold text-gray-700 mb-3">Connected Devices</h3>

@@ -169,4 +169,40 @@ export class HttpClient implements ApiClient {
 		});
 		return res.json();
 	}
+
+	async startSession(notes?: string | null): Promise<{
+		success: boolean;
+		session_id?: number;
+		message: string;
+		error?: string;
+	}> {
+		const searchParams = new URLSearchParams();
+		if (notes) searchParams.set('notes', notes);
+
+		const url = `${API_BASE}/sessions/start${searchParams.toString() ? `?${searchParams}` : ''}`;
+		const res = await fetch(url, {
+			method: 'POST'
+		});
+		return res.json();
+	}
+
+	async stopSession(): Promise<{
+		success: boolean;
+		session_id?: number;
+		message: string;
+		error?: string;
+	}> {
+		const res = await fetch(`${API_BASE}/sessions/stop`, {
+			method: 'POST'
+		});
+		return res.json();
+	}
+
+	async getActiveSession(): Promise<{
+		active: boolean;
+		session?: Session;
+	}> {
+		const res = await fetch(`${API_BASE}/sessions/active`);
+		return res.json();
+	}
 }

@@ -218,4 +218,22 @@ export interface ApiClient {
 		message?: string;
 		error?: string;
 	}>;
+
+	// Session control methods
+	startSession(notes?: string | null): Promise<{
+		success: boolean;
+		session_id?: number;
+		message: string;
+		error?: string;
+	}>;
+	stopSession(): Promise<{
+		success: boolean;
+		session_id?: number;
+		message: string;
+		error?: string;
+	}>;
+	getActiveSession(): Promise<{
+		active: boolean;
+		session?: Session;
+	}>;
 }

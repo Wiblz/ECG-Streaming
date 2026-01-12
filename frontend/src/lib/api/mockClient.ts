@@ -200,4 +200,30 @@ export class MockClient implements ApiClient {
 	}> {
 		throw new Error('Sessions not supported in mock mode');
 	}
+
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	async startSession(_notes?: string | null): Promise<{
+		success: boolean;
+		session_id?: number;
+		message: string;
+		error?: string;
+	}> {
+		throw new Error('Session control not supported in mock mode');
+	}
+
+	async stopSession(): Promise<{
+		success: boolean;
+		session_id?: number;
+		message: string;
+		error?: string;
+	}> {
+		throw new Error('Session control not supported in mock mode');
+	}
+
+	async getActiveSession(): Promise<{
+		active: boolean;
+		session?: Session;
+	}> {
+		throw new Error('Session control not supported in mock mode');
+	}
 }

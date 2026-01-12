@@ -228,6 +228,12 @@
 
 							<a href="/sessions/{session.id}" class="block">
 								<div class="space-y-3">
+									{#if session.notes}
+										<div class="text-sm">
+											<p class="text-gray-700 italic line-clamp-2">"{session.notes}"</p>
+										</div>
+									{/if}
+
 									<div class="flex items-center justify-between text-sm">
 										<span class="text-gray-500">Duration</span>
 										<span class="font-medium text-gray-900">

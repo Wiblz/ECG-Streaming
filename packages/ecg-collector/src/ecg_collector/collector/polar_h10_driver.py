@@ -28,7 +28,9 @@ DEVICE_INFO_SERVICE_UUID = "0000180A-0000-1000-8000-00805F9B34FB"
 # START (0x02), ECG type (0x00), setting 0 (sample rate), value 130Hz (0x82), setting 1 (resolution), value 14
 ECG_WRITE = bytearray([0x02, 0x00, 0x00, 0x01, 0x82, 0x00, 0x01, 0x01, 0x0E, 0x00])
 # START (0x02), ACC type (0x02), setting 0 (sample rate 50Hz = 0x32), setting 1 (resolution 16), setting 2 (range 2G)
-ACC_WRITE = bytearray([0x02, 0x02, 0x00, 0x01, 0x32, 0x00, 0x01, 0x01, 0x10, 0x00, 0x02, 0x01, 0x02, 0x00])
+ACC_WRITE = bytearray(
+    [0x02, 0x02, 0x00, 0x01, 0x32, 0x00, 0x01, 0x01, 0x10, 0x00, 0x02, 0x01, 0x02, 0x00]
+)
 # STOP (0x03), ECG type (0x00)
 ECG_STOP = bytearray([0x03, 0x00])
 # STOP (0x03), ACC type (0x02)
@@ -224,7 +226,9 @@ class PolarH10Driver(DeviceDriver):
                 # Accelerometer data
                 self._parse_acc_data(data[9:], device_timestamp, host_receive_time)
             else:
-                logger.warning(f"[{self.device_id}] Unknown measurement type: 0x{measurement_type:02x}")
+                logger.warning(
+                    f"[{self.device_id}] Unknown measurement type: 0x{measurement_type:02x}"
+                )
 
         except Exception as e:
             logger.error(f"Error parsing PMD data from {self.device_id}: {e}")

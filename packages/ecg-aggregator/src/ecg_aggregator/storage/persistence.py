@@ -567,6 +567,46 @@ class ECGDatabase:
                 logger.error(f"Error creating session: {e}")
                 return -1
 
+    def _calculate_session_stats(self, cursor: sqlite3.Cursor, session_id: int) -> tuple[int, int]:
+        """Calculate sample count and device count for a session.
+
+        Args:
+            cursor: Database cursor
+            session_id: Session ID
+
+        Returns:
+            Tuple of (sample_count, device_count)
+        """
+        # Calculate sample count from ECG and accelerometer samples
+        cursor.execute(
+            "SELECT COUNT(*) FROM ecg_samples WHERE session_id = ?",
+            (session_id,),
+        )
+        ecg_count = cursor.fetchone()[0]
+
+        cursor.execute(
+            "SELECT COUNT(*) FROM accelerometer_samples WHERE session_id = ?",
+            (session_id,),
+        )
+        acc_count = cursor.fetchone()[0]
+
+        total_sample_count = ecg_count + acc_count
+
+        # Calculate device count (unique devices across both sample types)
+        cursor.execute(
+            """
+            SELECT COUNT(DISTINCT device_id) FROM (
+                SELECT device_id FROM ecg_samples WHERE session_id = ?
+                UNION
+                SELECT device_id FROM accelerometer_samples WHERE session_id = ?
+            )
+            """,
+            (session_id, session_id),
+        )
+        device_count = cursor.fetchone()[0]
+
+        return total_sample_count, device_count
+
     def end_session(self, session_id: int, end_time: float | None = None) -> bool:
         """End a recording session by setting its end time.
 
@@ -585,18 +625,25 @@ class ECGDatabase:
                 if end_time is None:
                     end_time = time.time()
 
+                # Calculate session statistics
+                sample_count, device_count = self._calculate_session_stats(cursor, session_id)
+
+                # Update session with end time and calculated stats
                 cursor.execute(
                     """
                     UPDATE sessions
-                    SET end_time = ?
+                    SET end_time = ?, sample_count = ?, device_count = ?
                     WHERE id = ?
                     """,
-                    (end_time, session_id),
+                    (end_time, sample_count, device_count, session_id),
                 )
 
                 conn.commit()
 
-                logger.info(f"Ended session {session_id} at {end_time}")
+                logger.info(
+                    f"Ended session {session_id} at {end_time} "
+                    f"({sample_count} samples, {device_count} devices)"
+                )
                 return True
 
             except Exception as e:
@@ -651,13 +698,22 @@ class ECGDatabase:
                     else:
                         session_data["duration_seconds"] = None
 
+                    # If device_count or sample_count is NULL (active session), calculate on-the-fly
+                    if row[3] is None or row[4] is None:
+                        sample_count, device_count = self._calculate_session_stats(cursor, row[0])
+                        session_data["sample_count"] = sample_count
+                        session_data["device_count"] = device_count
+
                     # Get unique devices for this session
                     cursor.execute(
                         """
                         SELECT DISTINCT device_id FROM ecg_samples
                         WHERE session_id = ?
+                        UNION
+                        SELECT DISTINCT device_id FROM accelerometer_samples
+                        WHERE session_id = ?
                         """,
-                        (row[0],),
+                        (row[0], row[0]),
                     )
                     devices = [d[0] for d in cursor.fetchall()]
                     session_data["devices"] = devices
@@ -711,13 +767,22 @@ class ECGDatabase:
                 else:
                     session_data["duration_seconds"] = None
 
+                # If device_count or sample_count is NULL (active session), calculate on-the-fly
+                if row[3] is None or row[4] is None:
+                    sample_count, device_count = self._calculate_session_stats(cursor, session_id)
+                    session_data["sample_count"] = sample_count
+                    session_data["device_count"] = device_count
+
                 # Get unique devices
                 cursor.execute(
                     """
                     SELECT DISTINCT device_id FROM ecg_samples
                     WHERE session_id = ?
+                    UNION
+                    SELECT DISTINCT device_id FROM accelerometer_samples
+                    WHERE session_id = ?
                     """,
-                    (session_id,),
+                    (session_id, session_id),
                 )
                 devices = [d[0] for d in cursor.fetchall()]
                 session_data["devices"] = devices
