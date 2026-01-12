@@ -50,14 +50,14 @@ export function formatTimeAxis(u: uPlot, vals: number[]): string[] {
 /**
  * Create common axes configuration
  */
-export function createAxes(): uPlot.Axis[] {
+export function createAxes(yLabel: string = 'Raw Value'): uPlot.Axis[] {
 	return [
 		{
 			label: 'Time (s)',
 			values: formatTimeAxis
 		},
 		{
-			label: 'Raw Value',
+			label: yLabel,
 			space: 80,
 			gap: 5
 		}

@@ -5,6 +5,16 @@ export interface BufferedECGSample {
 	confidence: number;
 }
 
+export interface BufferedAccelerometerSample {
+	device_id: string;
+	global_time: number;
+	x: number;
+	y: number;
+	z: number;
+	magnitude: number;
+	confidence: number;
+}
+
 export interface InitMessage {
 	type: 'init';
 	devices: string[];
@@ -14,6 +24,13 @@ export interface InitMessage {
 export interface DataMessage {
 	type: 'data';
 	samples: BufferedECGSample[];
+	timestamp: number;
+	count: number;
+}
+
+export interface AccelerometerDataMessage {
+	type: 'data';
+	samples: BufferedAccelerometerSample[];
 	timestamp: number;
 	count: number;
 }
@@ -70,6 +87,16 @@ export interface SessionSample {
 	confidence: number;
 }
 
+export interface SessionAccelerometerSample {
+	device_id: string;
+	global_time: number;
+	x: number;
+	y: number;
+	z: number;
+	magnitude: number;
+	confidence: number;
+}
+
 export interface SessionsResponse {
 	sessions: Session[];
 	count: number;
@@ -78,6 +105,12 @@ export interface SessionsResponse {
 export interface SessionSamplesResponse {
 	session_id: number;
 	samples: SessionSample[];
+	count: number;
+}
+
+export interface SessionAccelerometerSamplesResponse {
+	session_id: number;
+	samples: SessionAccelerometerSample[];
 	count: number;
 }
 
@@ -146,10 +179,13 @@ export interface ApiClient {
 	// Stats methods
 	getStats(): Promise<{
 		sync: unknown;
-		websocket_connections: number;
-		buffer: BufferStats;
+		ecg_websocket_connections: number;
+		acc_websocket_connections: number;
+		ecg_buffer: BufferStats;
+		acc_buffer: BufferStats;
 	}>;
 	getBufferStats(): Promise<BufferStats>;
+	getAccelerometerBufferStats(): Promise<BufferStats>;
 
 	// Session methods
 	getSessions(params?: { limit?: number; offset?: number }): Promise<SessionsResponse>;
@@ -164,6 +200,16 @@ export interface ApiClient {
 			offset?: number;
 		}
 	): Promise<SessionSamplesResponse>;
+	getSessionAccelerometerSamples(
+		sessionId: number,
+		params?: {
+			device_id?: string;
+			start_time?: number;
+			end_time?: number;
+			limit?: number;
+			offset?: number;
+		}
+	): Promise<SessionAccelerometerSamplesResponse>;
 	deleteSession(sessionId: number): Promise<{ success: boolean }>;
 	getSessionExportUrl(sessionId: number): string;
 	importSession(file: File): Promise<{

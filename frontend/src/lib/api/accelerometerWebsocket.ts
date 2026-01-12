@@ -1,15 +1,17 @@
-import { setWsState, setWsError, ConnectionState } from '$lib/state/websocket.svelte';
-import { addSamples } from '$lib/state/ecg-data.svelte';
-import { setDevices } from '$lib/state/devices.svelte';
+import { setAccWsState, setAccWsError, ConnectionState } from '$lib/state/websocket.svelte';
+import { addSamples } from '$lib/state/acc-data.svelte';
 import { isPaused } from '$lib/state/pause.svelte';
-import type { InitMessage, DataMessage } from '$lib/types/api';
+import type { InitMessage, AccelerometerDataMessage } from '$lib/types/api';
 
-const DEFAULT_PATH = '/ws/ecg';
+const DEFAULT_PATH = '/ws/accelerometer';
 
 function resolveDefaultUrl(): string {
 	// Prefer explicit override via Vite env
 	const envUrl = import.meta.env.VITE_AGGREGATOR_WS as string | undefined;
-	if (envUrl) return envUrl;
+	if (envUrl) {
+		// Replace /ws/ecg with /ws/accelerometer
+		return envUrl.replace('/ws/ecg', DEFAULT_PATH);
+	}
 
 	// Fallback to explicit HTTP base env, swap to ws
 	const httpBase = import.meta.env.VITE_AGGREGATOR_HTTP as string | undefined;
@@ -31,7 +33,7 @@ function resolveDefaultUrl(): string {
 	return `ws://localhost:7999${DEFAULT_PATH}`;
 }
 
-export class ECGWebSocket {
+export class AccelerometerWebSocket {
 	private ws: WebSocket | null = null;
 	private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
 	private url: string;
@@ -41,58 +43,57 @@ export class ECGWebSocket {
 	}
 
 	connect() {
-		console.log('[WebSocket] Attempting to connect to:', this.url);
-		setWsState(ConnectionState.CONNECTING);
-		setWsError(null);
+		console.log('[AccelerometerWebSocket] Attempting to connect to:', this.url);
+		setAccWsState(ConnectionState.CONNECTING);
+		setAccWsError(null);
 
 		try {
 			this.ws = new WebSocket(this.url);
 
 			this.ws.onopen = () => {
-				console.log('[WebSocket] Connected successfully');
-				setWsState(ConnectionState.CONNECTED);
+				console.log('[AccelerometerWebSocket] Connected successfully');
+				setAccWsState(ConnectionState.CONNECTED);
 			};
 
 			this.ws.onmessage = (event) => {
-				// console.log('[WebSocket] Message received:', event.data);
 				const msg = JSON.parse(event.data);
 
 				if (msg.type === 'init') {
 					this.handleInit(msg as InitMessage);
 				} else if (msg.type === 'data') {
-					this.handleData(msg as DataMessage);
+					this.handleData(msg as AccelerometerDataMessage);
 				}
 			};
 
 			this.ws.onerror = (error) => {
-				console.error('[WebSocket] Error occurred:', error);
-				setWsState(ConnectionState.ERROR);
-				setWsError('Connection error');
+				console.error('[AccelerometerWebSocket] Error occurred:', error);
+				setAccWsState(ConnectionState.ERROR);
+				setAccWsError('Connection error');
 			};
 
 			this.ws.onclose = (event) => {
-				console.log('[WebSocket] Connection closed. Code:', event.code, 'Reason:', event.reason);
-				setWsState(ConnectionState.DISCONNECTED);
+				console.log(
+					'[AccelerometerWebSocket] Connection closed. Code:',
+					event.code,
+					'Reason:',
+					event.reason
+				);
+				setAccWsState(ConnectionState.DISCONNECTED);
 				this.scheduleReconnect();
 			};
 		} catch (error) {
-			console.error('[WebSocket] Failed to create WebSocket:', error);
-			setWsState(ConnectionState.ERROR);
-			setWsError('Failed to create WebSocket connection');
+			console.error('[AccelerometerWebSocket] Failed to create WebSocket:', error);
+			setAccWsState(ConnectionState.ERROR);
+			setAccWsError('Failed to create WebSocket connection');
 		}
 	}
 
 	private handleInit(msg: InitMessage) {
-		console.log('Devices initialized:', msg.devices);
-		// Initialize devices from init message
-		const devices = msg.devices.map((id) => ({
-			device_id: id,
-			sync_ready: false
-		}));
-		setDevices(devices);
+		console.log('[AccelerometerWebSocket] Devices initialized:', msg.devices);
+		// Devices are already initialized by ECG WebSocket
 	}
 
-	private handleData(msg: DataMessage) {
+	private handleData(msg: AccelerometerDataMessage) {
 		// Ignore data while paused
 		if (isPaused()) {
 			return;
@@ -107,7 +108,7 @@ export class ECGWebSocket {
 		if (this.reconnectTimeout) return;
 
 		this.reconnectTimeout = setTimeout(() => {
-			console.log('Attempting to reconnect...');
+			console.log('[AccelerometerWebSocket] Attempting to reconnect...');
 			this.reconnectTimeout = null;
 			this.connect();
 		}, 2000);

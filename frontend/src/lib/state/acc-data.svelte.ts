@@ -1,18 +1,18 @@
 import { SvelteMap } from 'svelte/reactivity';
-import type { BufferedECGSample } from '$lib/types/api';
+import type { BufferedAccelerometerSample } from '$lib/types/api';
 
 const MAX_DURATION = 10; // seconds
 
-// Reactive state for ECG samples - using SvelteMap for proper reactivity
-const _samples = new SvelteMap<string, BufferedECGSample[]>();
+// Reactive state for accelerometer samples - using SvelteMap for proper reactivity
+const _samples = new SvelteMap<string, BufferedAccelerometerSample[]>();
 
 export function getSamples() {
 	return _samples;
 }
 
-export function addSamples(newSamples: BufferedECGSample[]) {
+export function addSamples(newSamples: BufferedAccelerometerSample[]) {
 	// Group new samples by device to process in batch
-	const byDevice = new SvelteMap<string, BufferedECGSample[]>();
+	const byDevice = new SvelteMap<string, BufferedAccelerometerSample[]>();
 	for (const sample of newSamples) {
 		if (!byDevice.has(sample.device_id)) {
 			byDevice.set(sample.device_id, []);
@@ -24,7 +24,7 @@ export function addSamples(newSamples: BufferedECGSample[]) {
 	for (const [device_id, newDeviceSamples] of byDevice) {
 		if (!_samples.has(device_id)) {
 			_samples.set(device_id, []);
-			console.log(`[Live ECG Waveforms] ✓ New device: ${device_id}`);
+			console.log(`[Live Accelerometer] ✓ New device: ${device_id}`);
 		}
 
 		// Get current samples, add new ones
@@ -49,7 +49,7 @@ export function addSamples(newSamples: BufferedECGSample[]) {
 				.join(', ');
 
 			console.log(
-				`[Live ECG Waveforms] ${device_id}: added ${newDeviceSamples.length}, dropped ${dropped} samples [${droppedPreview}], now ${filtered.length} (cutoff: ${cutoffTime.toFixed(2)}, newest: ${newestTime.toFixed(2)})`
+				`[Live Accelerometer] ${device_id}: added ${newDeviceSamples.length}, dropped ${dropped} samples [${droppedPreview}], now ${filtered.length} (cutoff: ${cutoffTime.toFixed(2)}, newest: ${newestTime.toFixed(2)})`
 			);
 		}
 
@@ -59,7 +59,7 @@ export function addSamples(newSamples: BufferedECGSample[]) {
 				? `${filtered[0].global_time.toFixed(2)}s - ${filtered[filtered.length - 1].global_time.toFixed(2)}s`
 				: 'empty';
 		console.log(
-			`[Live ECG Waveforms] ${device_id} buffer: ${filtered.length} samples, range: ${timeRange}`
+			`[Live Accelerometer] ${device_id} buffer: ${filtered.length} samples, range: ${timeRange}`
 		);
 
 		// Update the map with filtered samples

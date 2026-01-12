@@ -5,6 +5,7 @@ import type {
 	Session,
 	SessionsResponse,
 	SessionSamplesResponse,
+	SessionAccelerometerSamplesResponse,
 	DeviceStatusResponse,
 	CollectorsResponse
 } from '$lib/types/api';
@@ -88,27 +89,45 @@ export class MockClient implements ApiClient {
 
 	async getStats(): Promise<{
 		sync: unknown;
-		websocket_connections: number;
-		buffer: BufferStats;
+		ecg_websocket_connections: number;
+		acc_websocket_connections: number;
+		ecg_buffer: BufferStats;
+		acc_buffer: BufferStats;
 	}> {
 		// Return mock stats
+		const emptyStats: BufferStats = {
+			total_samples: 0,
+			duration_seconds: 0,
+			device_count: 0,
+			samples_per_device: {},
+			oldest_timestamp: 0,
+			newest_timestamp: 0,
+			total_processed: 0,
+			buffer_utilization: 0
+		};
 		return {
 			sync: {},
-			websocket_connections: 0,
-			buffer: {
-				total_samples: 0,
-				duration_seconds: 0,
-				device_count: 0,
-				samples_per_device: {},
-				oldest_timestamp: 0,
-				newest_timestamp: 0,
-				total_processed: 0,
-				buffer_utilization: 0
-			}
+			ecg_websocket_connections: 0,
+			acc_websocket_connections: 0,
+			ecg_buffer: emptyStats,
+			acc_buffer: emptyStats
 		};
 	}
 
 	async getBufferStats(): Promise<BufferStats> {
+		return {
+			total_samples: 0,
+			duration_seconds: 0,
+			device_count: 0,
+			samples_per_device: {},
+			oldest_timestamp: 0,
+			newest_timestamp: 0,
+			total_processed: 0,
+			buffer_utilization: 0
+		};
+	}
+
+	async getAccelerometerBufferStats(): Promise<BufferStats> {
 		return {
 			total_samples: 0,
 			duration_seconds: 0,
@@ -144,6 +163,21 @@ export class MockClient implements ApiClient {
 			offset?: number;
 		}
 	): Promise<SessionSamplesResponse> {
+		throw new Error('Sessions not supported in mock mode');
+	}
+
+	async getSessionAccelerometerSamples(
+		// eslint-disable-next-line @typescript-eslint/no-unused-vars
+		_sessionId: number,
+		// eslint-disable-next-line @typescript-eslint/no-unused-vars
+		_params?: {
+			device_id?: string;
+			start_time?: number;
+			end_time?: number;
+			limit?: number;
+			offset?: number;
+		}
+	): Promise<SessionAccelerometerSamplesResponse> {
 		throw new Error('Sessions not supported in mock mode');
 	}
 
