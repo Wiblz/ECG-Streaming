@@ -116,13 +116,13 @@ class ECGDatabase:
                 )
                 has_tables = cursor.fetchone() is not None
 
-            # Check if yoyo tracking table exists
-            try:
-                # This will succeed if yoyo tables exist
-                backend.to_apply([])
-                has_yoyo_tracking = True
-            except Exception:
-                has_yoyo_tracking = False
+            # Check if yoyo tracking table exists by querying for it directly
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='_yoyo_migration'"
+                )
+                has_yoyo_tracking = cursor.fetchone() is not None
 
             # Legacy if has tables but no yoyo tracking
             return has_tables and not has_yoyo_tracking
@@ -149,6 +149,7 @@ class ECGDatabase:
         device_timestamp: float,
         raw_value: int,
         confidence: float,
+        session_id: int | None = None,
     ) -> None:
         """Store a single ECG sample.
 
@@ -158,6 +159,7 @@ class ECGDatabase:
             device_timestamp: Original device timestamp
             raw_value: Raw ECG value
             confidence: Time sync confidence (0-1)
+            session_id: Session ID to associate with this sample (optional)
         """
         with self._lock:
             try:
@@ -167,10 +169,18 @@ class ECGDatabase:
                 cursor.execute(
                     """
                     INSERT INTO ecg_samples
-                    (device_id, global_time, device_timestamp, raw_value, confidence, inserted_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    (device_id, global_time, device_timestamp, raw_value, confidence, inserted_at, session_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (device_id, global_time, device_timestamp, raw_value, confidence, time.time()),
+                    (
+                        device_id,
+                        global_time,
+                        device_timestamp,
+                        raw_value,
+                        confidence,
+                        time.time(),
+                        session_id,
+                    ),
                 )
 
                 # Update device metadata
@@ -200,6 +210,7 @@ class ECGDatabase:
         z: float,
         confidence: float,
         magnitude: float | None = None,
+        session_id: int | None = None,
     ) -> None:
         """Store a single accelerometer sample.
 
@@ -212,6 +223,7 @@ class ECGDatabase:
             z: Z-axis acceleration (g)
             confidence: Time sync confidence (0-1)
             magnitude: Pre-calculated motion magnitude (optional, will be calculated if not provided)
+            session_id: Session ID to associate with this sample (optional)
         """
         # Calculate magnitude if not provided
         if magnitude is None:
@@ -225,8 +237,8 @@ class ECGDatabase:
                 cursor.execute(
                     """
                     INSERT INTO accelerometer_samples
-                    (device_id, global_time, device_timestamp, x, y, z, magnitude, confidence, inserted_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (device_id, global_time, device_timestamp, x, y, z, magnitude, confidence, inserted_at, session_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         device_id,
@@ -238,6 +250,7 @@ class ECGDatabase:
                         magnitude,
                         confidence,
                         time.time(),
+                        session_id,
                     ),
                 )
 
@@ -514,24 +527,27 @@ class ECGDatabase:
 
     def create_session(
         self,
-        start_time: float,
+        start_time: float | None = None,
         end_time: float | None = None,
         notes: str | None = None,
     ) -> int:
         """Create a new recording session.
 
         Args:
-            start_time: Session start timestamp
+            start_time: Session start timestamp (defaults to current time)
             end_time: Session end timestamp (optional)
             notes: Session notes (optional)
 
         Returns:
-            Session ID
+            Session ID, or -1 on error
         """
         with self._lock:
             try:
                 conn = self._get_connection()
                 cursor = conn.cursor()
+
+                if start_time is None:
+                    start_time = time.time()
 
                 cursor.execute(
                     """
@@ -550,6 +566,42 @@ class ECGDatabase:
             except Exception as e:
                 logger.error(f"Error creating session: {e}")
                 return -1
+
+    def end_session(self, session_id: int, end_time: float | None = None) -> bool:
+        """End a recording session by setting its end time.
+
+        Args:
+            session_id: Session ID to end
+            end_time: End timestamp (defaults to current time)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                if end_time is None:
+                    end_time = time.time()
+
+                cursor.execute(
+                    """
+                    UPDATE sessions
+                    SET end_time = ?
+                    WHERE id = ?
+                    """,
+                    (end_time, session_id),
+                )
+
+                conn.commit()
+
+                logger.info(f"Ended session {session_id} at {end_time}")
+                return True
+
+            except Exception as e:
+                logger.error(f"Error ending session: {e}")
+                return False
 
     def get_sessions(
         self,

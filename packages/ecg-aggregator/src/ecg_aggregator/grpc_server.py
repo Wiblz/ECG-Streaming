@@ -47,6 +47,9 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
             str, dict
         ] = {}  # device_id -> {status, collector_id, last_update, ...}
 
+        # Active session tracking
+        self._active_session_id: int | None = None
+
         # Statistics
         self._samples_received = 0
         self._acc_samples_received = 0
@@ -288,8 +291,8 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
                 confidence=synced.confidence,
             )
 
-        # Store in database
-        if self.database:
+        # Store in database only if session is active
+        if self.database and self._active_session_id is not None:
             confidence = synced.confidence if synced else 0.0
             global_time = synced.global_time if synced else sample.host_receive_time
 
@@ -299,6 +302,7 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
                 device_timestamp=sample.device_timestamp,
                 raw_value=sample.raw_value,
                 confidence=confidence,
+                session_id=self._active_session_id,
             )
 
     async def _process_acc_sample(
@@ -343,8 +347,8 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
                 confidence=synced.confidence,
             )
 
-        # Store in database
-        if self.database:
+        # Store in database only if session is active
+        if self.database and self._active_session_id is not None:
             confidence = synced.confidence if synced else 0.0
             global_time = synced.global_time if synced else sample.host_receive_time
 
@@ -356,7 +360,68 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
                 y=sample.y,
                 z=sample.z,
                 confidence=confidence,
+                session_id=self._active_session_id,
             )
+
+    def start_session(self, notes: str | None = None) -> int:
+        """Start a new recording session.
+
+        Args:
+            notes: Optional session notes
+
+        Returns:
+            Session ID, or -1 if failed or session already active
+        """
+        if self._active_session_id is not None:
+            logger.warning(
+                f"Cannot start new session: session {self._active_session_id} is already active"
+            )
+            return -1
+
+        if not self.database:
+            logger.error("Cannot start session: no database configured")
+            return -1
+
+        session_id = self.database.create_session(notes=notes)
+
+        if session_id != -1:
+            self._active_session_id = session_id
+            logger.info(f"Started recording session {session_id}")
+
+        return session_id
+
+    def stop_session(self) -> int | None:
+        """Stop the currently active recording session.
+
+        Returns:
+            Session ID that was stopped, or None if no session was active
+        """
+        if self._active_session_id is None:
+            logger.warning("Cannot stop session: no active session")
+            return None
+
+        if not self.database:
+            logger.error("Cannot stop session: no database configured")
+            return None
+
+        # End the session in the database
+        success = self.database.end_session(self._active_session_id)
+
+        if success:
+            stopped_session_id = self._active_session_id
+            self._active_session_id = None
+            logger.info(f"Stopped recording session {stopped_session_id}")
+            return stopped_session_id
+
+        return None
+
+    def get_active_session_id(self) -> int | None:
+        """Get the currently active session ID.
+
+        Returns:
+            Active session ID, or None if no session is active
+        """
+        return self._active_session_id
 
     def get_stats(self) -> dict:
         """Get server statistics.
@@ -369,6 +434,7 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
             "collectors": list(self.collectors.keys()),
             "samples_received": self._samples_received,
             "acc_samples_received": self._acc_samples_received,
+            "active_session_id": self._active_session_id,
         }
 
 

@@ -109,6 +109,10 @@ class ECGStreamingServer:
                     "ecg_latest": "/buffer/latest",
                     "accelerometer_buffer": "/accelerometer/buffer/stats",
                     "accelerometer_latest": "/accelerometer/buffer/latest",
+                    "session_start": "/sessions/start",
+                    "session_stop": "/sessions/stop",
+                    "session_active": "/sessions/active",
+                    "sessions": "/sessions",
                 },
             }
 
@@ -417,6 +421,79 @@ class ECGStreamingServer:
             return self.acc_buffer.get_latest_by_device()
 
         # Session endpoints
+
+        @self.app.post("/sessions/start")
+        async def start_session(notes: str | None = None) -> dict[str, Any]:
+            """Start a new recording session and begin persisting samples.
+
+            Args:
+                notes: Optional session notes
+
+            Returns:
+                Session ID and status
+            """
+            if not self.grpc_servicer:
+                raise HTTPException(
+                    status_code=503, detail="gRPC servicer not available for session management"
+                )
+
+            session_id = self.grpc_servicer.start_session(notes=notes)
+
+            if session_id == -1:
+                active_id = self.grpc_servicer.get_active_session_id()
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot start session: session {active_id} is already active",
+                )
+
+            return {
+                "success": True,
+                "session_id": session_id,
+                "message": f"Session {session_id} started. Samples will now be persisted to database.",
+            }
+
+        @self.app.post("/sessions/stop")
+        async def stop_session() -> dict[str, Any]:
+            """Stop the currently active recording session.
+
+            Returns:
+                Session ID that was stopped
+            """
+            if not self.grpc_servicer:
+                raise HTTPException(
+                    status_code=503, detail="gRPC servicer not available for session management"
+                )
+
+            session_id = self.grpc_servicer.stop_session()
+
+            if session_id is None:
+                raise HTTPException(status_code=400, detail="No active session to stop")
+
+            return {
+                "success": True,
+                "session_id": session_id,
+                "message": f"Session {session_id} stopped. Samples will no longer be persisted.",
+            }
+
+        @self.app.get("/sessions/active")
+        async def get_active_session() -> dict[str, Any]:
+            """Get the currently active session, if any.
+
+            Returns:
+                Active session ID and details, or null if no session is active
+            """
+            if not self.grpc_servicer:
+                return {"active": False, "session_id": None, "error": "gRPC servicer not available"}
+
+            session_id = self.grpc_servicer.get_active_session_id()
+
+            if session_id is None:
+                return {"active": False, "session_id": None}
+
+            # Get session details from database
+            session = self.database.get_session(session_id)
+
+            return {"active": True, "session_id": session_id, "session": session}
 
         @self.app.get("/sessions")
         async def list_sessions(limit: int | None = None, offset: int = 0) -> dict[str, Any]:
