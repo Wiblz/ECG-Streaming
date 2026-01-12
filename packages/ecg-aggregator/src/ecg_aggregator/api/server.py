@@ -364,9 +364,11 @@ class ECGStreamingServer:
         async def get_stats() -> dict[str, object]:
             """Get synchronization statistics."""
             sync_stats = self.time_alignment.get_sync_stats()
+            grpc_stats = self.grpc_servicer.get_stats() if self.grpc_servicer else {}
 
             return {
                 "sync": sync_stats,
+                "grpc": grpc_stats,
                 "ecg_websocket_connections": len(self.ecg_connections),
                 "acc_websocket_connections": len(self.acc_connections),
                 "ecg_buffer": self.ecg_buffer.get_stats(),

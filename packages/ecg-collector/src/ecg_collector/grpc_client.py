@@ -245,7 +245,7 @@ class AggregatorClient:
                             x=s.x,
                             y=s.y,
                             z=s.z,
-                            sample_rate=200,  # Polar H10 ACC sample rate
+                            sample_rate=50,  # Polar H10 ACC sample rate
                         )
                         for s in acc_batch
                     ]

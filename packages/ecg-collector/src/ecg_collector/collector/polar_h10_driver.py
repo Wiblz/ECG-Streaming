@@ -25,9 +25,13 @@ BATTERY_LEVEL_UUID = "00002A19-0000-1000-8000-00805F9B34FB"
 DEVICE_INFO_SERVICE_UUID = "0000180A-0000-1000-8000-00805F9B34FB"
 
 # PMD Control Point commands
+# START (0x02), ECG type (0x00), setting 0 (sample rate), value 130Hz (0x82), setting 1 (resolution), value 14
 ECG_WRITE = bytearray([0x02, 0x00, 0x00, 0x01, 0x82, 0x00, 0x01, 0x01, 0x0E, 0x00])
-ACC_WRITE = bytearray([0x02, 0x02, 0x00, 0x01, 0xC8, 0x00, 0x01, 0x01, 0x10, 0x00])
+# START (0x02), ACC type (0x02), setting 0 (sample rate 50Hz = 0x32), setting 1 (resolution 16), setting 2 (range 2G)
+ACC_WRITE = bytearray([0x02, 0x02, 0x00, 0x01, 0x32, 0x00, 0x01, 0x01, 0x10, 0x00, 0x02, 0x01, 0x02, 0x00])
+# STOP (0x03), ECG type (0x00)
 ECG_STOP = bytearray([0x03, 0x00])
+# STOP (0x03), ACC type (0x02)
 ACC_STOP = bytearray([0x03, 0x02])
 
 
@@ -163,8 +167,14 @@ class PolarH10Driver(DeviceDriver):
             # Start ECG measurement
             await self._client.write_gatt_char(PMD_CONTROL_UUID, ECG_WRITE)
 
+            # Wait a bit for ECG to stabilize
+            await asyncio.sleep(0.5)
+
+            # Start accelerometer measurement
+            await self._client.write_gatt_char(PMD_CONTROL_UUID, ACC_WRITE)
+
             self._status = DeviceStatus.STREAMING
-            logger.info(f"Started ECG streaming on {self.device_id}")
+            logger.info(f"Started ECG and accelerometer streaming on {self.device_id}")
             return True
 
         except Exception as e:
@@ -173,17 +183,20 @@ class PolarH10Driver(DeviceDriver):
             return False
 
     async def stop_streaming(self) -> None:
-        """Stop streaming ECG data."""
+        """Stop streaming ECG and accelerometer data."""
         try:
             if self._client and self._client.is_connected:
                 # Stop ECG measurement
                 await self._client.write_gatt_char(PMD_CONTROL_UUID, ECG_STOP)
 
+                # Stop accelerometer measurement
+                await self._client.write_gatt_char(PMD_CONTROL_UUID, ACC_STOP)
+
                 # Unsubscribe from notifications
                 await self._client.stop_notify(PMD_DATA_UUID)
 
                 self._status = DeviceStatus.CONNECTED
-                logger.info(f"Stopped ECG streaming on {self.device_id}")
+                logger.info(f"Stopped ECG and accelerometer streaming on {self.device_id}")
 
         except Exception as e:
             logger.error(f"Error stopping streaming on {self.device_id}: {e}")
@@ -191,7 +204,7 @@ class PolarH10Driver(DeviceDriver):
     def _handle_pmd_data(self, sender: BleakGATTCharacteristic, data: bytearray) -> None:
         """Handle incoming PMD data notifications.
 
-        Polar H10 ECG data format:
+        Polar H10 PMD data format:
         - Byte 0: Measurement type (0x00 = ECG, 0x02 = ACC)
         - Byte 1-8: Timestamp (uint64, microseconds)
         - Remaining: Sample data
@@ -210,6 +223,8 @@ class PolarH10Driver(DeviceDriver):
             elif measurement_type == 0x02:
                 # Accelerometer data
                 self._parse_acc_data(data[9:], device_timestamp, host_receive_time)
+            else:
+                logger.warning(f"[{self.device_id}] Unknown measurement type: 0x{measurement_type:02x}")
 
         except Exception as e:
             logger.error(f"Error parsing PMD data from {self.device_id}: {e}")
@@ -258,11 +273,11 @@ class PolarH10Driver(DeviceDriver):
         """Parse accelerometer sample data.
 
         ACC samples are 6 bytes each (3x int16 for x, y, z).
-        Sample rate is typically 200 Hz for Polar H10.
+        Sample rate is 50 Hz for this implementation.
         """
         try:
             sample_count = len(data) // 6
-            sample_rate = 200  # Hz
+            sample_rate = 50  # Hz (configured in ACC_WRITE command)
 
             for i in range(sample_count):
                 # Extract 3x int16 values
