@@ -49,6 +49,7 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
 
         # Active session tracking
         self._active_session_id: int | None = None
+        self._active_session_start_time: float | None = None
 
         # Statistics
         self._samples_received = 0
@@ -296,13 +297,21 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
             confidence = synced.confidence if synced else 0.0
             global_time = synced.global_time if synced else sample.host_receive_time
 
+            # Only assign session_id if sample timestamp is within session bounds
+            session_id = None
+            if (
+                self._active_session_start_time is not None
+                and global_time >= self._active_session_start_time
+            ):
+                session_id = self._active_session_id
+
             self.database.add_sample(
                 device_id=device_id,
                 global_time=global_time,
                 device_timestamp=sample.device_timestamp,
                 raw_value=sample.raw_value,
                 confidence=confidence,
-                session_id=self._active_session_id,
+                session_id=session_id,
             )
 
     async def _process_acc_sample(
@@ -352,6 +361,14 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
             confidence = synced.confidence if synced else 0.0
             global_time = synced.global_time if synced else sample.host_receive_time
 
+            # Only assign session_id if sample timestamp is within session bounds
+            session_id = None
+            if (
+                self._active_session_start_time is not None
+                and global_time >= self._active_session_start_time
+            ):
+                session_id = self._active_session_id
+
             self.database.add_acc_sample(
                 device_id=device_id,
                 global_time=global_time,
@@ -360,7 +377,7 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
                 y=sample.y,
                 z=sample.z,
                 confidence=confidence,
-                session_id=self._active_session_id,
+                session_id=session_id,
             )
 
     def start_session(self, notes: str | None = None) -> int:
@@ -385,8 +402,15 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
         session_id = self.database.create_session(notes=notes)
 
         if session_id != -1:
-            self._active_session_id = session_id
-            logger.info(f"Started recording session {session_id}")
+            # Fetch the session to get its start_time
+            session = self.database.get_session(session_id)
+            if session:
+                self._active_session_id = session_id
+                self._active_session_start_time = session["start_time"]
+                logger.info(f"Started recording session {session_id} at {session['start_time']}")
+            else:
+                logger.error(f"Failed to fetch session {session_id} after creation")
+                return -1
 
         return session_id
 
@@ -410,6 +434,7 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
         if success:
             stopped_session_id = self._active_session_id
             self._active_session_id = None
+            self._active_session_start_time = None
             logger.info(f"Stopped recording session {stopped_session_id}")
             return stopped_session_id
 

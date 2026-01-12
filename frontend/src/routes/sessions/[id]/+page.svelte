@@ -5,7 +5,7 @@
 	import { api } from '$lib/api/client';
 	import type { Session } from '$lib/types/api';
 	import Header from '$lib/components/Header.svelte';
-	import HistoricalWaveform from '$lib/components/HistoricalWaveform.svelte';
+	import HistoricalWaveforms from '$lib/components/HistoricalWaveforms.svelte';
 	import { formatFullTimestamp, formatDuration } from '$lib/utils/format';
 
 	let session = $state<Session | null>(null);
@@ -188,7 +188,7 @@
 
 				<!-- Waveform Visualization -->
 				{#if session}
-					<HistoricalWaveform {session} loading={false} />
+					<HistoricalWaveforms {session} loading={false} />
 				{/if}
 			</div>
 		{/if}

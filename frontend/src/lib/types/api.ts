@@ -75,6 +75,8 @@ export interface Session {
 	end_time: number | null;
 	device_count: number;
 	sample_count: number;
+	ecg_sample_count: number;
+	acc_sample_count: number;
 	notes: string | null;
 	duration_seconds: number | null;
 	devices: string[];

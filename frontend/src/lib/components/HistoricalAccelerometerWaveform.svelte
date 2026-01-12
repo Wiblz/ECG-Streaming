@@ -3,7 +3,7 @@
 	import { browser } from '$app/environment';
 	import { SvelteMap } from 'svelte/reactivity';
 	import type uPlot from 'uplot';
-	import type { Session, SessionSample } from '$lib/types/api';
+	import type { Session, SessionAccelerometerSample } from '$lib/types/api';
 	import { api } from '$lib/api/client';
 
 	let uPlotLib = $state<typeof uPlot | null>(null);
@@ -19,7 +19,7 @@
 
 	let plotContainer: HTMLDivElement;
 	let chart: uPlot | null = null;
-	let loadedSamples: SessionSample[] = $state([]);
+	let loadedSamples: SessionAccelerometerSample[] = $state([]);
 	let isLoadingData = $state(false);
 
 	// Track the currently loaded time range
@@ -51,19 +51,19 @@
 		}
 
 		console.log(
-			`[Waveform] Loading time range: ${new Date(startTime * 1000).toISOString()} to ${new Date(endTime * 1000).toISOString()}`
+			`[Accelerometer] Loading time range: ${new Date(startTime * 1000).toISOString()} to ${new Date(endTime * 1000).toISOString()}`
 		);
 		isLoadingData = true;
 
 		try {
 			// Don't request limit - let server return all samples in the time range
 			// This ensures we get complete data even for large windows
-			const response = await api.getSessionSamples(session.id, {
+			const response = await api.getSessionAccelerometerSamples(session.id, {
 				start_time: startTime,
 				end_time: endTime
 			});
 
-			console.log(`[Waveform] Loaded ${response.samples.length} samples`);
+			console.log(`[Accelerometer] Loaded ${response.samples.length} samples`);
 			loadedSamples = response.samples;
 			loadedTimeRange = { start: startTime, end: endTime };
 
@@ -107,7 +107,7 @@
 
 	// Prepare data for uPlot (convert to relative session time)
 	const prepareChartData = (
-		samples: SessionSample[]
+		samples: SessionAccelerometerSample[]
 	): { data: uPlot.AlignedData; devices: string[] } => {
 		if (samples.length === 0) {
 			return { data: [[], []], devices: [] };
@@ -120,7 +120,7 @@
 			const sorted = [...samples].sort((a, b) => a.global_time - b.global_time);
 			// Convert to relative time (seconds from session start)
 			const timestamps = sorted.map((s) => s.global_time - session.start_time);
-			const values = sorted.map((s) => s.raw_value);
+			const values = sorted.map((s) => s.magnitude);
 
 			return {
 				data: [timestamps, values] as uPlot.AlignedData,
@@ -129,7 +129,7 @@
 		}
 
 		// Multiple devices
-		const byDevice = new SvelteMap<string, SessionSample[]>();
+		const byDevice = new SvelteMap<string, SessionAccelerometerSample[]>();
 		for (const sample of samples) {
 			if (!byDevice.has(sample.device_id)) {
 				byDevice.set(sample.device_id, []);
@@ -153,7 +153,7 @@
 		// Each device gets its own y-values array
 		const seriesData = devices.map((deviceId) => {
 			const deviceSamples = byDevice.get(deviceId)!;
-			return deviceSamples.map((s) => s.raw_value);
+			return deviceSamples.map((s) => s.magnitude);
 		});
 
 		return {
@@ -390,7 +390,7 @@
 
 		uPlotLib = uPlotModule.default;
 		createDeviceSeries = utilsModule.createDeviceSeries;
-		createAxes = utilsModule.createAxes;
+		createAxes = () => utilsModule.createAxes('Magnitude (g)');
 
 		window.addEventListener('resize', handleResize);
 	});
@@ -420,7 +420,7 @@
 			<div class="flex flex-col items-end gap-1">
 				{#if currentViewport}
 					<div class="text-xs font-mono text-gray-600">
-						Loaded: {currentViewport.sampleCount.toLocaleString()} / {session.ecg_sample_count.toLocaleString()}
+						Loaded: {currentViewport.sampleCount.toLocaleString()} / {session.acc_sample_count.toLocaleString()}
 						samples
 					</div>
 					<div class="text-xs text-gray-500">

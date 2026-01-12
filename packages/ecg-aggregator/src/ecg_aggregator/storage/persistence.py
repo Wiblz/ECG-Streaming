@@ -75,10 +75,24 @@ class ECGDatabase:
             # Apply migrations with lock
             with backend.lock():
                 if is_legacy_db:
-                    logger.info("Detected legacy database. Marking existing migrations as applied.")
-                    # Mark all migrations as applied without running them
-                    backend.mark_migrations(migrations)
-                    logger.info(f"Marked {len(migrations)} migration(s) as applied")
+                    logger.info(
+                        "Detected legacy database. Marking initial schema migration as applied."
+                    )
+                    # Only mark the initial schema migration (0001) as applied
+                    # All other migrations (0002+) should be applied normally
+                    initial_migration = [m for m in migrations if "0001_initial_schema" in m.path]
+                    if initial_migration:
+                        backend.mark_migrations(initial_migration)
+                        logger.info("Marked initial schema migration as applied")
+
+                    # Now apply remaining pending migrations
+                    pending = backend.to_apply(migrations)
+                    if pending:
+                        logger.info(f"Applying {len(pending)} pending migration(s)")
+                        backend.apply_migrations(pending)
+                        logger.info("All migrations applied successfully")
+                    else:
+                        logger.info("No additional migrations to apply")
                 else:
                     # Normal migration application
                     pending = backend.to_apply(migrations)
@@ -625,7 +639,44 @@ class ECGDatabase:
                 if end_time is None:
                     end_time = time.time()
 
-                # Calculate session statistics
+                # Get session start time
+                cursor.execute("SELECT start_time FROM sessions WHERE id = ?", (session_id,))
+                result = cursor.fetchone()
+                if not result:
+                    logger.error(f"Session {session_id} not found")
+                    return False
+                start_time = result[0]
+
+                # Clean up samples outside session time bounds
+                # Remove session_id from ECG samples that fall outside [start_time, end_time]
+                cursor.execute(
+                    """
+                    UPDATE ecg_samples
+                    SET session_id = NULL
+                    WHERE session_id = ? AND (global_time < ? OR global_time > ?)
+                    """,
+                    (session_id, start_time, end_time),
+                )
+                ecg_cleaned = cursor.rowcount
+
+                # Remove session_id from accelerometer samples that fall outside [start_time, end_time]
+                cursor.execute(
+                    """
+                    UPDATE accelerometer_samples
+                    SET session_id = NULL
+                    WHERE session_id = ? AND (global_time < ? OR global_time > ?)
+                    """,
+                    (session_id, start_time, end_time),
+                )
+                acc_cleaned = cursor.rowcount
+
+                if ecg_cleaned > 0 or acc_cleaned > 0:
+                    logger.info(
+                        f"Cleaned up {ecg_cleaned} ECG and {acc_cleaned} ACC samples "
+                        f"outside session {session_id} time bounds"
+                    )
+
+                # Calculate session statistics (after cleanup)
                 sample_count, device_count = self._calculate_session_stats(cursor, session_id)
 
                 # Update session with end time and calculated stats
@@ -704,6 +755,19 @@ class ECGDatabase:
                         session_data["sample_count"] = sample_count
                         session_data["device_count"] = device_count
 
+                    # Get separate ECG and ACC sample counts
+                    cursor.execute(
+                        "SELECT COUNT(*) FROM ecg_samples WHERE session_id = ?",
+                        (row[0],),
+                    )
+                    session_data["ecg_sample_count"] = cursor.fetchone()[0]
+
+                    cursor.execute(
+                        "SELECT COUNT(*) FROM accelerometer_samples WHERE session_id = ?",
+                        (row[0],),
+                    )
+                    session_data["acc_sample_count"] = cursor.fetchone()[0]
+
                     # Get unique devices for this session
                     cursor.execute(
                         """
@@ -772,6 +836,19 @@ class ECGDatabase:
                     sample_count, device_count = self._calculate_session_stats(cursor, session_id)
                     session_data["sample_count"] = sample_count
                     session_data["device_count"] = device_count
+
+                # Get separate ECG and ACC sample counts
+                cursor.execute(
+                    "SELECT COUNT(*) FROM ecg_samples WHERE session_id = ?",
+                    (session_id,),
+                )
+                session_data["ecg_sample_count"] = cursor.fetchone()[0]
+
+                cursor.execute(
+                    "SELECT COUNT(*) FROM accelerometer_samples WHERE session_id = ?",
+                    (session_id,),
+                )
+                session_data["acc_sample_count"] = cursor.fetchone()[0]
 
                 # Get unique devices
                 cursor.execute(
