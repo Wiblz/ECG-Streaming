@@ -217,15 +217,16 @@ class PolarH10Driver(DeviceDriver):
                 return
 
             measurement_type = data[0]
-            device_timestamp = struct.unpack("<Q", data[1:9])[0]  # Microseconds
+            device_timestamp_ns = struct.unpack("<Q", data[1:9])[0]  # Nanoseconds
+            device_timestamp = device_timestamp_ns / 1000.0  # Convert to microseconds
             host_receive_time = time.time()
 
             if measurement_type == 0x00:
-                # ECG data
-                self._parse_ecg_data(data[9:], device_timestamp, host_receive_time)
+                # ECG data - skip 10-byte header (including frame type)
+                self._parse_ecg_data(data[10:], device_timestamp, host_receive_time)
             elif measurement_type == 0x02:
-                # Accelerometer data
-                self._parse_acc_data(data[9:], device_timestamp, host_receive_time)
+                # Accelerometer data - skip 10-byte header (including frame type)
+                self._parse_acc_data(data[10:], device_timestamp, host_receive_time)
             else:
                 logger.warning(
                     f"[{self.device_id}] Unknown measurement type: 0x{measurement_type:02x}"
@@ -241,6 +242,8 @@ class PolarH10Driver(DeviceDriver):
 
         ECG samples are 3 bytes each (24-bit signed integers).
         Sample rate is typically 130 Hz for Polar H10.
+
+        Note: device_timestamp represents the timestamp of the LAST sample in the frame.
         """
         try:
             sample_count = len(data) // 3
@@ -252,7 +255,8 @@ class PolarH10Driver(DeviceDriver):
                 raw_value = int.from_bytes(sample_bytes, byteorder="little", signed=True)
 
                 # Calculate timestamp for this sample
-                sample_offset_us = (i / sample_rate) * 1_000_000
+                # Timestamp is for the last sample, so work backwards
+                sample_offset_us = ((i - sample_count + 1) / sample_rate) * 1_000_000
                 sample_timestamp = device_timestamp + sample_offset_us
 
                 sample = ECGSample(
@@ -279,7 +283,9 @@ class PolarH10Driver(DeviceDriver):
 
         ACC samples are 6 bytes each (3x int16 for x, y, z).
         Sample rate is 50 Hz for this implementation.
-        Values are raw ADC readings that are scaled based on configured range (2G).
+        Values are in milligravity (mG) units.
+
+        Note: device_timestamp represents the timestamp of the LAST sample in the frame.
         """
         try:
             sample_count = len(data) // 6
@@ -291,19 +297,19 @@ class PolarH10Driver(DeviceDriver):
                 x, y, z = struct.unpack("<hhh", data[offset : offset + 6])
 
                 # Calculate timestamp for this sample
-                sample_offset_us = (i / sample_rate) * 1_000_000
+                # Timestamp is for the last sample, so work backwards
+                sample_offset_us = ((i - sample_count + 1) / sample_rate) * 1_000_000
                 sample_timestamp = device_timestamp + sample_offset_us
 
-                # Convert raw int16 values to g (gravity units)
-                # Scale based on configured range (2G) and 16-bit ADC resolution
-                scale = 2.0 / 32768.0
+                # Polar H10 sends accelerometer data in milligravity (mG) units
+                # Convert to g (gravity units) by dividing by 1000
                 sample = AccelerometerSample(
                     device_id=self.device_id,
                     device_timestamp=sample_timestamp,
                     host_receive_time=host_receive_time,
-                    x=x * scale,
-                    y=y * scale,
-                    z=z * scale,
+                    x=x / 1000.0,
+                    y=y / 1000.0,
+                    z=z / 1000.0,
                 )
 
                 try:

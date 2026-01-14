@@ -426,7 +426,7 @@ class AggregatorClient:
 
         elif msg_type == "sync_status":
             status = message.sync_status
-            logger.info(
+            logger.debug(
                 f"Sync status for {status.device_id}: "
                 f"ready={status.sync_ready}, offset={status.offset_s:.6f}s, "
                 f"confidence={status.confidence:.2f}"
