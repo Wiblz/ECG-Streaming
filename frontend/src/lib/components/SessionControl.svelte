@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { getActiveSession, setActiveSession, isRecording } from '$lib/state/session.svelte';
 	import { api } from '$lib/api/client';
+	import SessionDuration from './SessionDuration.svelte';
 
 	const recording = $derived(isRecording());
 	const activeSession = $derived(getActiveSession());
@@ -88,7 +89,7 @@
 
 	{#if recording && activeSession}
 		<div class="space-y-3">
-			<div class="text-xs space-y-1">
+			<div class="text-xs space-y-2">
 				<div class="flex justify-between">
 					<span class="text-gray-500">Session ID:</span>
 					<span class="font-medium text-gray-900">#{activeSession.id}</span>
@@ -98,6 +99,9 @@
 					<span class="font-medium text-gray-900">
 						{new Date(activeSession.start_time * 1000).toLocaleTimeString()}
 					</span>
+				</div>
+				<div class="pt-1">
+					<SessionDuration startTime={activeSession.start_time} />
 				</div>
 				{#if activeSession.notes}
 					<div class="pt-1">

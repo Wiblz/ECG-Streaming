@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { getContext } from 'svelte';
 	import favicon from '$lib/assets/favicon.svg';
 	import { setMockMode, isMockMode } from '$lib/api/client';
 
@@ -11,6 +12,10 @@
 	}
 
 	let { children }: Props = $props();
+
+	// Get version from context
+	const versionContext = getContext<{ value: string }>('version');
+	const version = $derived(versionContext?.value || '');
 
 	// Mock mode state
 	let mockMode = $state(isMockMode());
@@ -127,6 +132,13 @@
 
 			<!-- Page-specific actions (slot) -->
 			<div class="flex items-center gap-3">
+				<!-- Version Display -->
+				{#if version}
+					<span class="text-xs text-gray-500 px-2 py-1 font-medium" title="Application version">
+						v{version}
+					</span>
+				{/if}
+
 				<!-- Mock Mode Toggle -->
 				<button
 					onclick={toggleMockMode}

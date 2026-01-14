@@ -53,7 +53,7 @@
 		large: 'p-8'
 	};
 
-	const hasHeader = title || badge || headerActions;
+	const hasHeader = $derived(title || badge || headerActions);
 </script>
 
 <div class="bg-white border border-gray-200 rounded-xl shadow-lg {className}">

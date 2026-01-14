@@ -1,31 +1,16 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
+	import { goto, invalidate } from '$app/navigation';
 	import { api } from '$lib/api/client';
-	import type { Session } from '$lib/types/api';
 	import Header from '$lib/components/Header.svelte';
 	import { formatTimestamp, formatDuration } from '$lib/utils/format';
+	import type { PageProps } from './$types';
 
-	let sessions = $state<Session[]>([]);
-	let loading = $state(true);
-	let error = $state<string | null>(null);
+	let { data }: PageProps = $props();
+
 	let importing = $state(false);
 	let importMessage = $state<string | null>(null);
 	let fileInput: HTMLInputElement;
 	let deletingId = $state<number | null>(null);
-
-	async function loadSessions() {
-		try {
-			const response = await api.getSessions();
-			sessions = response.sessions;
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to load sessions';
-		} finally {
-			loading = false;
-		}
-	}
-
-	onMount(loadSessions);
 
 	function handleImportClick() {
 		fileInput.click();
@@ -46,7 +31,7 @@
 			if (result.success && result.session_id) {
 				importMessage = `Successfully imported session #${result.session_id}`;
 				// Reload sessions to show the new one
-				await loadSessions();
+				await invalidate(() => true);
 				// Navigate to the new session after a brief delay
 				setTimeout(() => {
 					goto(`/sessions/${result.session_id}`);
@@ -75,8 +60,8 @@
 		try {
 			const result = await api.deleteSession(sessionId);
 			if (result.success) {
-				// Remove from list
-				sessions = sessions.filter((s) => s.id !== sessionId);
+				// Reload sessions to reflect deletion
+				await invalidate(() => true);
 				importMessage = `Session #${sessionId} deleted successfully`;
 				// Auto-dismiss success message after 3 seconds
 				setTimeout(() => {
@@ -158,21 +143,7 @@
 	{/if}
 
 	<main class="container mx-auto px-6 py-8 max-w-7xl">
-		{#if loading}
-			<div class="flex items-center justify-center py-16">
-				<div class="text-center">
-					<div
-						class="inline-block w-12 h-12 border-4 border-gray-200 border-t-gray-600 rounded-full animate-spin"
-					></div>
-					<p class="text-sm text-gray-500 mt-4">Loading sessions...</p>
-				</div>
-			</div>
-		{:else if error}
-			<div class="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
-				<p class="text-red-800 font-medium">Error loading sessions</p>
-				<p class="text-red-600 text-sm mt-1">{error}</p>
-			</div>
-		{:else if sessions.length === 0}
+		{#if data.sessions.length === 0}
 			<div class="bg-white border border-gray-200 rounded-xl shadow-sm p-12 text-center">
 				<div class="text-6xl mb-4">📊</div>
 				<h3 class="text-lg font-semibold text-gray-900 mb-2">No sessions found</h3>
@@ -180,7 +151,7 @@
 			</div>
 		{:else}
 			<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-				{#each sessions as session (session.id)}
+				{#each data.sessions as session (session.id)}
 					<div
 						class="bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-lg transition-shadow"
 					>
@@ -273,7 +244,7 @@
 			</div>
 
 			<div class="mt-8 text-center text-sm text-gray-500">
-				Showing {sessions.length} session{sessions.length === 1 ? '' : 's'}
+				Showing {data.sessions.length} session{data.sessions.length === 1 ? '' : 's'}
 			</div>
 		{/if}
 	</main>

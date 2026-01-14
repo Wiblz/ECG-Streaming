@@ -270,6 +270,8 @@
 
 		const { data, devices } = prepareChartData(loadedSamples);
 
+		if (!createDeviceSeries || !createAxes) return;
+
 		const opts: uPlot.Options = {
 			width: plotContainer.clientWidth,
 			height: 400,

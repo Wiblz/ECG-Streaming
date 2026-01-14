@@ -148,7 +148,9 @@
 		if (!firstDevice) {
 			return { data: [[], []], devices: [] };
 		}
-		const timestamps = firstDevice.map((s: SessionSample) => s.global_time - session.start_time);
+		const timestamps = firstDevice.map(
+			(s: SessionAccelerometerSample) => s.global_time - session.start_time
+		);
 
 		// Each device gets its own y-values array
 		const seriesData = devices.map((deviceId) => {
@@ -269,6 +271,8 @@
 		console.log('[Waveform] Creating chart...');
 
 		const { data, devices } = prepareChartData(loadedSamples);
+
+		if (!createDeviceSeries || !createAxes) return;
 
 		const opts: uPlot.Options = {
 			width: plotContainer.clientWidth,

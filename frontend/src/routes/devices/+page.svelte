@@ -1,14 +1,20 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { invalidate } from '$app/navigation';
 	import { api } from '$lib/api/client';
 	import type { DeviceInfo, Collector } from '$lib/types/api';
 	import { formatTimeSince } from '$lib/utils/format';
 	import Header from '$lib/components/Header.svelte';
+	import type { PageProps } from './$types';
 
-	let devices = $state<DeviceInfo[]>([]);
-	let collectors = $state<Collector[]>([]);
-	let loading = $state(true);
-	let error = $state<string | null>(null);
+	let { data }: PageProps = $props();
+
+	// Action to focus an element when it's mounted
+	function focusElement(node: HTMLElement) {
+		node.focus();
+		return {};
+	}
+
 	let intervalId: number | undefined;
 
 	// Track editing state for nicknames
@@ -19,23 +25,6 @@
 	// Filter and sort options
 	let filterStatus = $state<'all' | 'connected' | 'disconnected'>('all');
 	let sortBy = $state<'name' | 'last_seen' | 'total_samples'>('last_seen');
-
-	async function fetchData() {
-		try {
-			const [devicesResponse, collectorsResponse] = await Promise.all([
-				api.getAllDevices(),
-				api.getCollectors()
-			]);
-
-			devices = devicesResponse.devices;
-			collectors = collectorsResponse.collectors;
-			error = null;
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to fetch data';
-		} finally {
-			loading = false;
-		}
-	}
 
 	async function startEditingNickname(deviceId: string, currentNickname: string | null) {
 		editingDevice = deviceId;
@@ -55,25 +44,21 @@
 			const nickname = editingNickname.trim() || null;
 			await api.updateDeviceNickname(deviceId, nickname);
 
-			// Update local state
-			const deviceIndex = devices.findIndex((d) => d.device_id === deviceId);
-			if (deviceIndex !== -1) {
-				devices[deviceIndex].nickname = nickname;
-			}
+			// Reload data to reflect changes
+			await invalidate(() => true);
 
 			editingDevice = null;
 			editingNickname = '';
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to update nickname';
 		} finally {
 			savingNickname = false;
 		}
 	}
 
 	onMount(() => {
-		fetchData();
-		// Refresh every 5 seconds
-		intervalId = setInterval(fetchData, 5000) as unknown as number;
+		// Refresh every 5 seconds by invalidating the load function
+		intervalId = setInterval(() => {
+			invalidate(() => true);
+		}, 5000) as unknown as number;
 	});
 
 	onDestroy(() => {
@@ -135,7 +120,7 @@
 
 	// Filtered and sorted devices
 	const filteredDevices = $derived.by(() => {
-		let filtered = devices;
+		let filtered = data.devices;
 
 		// Apply status filter
 		if (filterStatus === 'connected') {
@@ -168,7 +153,7 @@
 		return filtered;
 	});
 
-	const collectorMap = $derived(new Map(collectors.map((c) => [c.collector_id, c])));
+	const collectorMap = $derived(new Map(data.collectors.map((c) => [c.collector_id, c])));
 </script>
 
 <svelte:head>
@@ -187,11 +172,11 @@
 	</div>
 
 	<!-- Collectors Summary -->
-	{#if !loading && collectors.length > 0}
+	{#if data.collectors.length > 0}
 		<div class="mb-8">
 			<h2 class="text-lg font-semibold text-gray-900 mb-4">Collectors</h2>
 			<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-				{#each collectors as collector (collector.collector_id)}
+				{#each data.collectors as collector (collector.collector_id)}
 					<div class="border border-gray-200 rounded-lg p-4 bg-white">
 						<div class="flex items-start justify-between mb-3">
 							<div class="flex-1 min-w-0">
@@ -285,27 +270,17 @@
 		</div>
 
 		<div class="text-sm text-gray-600">
-			Showing {filteredDevices.length} of {devices.length} devices
+			Showing {filteredDevices.length} of {data.devices.length} devices
 		</div>
 	</div>
 
 	<!-- Devices Table -->
-	{#if loading}
-		<div class="flex items-center justify-center py-12">
-			<div
-				class="inline-block w-8 h-8 border-4 border-gray-200 border-t-gray-600 rounded-full animate-spin"
-			></div>
-		</div>
-	{:else if error}
-		<div class="bg-red-50 border border-red-200 rounded-lg p-4">
-			<p class="text-red-800 text-sm font-medium">{error}</p>
-		</div>
-	{:else if filteredDevices.length === 0}
+	{#if filteredDevices.length === 0}
 		<div class="text-center py-12 bg-gray-50 rounded-lg border border-gray-200">
 			<div class="text-4xl mb-2">🔌</div>
 			<p class="text-sm font-medium text-gray-900 mb-1">No devices found</p>
 			<p class="text-xs text-gray-500">
-				{devices.length === 0
+				{data.devices.length === 0
 					? 'Devices will appear after first connection'
 					: 'Try adjusting your filters'}
 			</p>
@@ -371,7 +346,7 @@
 													cancelEditingNickname();
 												}
 											}}
-											autofocus
+											use:focusElement
 										/>
 										<button
 											onclick={() => saveNickname(device.device_id)}

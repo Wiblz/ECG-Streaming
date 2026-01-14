@@ -166,6 +166,9 @@ export interface CollectorsResponse {
  * Both HttpClient and MockClient must implement this interface.
  */
 export interface ApiClient {
+	// Version
+	getVersion(): Promise<{ version: string }>;
+
 	// Device methods
 	getDevices(): Promise<{ devices: DeviceInfo[]; count: number }>;
 	getAllDevices(): Promise<{ devices: DeviceInfo[]; count: number }>;

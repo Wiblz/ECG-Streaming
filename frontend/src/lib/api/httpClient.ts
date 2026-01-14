@@ -21,6 +21,11 @@ const API_BASE =
  * Real HTTP API client implementation
  */
 export class HttpClient implements ApiClient {
+	async getVersion(): Promise<{ version: string }> {
+		const res = await fetch(`${API_BASE}/version`);
+		return res.json();
+	}
+
 	async getDevices(): Promise<{ devices: DeviceInfo[]; count: number }> {
 		const res = await fetch(`${API_BASE}/devices`);
 		return res.json();

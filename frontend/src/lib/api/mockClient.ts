@@ -19,6 +19,10 @@ export class MockClient implements ApiClient {
 	private collectorsCache: CollectorsResponse['collectors'] = [];
 	private updateInterval: number | undefined;
 
+	async getVersion(): Promise<{ version: string }> {
+		return { version: '0.1.0-mock' };
+	}
+
 	constructor() {
 		// Initialize mock data
 		this.devicesCache = getMockDevices();
