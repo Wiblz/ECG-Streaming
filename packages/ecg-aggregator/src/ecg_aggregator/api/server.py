@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ecg_common import __version__
 from ecg_common.logging import get_logger
 from fastapi import FastAPI, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -139,6 +140,11 @@ class ECGStreamingServer:
                 devices.append(device_info)
 
             return {"devices": devices, "count": len(devices)}
+
+        @self.app.get("/version")
+        async def get_version() -> dict[str, str]:
+            """Get API version information."""
+            return {"version": __version__}
 
         @self.app.get("/collectors")
         async def get_collectors() -> dict[str, Any]:

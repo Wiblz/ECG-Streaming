@@ -48,7 +48,10 @@ class AggregatorClient:
         self._channel: grpc.aio.Channel | None = None
         self._stub: ecg_streaming_pb2_grpc.ECGStreamingServiceStub | None = None
         self._stream_task: asyncio.Task | None = None
+        self._reconnect_task: asyncio.Task | None = None
         self._connected = False
+        self._should_reconnect = True
+        self._connection_failures = 0
 
         # Sample queues per device
         self._sample_queues: dict[str, asyncio.Queue[ECGSample]] = {
@@ -87,11 +90,16 @@ class AggregatorClient:
             # Start the bidirectional stream
             self._stream_task = asyncio.create_task(self._stream_loop())
 
+            # Start reconnection monitoring task
+            if not self._reconnect_task or self._reconnect_task.done():
+                self._reconnect_task = asyncio.create_task(self._reconnect_loop())
+
             # Wait a bit to see if connection succeeds
             await asyncio.sleep(0.5)
 
             if self._connected:
                 logger.info(f"Successfully connected to aggregator at {server_address}")
+                self._connection_failures = 0
                 return True
             else:
                 logger.warning(f"Connection to {server_address} pending...")
@@ -99,11 +107,20 @@ class AggregatorClient:
 
         except Exception as e:
             logger.error(f"Failed to connect to aggregator: {e}")
+            self._connection_failures += 1
             return False
 
     async def disconnect(self) -> None:
         """Disconnect from the aggregator server."""
         logger.info("Disconnecting from aggregator...")
+
+        # Stop reconnection attempts
+        self._should_reconnect = False
+
+        if self._reconnect_task:
+            self._reconnect_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._reconnect_task
 
         if self._stream_task:
             self._stream_task.cancel()
@@ -324,6 +341,7 @@ class AggregatorClient:
         except grpc.aio.AioRpcError as e:
             logger.error(f"gRPC stream error: {e.code()}: {e.details()}")
             self._connected = False
+            self._connection_failures += 1
 
         except asyncio.CancelledError:
             logger.info("Stream loop cancelled")
@@ -332,6 +350,60 @@ class AggregatorClient:
         except Exception as e:
             logger.error(f"Unexpected error in stream loop: {e}")
             self._connected = False
+            self._connection_failures += 1
+
+    async def _reconnect_loop(self) -> None:
+        """Monitor connection and attempt reconnection when disconnected."""
+        try:
+            while self._should_reconnect:
+                # Wait a bit before checking connection status
+                await asyncio.sleep(5.0)
+
+                # If not connected and should reconnect, attempt reconnection
+                if not self._connected and self._should_reconnect:
+                    # Calculate exponential backoff delay (max 60 seconds)
+                    backoff_delay = min(2**self._connection_failures, 60)
+                    logger.info(
+                        f"Connection lost. Attempting reconnection in {backoff_delay}s "
+                        f"(attempt {self._connection_failures + 1})"
+                    )
+                    await asyncio.sleep(backoff_delay)
+
+                    # Clean up old connection
+                    if self._stream_task and not self._stream_task.done():
+                        self._stream_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await self._stream_task
+
+                    if self._channel:
+                        await self._channel.close()
+
+                    # Attempt to reconnect
+                    try:
+                        server_address = f"{self.aggregator_host}:{self.aggregator_port}"
+                        self._channel = grpc.aio.insecure_channel(server_address)
+                        self._stub = ecg_streaming_pb2_grpc.ECGStreamingServiceStub(self._channel)
+                        self._stream_task = asyncio.create_task(self._stream_loop())
+
+                        # Wait to see if connection succeeds
+                        await asyncio.sleep(1.0)
+
+                        # Check connection status (can change asynchronously via _stream_loop)
+                        if self._connected:
+                            logger.info(  # type: ignore[unreachable]  # Modified by concurrent _stream_loop task
+                                f"Successfully reconnected to aggregator at {server_address}"
+                            )
+                            self._connection_failures = 0
+                        else:
+                            logger.warning(f"Reconnection to {server_address} pending...")
+
+                    except Exception as e:
+                        logger.error(f"Reconnection attempt failed: {e}")
+                        self._connection_failures += 1
+
+        except asyncio.CancelledError:
+            logger.info("Reconnection loop cancelled")
+            raise
 
     async def _handle_aggregator_message(
         self, message: ecg_streaming_pb2.AggregatorMessage

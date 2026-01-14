@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import uvicorn
+from ecg_common import __version__
 from ecg_common.logging import get_logger, setup_logging
 
 from ecg_aggregator.api.data_buffer import AccelerometerDataBuffer, ECGDataBuffer
@@ -184,7 +185,15 @@ def main() -> None:
     """Main entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="ECG Aggregator")
+    parser = argparse.ArgumentParser(
+        description="ECG Aggregator",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"ecg-aggregator {__version__}",
+    )
     parser.add_argument(
         "--config",
         type=Path,

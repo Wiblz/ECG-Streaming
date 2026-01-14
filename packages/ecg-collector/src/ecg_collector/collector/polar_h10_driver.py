@@ -27,7 +27,8 @@ DEVICE_INFO_SERVICE_UUID = "0000180A-0000-1000-8000-00805F9B34FB"
 # PMD Control Point commands
 # START (0x02), ECG type (0x00), setting 0 (sample rate), value 130Hz (0x82), setting 1 (resolution), value 14
 ECG_WRITE = bytearray([0x02, 0x00, 0x00, 0x01, 0x82, 0x00, 0x01, 0x01, 0x0E, 0x00])
-# START (0x02), ACC type (0x02), setting 0 (sample rate 50Hz = 0x32), setting 1 (resolution 16), setting 2 (range 2G)
+# START (0x02), ACC type (0x02), setting 0 (sample rate 50Hz = 0x32), setting 1 (resolution 16-bit), setting 2 (range 2G)
+# Data is returned as int16 raw ADC values that must be scaled by: range / 32768
 ACC_WRITE = bytearray(
     [0x02, 0x02, 0x00, 0x01, 0x32, 0x00, 0x01, 0x01, 0x10, 0x00, 0x02, 0x01, 0x02, 0x00]
 )
@@ -278,6 +279,7 @@ class PolarH10Driver(DeviceDriver):
 
         ACC samples are 6 bytes each (3x int16 for x, y, z).
         Sample rate is 50 Hz for this implementation.
+        Values are raw ADC readings that are scaled based on configured range (2G).
         """
         try:
             sample_count = len(data) // 6
@@ -292,8 +294,9 @@ class PolarH10Driver(DeviceDriver):
                 sample_offset_us = (i / sample_rate) * 1_000_000
                 sample_timestamp = device_timestamp + sample_offset_us
 
-                # Convert to g (gravity units) - Polar H10 uses ±8g range
-                scale = 8.0 / 32768.0
+                # Convert raw int16 values to g (gravity units)
+                # Scale based on configured range (2G) and 16-bit ADC resolution
+                scale = 2.0 / 32768.0
                 sample = AccelerometerSample(
                     device_id=self.device_id,
                     device_timestamp=sample_timestamp,

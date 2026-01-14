@@ -6,6 +6,7 @@ import signal
 import sys
 from pathlib import Path
 
+from ecg_common import __version__
 from ecg_common.logging import get_logger, setup_logging
 from ecg_common.models import DeviceStatus
 
@@ -56,10 +57,12 @@ class ECGCollector:
         logger.info(f"Devices: {self.config.device_ids}")
         logger.info(f"Aggregator: {self.config.aggregator.host}:{self.config.aggregator.port}")
 
-        # Connect to aggregator
-        if not await self.grpc_client.connect():
-            logger.error("Failed to connect to aggregator, exiting")
-            return
+        # Connect to aggregator (will retry automatically if fails)
+        await self.grpc_client.connect()
+        if not self.grpc_client.connected:
+            logger.warning(
+                "Initial connection to aggregator failed, but will keep retrying in background"
+            )
 
         # Add devices to adapter manager and state manager
         for device_id in self.config.device_ids:
@@ -255,7 +258,15 @@ def main() -> None:
     """Main entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="ECG Collector")
+    parser = argparse.ArgumentParser(
+        description="ECG Collector",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"ecg-collector {__version__}",
+    )
     parser.add_argument(
         "--config",
         type=Path,
