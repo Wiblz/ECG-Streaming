@@ -4,8 +4,7 @@ import asyncio
 
 from ecg_common.logging import get_logger
 
-from ecg_collector.collector.device_driver import DeviceDriver
-from ecg_collector.collector.polar_h10_driver import PolarH10Driver
+from ecg_collector.ble.drivers import DeviceDriver, PolarH10Driver
 
 logger = get_logger(__name__)
 

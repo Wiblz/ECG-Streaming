@@ -8,7 +8,7 @@ from enum import Enum
 from ecg_common.logging import get_logger
 from ecg_common.models import DeviceStatus
 
-from ecg_collector.collector.device_driver import DeviceDriver
+from ecg_collector.ble.drivers import DeviceDriver
 
 logger = get_logger(__name__)
 

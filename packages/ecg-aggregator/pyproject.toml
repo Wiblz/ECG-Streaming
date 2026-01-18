@@ -1,6 +1,6 @@
 [project]
 name = "ecg-aggregator"
-version = "0.1.0"
+version = "0.2.0"
 description = "Aggregator + Dashboard for ECG-Streaming - receives data, syncs timing, stores in DB, serves API"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -28,6 +28,7 @@ dev = [
     "pytest-asyncio>=0.24.0",
     "ruff>=0.8.4",
     "mypy>=1.13.0",
+    "types-PyYAML>=6.0.12",
 ]
 
 [project.scripts]

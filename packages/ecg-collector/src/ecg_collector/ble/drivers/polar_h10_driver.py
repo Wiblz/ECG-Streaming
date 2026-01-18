@@ -11,7 +11,7 @@ from bleak.backends.scanner import AdvertisementData
 from ecg_common.logging import get_logger
 from ecg_common.models import AccelerometerSample, DeviceStatus, ECGSample
 
-from ecg_collector.collector.device_driver import DeviceDriver
+from ecg_collector.ble.drivers.device_driver import DeviceDriver
 
 logger = get_logger(__name__)
 
