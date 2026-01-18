@@ -1,7 +1,7 @@
 <script lang="ts">
+	import { statusEvents } from '$lib/state/status-events.svelte';
 	import type { Collector } from '$lib/types/api';
 	import { formatUptime } from '$lib/utils/format';
-	import { statusEvents } from '$lib/state/status-events.svelte';
 
 	// Use reactive state from SSE client
 	let collectors = $derived(statusEvents.getCollectors());

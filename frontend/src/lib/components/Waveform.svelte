@@ -1,11 +1,11 @@
 <script lang="ts" generics="T extends { device_id: string; global_time: number }">
-	import { onMount, onDestroy } from 'svelte';
-	import { browser } from '$app/environment';
+	import { onDestroy, onMount } from 'svelte';
 	import type uPlot from 'uplot';
 	import type { AlignedData } from 'uplot';
-	import Card from './Card.svelte';
-	import type { ConnectionStateType } from '$lib/state/websocket.svelte';
+	import { browser } from '$app/environment';
 	import { getSessionStartTime, setSessionStartTime } from '$lib/state/session-time.svelte';
+	import type { ConnectionStateType } from '$lib/state/websocket.svelte';
+	import Card from './Card.svelte';
 
 	interface Props {
 		samples: Map<string, T[]>;

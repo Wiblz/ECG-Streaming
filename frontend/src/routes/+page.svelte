@@ -1,16 +1,16 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
-	import { ECGWebSocket } from '$lib/api/websocket';
+	import { onDestroy, onMount } from 'svelte';
 	import { AccelerometerWebSocket } from '$lib/api/accelerometerWebsocket';
-	import { getDevices } from '$lib/state/devices.svelte';
-	import Header from '$lib/components/Header.svelte';
+	import { ECGWebSocket } from '$lib/api/websocket';
 	import Card from '$lib/components/Card.svelte';
-	import LiveWaveforms from '$lib/components/LiveWaveforms.svelte';
-	import DeviceCard from '$lib/components/DeviceCard.svelte';
-	import StatsPanel from '$lib/components/StatsPanel.svelte';
 	import ConnectionStatus from '$lib/components/ConnectionStatus.svelte';
+	import DeviceCard from '$lib/components/DeviceCard.svelte';
 	import DeviceStatusPanel from '$lib/components/DeviceStatusPanel.svelte';
+	import Header from '$lib/components/Header.svelte';
+	import LiveWaveforms from '$lib/components/LiveWaveforms.svelte';
 	import SessionControl from '$lib/components/SessionControl.svelte';
+	import StatsPanel from '$lib/components/StatsPanel.svelte';
+	import { getDevices } from '$lib/state/devices.svelte';
 
 	let ecgWs: ECGWebSocket;
 	let accWs: AccelerometerWebSocket;

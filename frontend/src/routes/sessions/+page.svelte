@@ -2,7 +2,7 @@
 	import { goto, invalidate } from '$app/navigation';
 	import { api } from '$lib/api/client';
 	import Header from '$lib/components/Header.svelte';
-	import { formatTimestamp, formatDuration } from '$lib/utils/format';
+	import { formatDuration, formatTimestamp } from '$lib/utils/format';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();

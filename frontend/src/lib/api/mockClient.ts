@@ -1,40 +1,40 @@
 import type {
 	ApiClient,
-	DeviceInfo,
 	BufferStats,
-	Session,
-	SessionsResponse,
-	SessionSamplesResponse,
-	SessionAccelerometerSamplesResponse,
+	CollectorsResponse,
+	DeviceInfo,
 	DeviceStatusResponse,
-	CollectorsResponse
-} from '$lib/types/api';
-import { getMockCollectors, getMockDevices, updateMockData } from './mockData';
+	Session,
+	SessionAccelerometerSamplesResponse,
+	SessionSamplesResponse,
+	SessionsResponse
+} from '$lib/types/api'
+import { getMockCollectors, getMockDevices, updateMockData } from './mockData'
 
 /**
  * Mock API client implementation for UI testing
  */
 export class MockClient implements ApiClient {
-	private devicesCache: DeviceInfo[] = [];
-	private collectorsCache: CollectorsResponse['collectors'] = [];
-	private updateInterval: number | undefined;
+	private devicesCache: DeviceInfo[] = []
+	private collectorsCache: CollectorsResponse['collectors'] = []
+	private updateInterval: number | undefined
 
 	async getVersion(): Promise<{ version: string }> {
-		return { version: '0.1.0-mock' };
+		return { version: '0.1.0-mock' }
 	}
 
 	constructor() {
 		// Initialize mock data
-		this.devicesCache = getMockDevices();
-		this.collectorsCache = getMockCollectors();
+		this.devicesCache = getMockDevices()
+		this.collectorsCache = getMockCollectors()
 
 		// Start simulating live updates
 		if (typeof window !== 'undefined') {
 			this.updateInterval = setInterval(() => {
-				const updated = updateMockData(this.devicesCache, this.collectorsCache);
-				this.devicesCache = updated.devices;
-				this.collectorsCache = updated.collectors;
-			}, 2000) as unknown as number;
+				const updated = updateMockData(this.devicesCache, this.collectorsCache)
+				this.devicesCache = updated.devices
+				this.collectorsCache = updated.collectors
+			}, 2000) as unknown as number
 		}
 	}
 
@@ -43,19 +43,19 @@ export class MockClient implements ApiClient {
 	 */
 	destroy() {
 		if (this.updateInterval !== undefined) {
-			clearInterval(this.updateInterval);
-			this.updateInterval = undefined;
+			clearInterval(this.updateInterval)
+			this.updateInterval = undefined
 		}
 	}
 
 	async getDevices(): Promise<{ devices: DeviceInfo[]; count: number }> {
 		// Filter to only synced devices (similar to real API)
-		const syncedDevices = this.devicesCache.filter((d) => d.sync_ready);
-		return { devices: syncedDevices, count: syncedDevices.length };
+		const syncedDevices = this.devicesCache.filter((d) => d.sync_ready)
+		return { devices: syncedDevices, count: syncedDevices.length }
 	}
 
 	async getAllDevices(): Promise<{ devices: DeviceInfo[]; count: number }> {
-		return { devices: this.devicesCache, count: this.devicesCache.length };
+		return { devices: this.devicesCache, count: this.devicesCache.length }
 	}
 
 	async getDeviceStatus(): Promise<DeviceStatusResponse> {
@@ -71,32 +71,32 @@ export class MockClient implements ApiClient {
 				last_update: d.last_update!,
 				battery_level: d.battery_level ?? null,
 				error_message: d.error_message ?? null
-			}));
-		return { devices: connectedDevices, count: connectedDevices.length };
+			}))
+		return { devices: connectedDevices, count: connectedDevices.length }
 	}
 
 	async updateDeviceNickname(
 		deviceId: string,
 		nickname: string | null
 	): Promise<{ success: boolean; device_id: string; nickname: string | null }> {
-		const device = this.devicesCache.find((d) => d.device_id === deviceId);
+		const device = this.devicesCache.find((d) => d.device_id === deviceId)
 		if (device) {
-			device.nickname = nickname;
-			return { success: true, device_id: deviceId, nickname };
+			device.nickname = nickname
+			return { success: true, device_id: deviceId, nickname }
 		}
-		throw new Error('Device not found');
+		throw new Error('Device not found')
 	}
 
 	async getCollectors(): Promise<CollectorsResponse> {
-		return { collectors: this.collectorsCache, count: this.collectorsCache.length };
+		return { collectors: this.collectorsCache, count: this.collectorsCache.length }
 	}
 
 	async getStats(): Promise<{
-		sync: unknown;
-		ecg_websocket_connections: number;
-		acc_websocket_connections: number;
-		ecg_buffer: BufferStats;
-		acc_buffer: BufferStats;
+		sync: unknown
+		ecg_websocket_connections: number
+		acc_websocket_connections: number
+		ecg_buffer: BufferStats
+		acc_buffer: BufferStats
 	}> {
 		// Return mock stats
 		const emptyStats: BufferStats = {
@@ -108,14 +108,14 @@ export class MockClient implements ApiClient {
 			newest_timestamp: 0,
 			total_processed: 0,
 			buffer_utilization: 0
-		};
+		}
 		return {
 			sync: {},
 			ecg_websocket_connections: 0,
 			acc_websocket_connections: 0,
 			ecg_buffer: emptyStats,
 			acc_buffer: emptyStats
-		};
+		}
 	}
 
 	async getBufferStats(): Promise<BufferStats> {
@@ -128,7 +128,7 @@ export class MockClient implements ApiClient {
 			newest_timestamp: 0,
 			total_processed: 0,
 			buffer_utilization: 0
-		};
+		}
 	}
 
 	async getAccelerometerBufferStats(): Promise<BufferStats> {
@@ -141,18 +141,18 @@ export class MockClient implements ApiClient {
 			newest_timestamp: 0,
 			total_processed: 0,
 			buffer_utilization: 0
-		};
+		}
 	}
 
 	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	async getSessions(_params?: { limit?: number; offset?: number }): Promise<SessionsResponse> {
 		// Return empty sessions for mock mode
-		return { sessions: [], count: 0 };
+		return { sessions: [], count: 0 }
 	}
 
 	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	async getSession(_sessionId: number): Promise<Session> {
-		throw new Error('Sessions not supported in mock mode');
+		throw new Error('Sessions not supported in mock mode')
 	}
 
 	async getSessionSamples(
@@ -160,14 +160,14 @@ export class MockClient implements ApiClient {
 		_sessionId: number,
 		// eslint-disable-next-line @typescript-eslint/no-unused-vars
 		_params?: {
-			device_id?: string;
-			start_time?: number;
-			end_time?: number;
-			limit?: number;
-			offset?: number;
+			device_id?: string
+			start_time?: number
+			end_time?: number
+			limit?: number
+			offset?: number
 		}
 	): Promise<SessionSamplesResponse> {
-		throw new Error('Sessions not supported in mock mode');
+		throw new Error('Sessions not supported in mock mode')
 	}
 
 	async getSessionAccelerometerSamples(
@@ -175,59 +175,59 @@ export class MockClient implements ApiClient {
 		_sessionId: number,
 		// eslint-disable-next-line @typescript-eslint/no-unused-vars
 		_params?: {
-			device_id?: string;
-			start_time?: number;
-			end_time?: number;
-			limit?: number;
-			offset?: number;
+			device_id?: string
+			start_time?: number
+			end_time?: number
+			limit?: number
+			offset?: number
 		}
 	): Promise<SessionAccelerometerSamplesResponse> {
-		throw new Error('Sessions not supported in mock mode');
+		throw new Error('Sessions not supported in mock mode')
 	}
 
 	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	async deleteSession(_sessionId: number): Promise<{ success: boolean }> {
-		throw new Error('Sessions not supported in mock mode');
+		throw new Error('Sessions not supported in mock mode')
 	}
 
 	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	getSessionExportUrl(_sessionId: number): string {
-		throw new Error('Sessions not supported in mock mode');
+		throw new Error('Sessions not supported in mock mode')
 	}
 
 	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	async importSession(_file: File): Promise<{
-		success: boolean;
-		session_id?: number;
-		message?: string;
-		error?: string;
+		success: boolean
+		session_id?: number
+		message?: string
+		error?: string
 	}> {
-		throw new Error('Sessions not supported in mock mode');
+		throw new Error('Sessions not supported in mock mode')
 	}
 
 	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	async startSession(_notes?: string | null): Promise<{
-		success: boolean;
-		session_id?: number;
-		message: string;
-		error?: string;
+		success: boolean
+		session_id?: number
+		message: string
+		error?: string
 	}> {
-		throw new Error('Session control not supported in mock mode');
+		throw new Error('Session control not supported in mock mode')
 	}
 
 	async stopSession(): Promise<{
-		success: boolean;
-		session_id?: number;
-		message: string;
-		error?: string;
+		success: boolean
+		session_id?: number
+		message: string
+		error?: string
 	}> {
-		throw new Error('Session control not supported in mock mode');
+		throw new Error('Session control not supported in mock mode')
 	}
 
 	async getActiveSession(): Promise<{
-		active: boolean;
-		session?: Session;
+		active: boolean
+		session?: Session
 	}> {
-		throw new Error('Session control not supported in mock mode');
+		throw new Error('Session control not supported in mock mode')
 	}
 }

@@ -1,8 +1,8 @@
 <script lang="ts">
 	import type { Session } from '$lib/types/api';
 	import Card from './Card.svelte';
-	import HistoricalWaveform from './HistoricalWaveform.svelte';
 	import HistoricalAccelerometerWaveform from './HistoricalAccelerometerWaveform.svelte';
+	import HistoricalWaveform from './HistoricalWaveform.svelte';
 
 	interface Props {
 		session: Session;

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getWsState, ConnectionState } from '$lib/state/websocket.svelte';
+	import { ConnectionState, getWsState } from '$lib/state/websocket.svelte';
 
 	// Reactive derived value
 	const state = $derived(getWsState());

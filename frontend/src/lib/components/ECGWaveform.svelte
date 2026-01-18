@@ -1,7 +1,7 @@
 <script lang="ts">
-	import Waveform from './Waveform.svelte';
 	import { getSamples } from '$lib/state/ecg-data.svelte';
 	import { getWsState } from '$lib/state/websocket.svelte';
+	import Waveform from './Waveform.svelte';
 
 	const samples = $derived(getSamples());
 	const wsState = $derived(getWsState());

@@ -3,7 +3,7 @@
 	import { api } from '$lib/api/client';
 	import Header from '$lib/components/Header.svelte';
 	import HistoricalWaveforms from '$lib/components/HistoricalWaveforms.svelte';
-	import { formatFullTimestamp, formatDuration } from '$lib/utils/format';
+	import { formatDuration, formatFullTimestamp } from '$lib/utils/format';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();

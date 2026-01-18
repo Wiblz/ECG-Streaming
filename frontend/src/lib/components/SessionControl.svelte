@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { getActiveSession, setActiveSession, isRecording } from '$lib/state/session.svelte';
 	import { api } from '$lib/api/client';
+	import { getActiveSession, isRecording, setActiveSession } from '$lib/state/session.svelte';
 	import SessionDuration from './SessionDuration.svelte';
 
 	const recording = $derived(isRecording());

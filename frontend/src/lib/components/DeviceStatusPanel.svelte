@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api/client';
-	import type { DeviceInfo, Collector } from '$lib/types/api';
-	import { formatTimeSince, formatUptime } from '$lib/utils/format';
 	import { statusEvents } from '$lib/state/status-events.svelte';
+	import type { Collector, DeviceInfo } from '$lib/types/api';
+	import { formatTimeSince, formatUptime } from '$lib/utils/format';
 	import Card from './Card.svelte';
 
 	// Fetch device metadata (nicknames, etc.) once on mount

@@ -3,36 +3,36 @@
  * Used across components for consistent data display
  */
 
-import dayjs from 'dayjs';
-import relativeTime from 'dayjs/plugin/relativeTime';
-import duration from 'dayjs/plugin/duration';
+import dayjs from 'dayjs'
+import duration from 'dayjs/plugin/duration'
+import relativeTime from 'dayjs/plugin/relativeTime'
 
 // Enable plugins
-dayjs.extend(relativeTime);
-dayjs.extend(duration);
+dayjs.extend(relativeTime)
+dayjs.extend(duration)
 
 /**
  * Format a Unix timestamp as relative time ("3m ago", "2h ago", etc.)
  */
 export function formatTimeSince(timestamp: number): string {
-	return dayjs.unix(timestamp).fromNow();
+	return dayjs.unix(timestamp).fromNow()
 }
 
 /**
  * Format seconds as human-readable uptime ("5m", "2h 15m", etc.)
  */
 export function formatUptime(seconds: number): string {
-	const d = dayjs.duration(seconds, 'seconds');
+	const d = dayjs.duration(seconds, 'seconds')
 
 	if (seconds < 60) {
-		return `${Math.floor(seconds)}s`;
+		return `${Math.floor(seconds)}s`
 	}
 	if (seconds < 3600) {
-		return `${d.minutes()}m`;
+		return `${d.minutes()}m`
 	}
-	const hours = d.hours();
-	const minutes = d.minutes();
-	return `${hours}h ${minutes}m`;
+	const hours = d.hours()
+	const minutes = d.minutes()
+	return `${hours}h ${minutes}m`
 }
 
 /**
@@ -40,7 +40,7 @@ export function formatUptime(seconds: number): string {
  * Example: "Jan 10, 2026 2:30 PM"
  */
 export function formatTimestamp(timestamp: number): string {
-	return dayjs.unix(timestamp).format('MMM D, YYYY h:mm A');
+	return dayjs.unix(timestamp).format('MMM D, YYYY h:mm A')
 }
 
 /**
@@ -48,7 +48,7 @@ export function formatTimestamp(timestamp: number): string {
  * Example: "January 10, 2026 at 2:30:45 PM"
  */
 export function formatFullTimestamp(timestamp: number): string {
-	return dayjs.unix(timestamp).format('MMMM D, YYYY [at] h:mm:ss A');
+	return dayjs.unix(timestamp).format('MMMM D, YYYY [at] h:mm:ss A')
 }
 
 /**
@@ -56,7 +56,7 @@ export function formatFullTimestamp(timestamp: number): string {
  * Example: "Jan 10, 2026"
  */
 export function formatDate(timestamp: number): string {
-	return dayjs.unix(timestamp).format('MMM D, YYYY');
+	return dayjs.unix(timestamp).format('MMM D, YYYY')
 }
 
 /**
@@ -64,7 +64,7 @@ export function formatDate(timestamp: number): string {
  * Example: "2:30 PM"
  */
 export function formatTime(timestamp: number): string {
-	return dayjs.unix(timestamp).format('h:mm A');
+	return dayjs.unix(timestamp).format('h:mm A')
 }
 
 /**
@@ -72,17 +72,17 @@ export function formatTime(timestamp: number): string {
  * Example: "2h 15m 30s"
  */
 export function formatDuration(seconds: number | null): string {
-	if (seconds === null || seconds === 0) return '0s';
+	if (seconds === null || seconds === 0) return '0s'
 
-	const d = dayjs.duration(seconds, 'seconds');
-	const hours = Math.floor(d.asHours());
-	const mins = d.minutes();
-	const secs = d.seconds();
+	const d = dayjs.duration(seconds, 'seconds')
+	const hours = Math.floor(d.asHours())
+	const mins = d.minutes()
+	const secs = d.seconds()
 
 	if (hours > 0) {
-		return `${hours}h ${mins}m ${secs}s`;
+		return `${hours}h ${mins}m ${secs}s`
 	} else if (mins > 0) {
-		return `${mins}m ${secs}s`;
+		return `${mins}m ${secs}s`
 	}
-	return `${secs}s`;
+	return `${secs}s`
 }

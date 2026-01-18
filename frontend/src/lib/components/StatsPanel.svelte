@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { BufferStats } from '$lib/types/api';
 	import { statusEvents } from '$lib/state/status-events.svelte';
+	import type { BufferStats } from '$lib/types/api';
 	import Card from './Card.svelte';
 
 	// Use reactive state from SSE client

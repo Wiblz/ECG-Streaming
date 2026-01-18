@@ -2,23 +2,23 @@
  * Shared uPlot utilities for ECG waveform rendering
  */
 
-import type uPlot from 'uplot';
+import type uPlot from 'uplot'
 
 // Standard color palette for device waveforms
-export const DEVICE_COLORS = ['#ff3e00', '#40b3ff', '#676778', '#ff6b6b', '#4ecdc4'];
+export const DEVICE_COLORS = ['#ff3e00', '#40b3ff', '#676778', '#ff6b6b', '#4ecdc4']
 
 /**
  * Get color for device by index
  */
 export function getDeviceColor(index: number): string {
-	return DEVICE_COLORS[index % DEVICE_COLORS.length];
+	return DEVICE_COLORS[index % DEVICE_COLORS.length]
 }
 
 /**
  * Create series configuration for devices
  */
 export function createDeviceSeries(deviceIds: string[]): uPlot.Series[] {
-	const series: uPlot.Series[] = [{ label: 'Time' }];
+	const series: uPlot.Series[] = [{ label: 'Time' }]
 
 	deviceIds.forEach((deviceId, idx) => {
 		series.push({
@@ -26,10 +26,10 @@ export function createDeviceSeries(deviceIds: string[]): uPlot.Series[] {
 			stroke: getDeviceColor(idx),
 			width: 2,
 			points: { show: false }
-		});
-	});
+		})
+	})
 
-	return series;
+	return series
 }
 
 /**
@@ -38,13 +38,13 @@ export function createDeviceSeries(deviceIds: string[]): uPlot.Series[] {
 export function formatTimeAxis(u: uPlot, vals: number[]): string[] {
 	return vals.map((v) => {
 		if (v < 60) {
-			return v.toFixed(1) + 's';
+			return v.toFixed(1) + 's'
 		} else {
-			const mins = Math.floor(v / 60);
-			const secs = (v % 60).toFixed(0);
-			return `${mins}m ${secs}s`;
+			const mins = Math.floor(v / 60)
+			const secs = (v % 60).toFixed(0)
+			return `${mins}m ${secs}s`
 		}
-	});
+	})
 }
 
 /**
@@ -61,5 +61,5 @@ export function createAxes(yLabel: string = 'Raw Value'): uPlot.Axis[] {
 			space: 80,
 			gap: 5
 		}
-	];
+	]
 }

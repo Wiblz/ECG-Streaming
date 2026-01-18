@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { invalidate } from '$app/navigation';
 	import { api } from '$lib/api/client';
-	import type { DeviceInfo, Collector } from '$lib/types/api';
-	import { formatTimeSince } from '$lib/utils/format';
-	import { statusEvents } from '$lib/state/status-events.svelte';
 	import Header from '$lib/components/Header.svelte';
+	import { statusEvents } from '$lib/state/status-events.svelte';
+	import type { Collector, DeviceInfo } from '$lib/types/api';
+	import { formatTimeSince } from '$lib/utils/format';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();

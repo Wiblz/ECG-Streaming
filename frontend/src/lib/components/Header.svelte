@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { page } from '$app/state';
 	import { getContext } from 'svelte';
+	import { page } from '$app/state';
+	import { isMockMode, setMockMode } from '$lib/api/client';
 	import favicon from '$lib/assets/favicon.svg';
-	import { setMockMode, isMockMode } from '$lib/api/client';
 
 	interface Props {
 		/**

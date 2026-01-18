@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
-	import { browser } from '$app/environment';
+	import { onDestroy, onMount } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import type uPlot from 'uplot';
-	import type { Session, SessionAccelerometerSample } from '$lib/types/api';
+	import { browser } from '$app/environment';
 	import { api } from '$lib/api/client';
+	import type { Session, SessionAccelerometerSample } from '$lib/types/api';
 
 	let uPlotLib = $state<typeof uPlot | null>(null);
 	let createDeviceSeries: ((deviceIds: string[]) => uPlot.Series[]) | null = null;

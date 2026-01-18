@@ -1,10 +1,10 @@
 <script lang="ts">
-	import Card from './Card.svelte';
-	import Waveform from './Waveform.svelte';
-	import PauseButton from './PauseButton.svelte';
-	import { getSamples as getEcgSamples } from '$lib/state/ecg-data.svelte';
 	import { getSamples as getAccSamples } from '$lib/state/acc-data.svelte';
-	import { getWsState, getAccWsState, ConnectionState } from '$lib/state/websocket.svelte';
+	import { getSamples as getEcgSamples } from '$lib/state/ecg-data.svelte';
+	import { ConnectionState, getAccWsState, getWsState } from '$lib/state/websocket.svelte';
+	import Card from './Card.svelte';
+	import PauseButton from './PauseButton.svelte';
+	import Waveform from './Waveform.svelte';
 
 	// Get samples and connection states
 	const ecgSamples = $derived(getEcgSamples());
