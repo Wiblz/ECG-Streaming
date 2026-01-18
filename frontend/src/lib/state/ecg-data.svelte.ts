@@ -24,7 +24,7 @@ export function addSamples(newSamples: BufferedECGSample[]) {
 	for (const [device_id, newDeviceSamples] of byDevice) {
 		if (!_samples.has(device_id)) {
 			_samples.set(device_id, []);
-			console.log(`[Live ECG Waveforms] ✓ New device: ${device_id}`);
+			// console.log(`[Live ECG Waveforms] ✓ New device: ${device_id}`);
 		}
 
 		// Get current samples, add new ones
@@ -48,9 +48,9 @@ export function addSamples(newSamples: BufferedECGSample[]) {
 				.filter(Boolean)
 				.join(', ');
 
-			console.log(
-				`[Live ECG Waveforms] ${device_id}: added ${newDeviceSamples.length}, dropped ${dropped} samples [${droppedPreview}], now ${filtered.length} (cutoff: ${cutoffTime.toFixed(2)}, newest: ${newestTime.toFixed(2)})`
-			);
+			// console.log(
+			// 	`[Live ECG Waveforms] ${device_id}: added ${newDeviceSamples.length}, dropped ${dropped} samples [${droppedPreview}], now ${filtered.length} (cutoff: ${cutoffTime.toFixed(2)}, newest: ${newestTime.toFixed(2)})`
+			// );
 		}
 
 		// Log current buffer state
@@ -58,9 +58,9 @@ export function addSamples(newSamples: BufferedECGSample[]) {
 			filtered.length > 0
 				? `${filtered[0].global_time.toFixed(2)}s - ${filtered[filtered.length - 1].global_time.toFixed(2)}s`
 				: 'empty';
-		console.log(
-			`[Live ECG Waveforms] ${device_id} buffer: ${filtered.length} samples, range: ${timeRange}`
-		);
+		// console.log(
+		// 	`[Live ECG Waveforms] ${device_id} buffer: ${filtered.length} samples, range: ${timeRange}`
+		// );
 
 		// Update the map with filtered samples
 		_samples.set(device_id, filtered);

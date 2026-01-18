@@ -1,26 +1,11 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { api } from '$lib/api/client';
 	import type { BufferStats } from '$lib/types/api';
+	import { statusEvents } from '$lib/state/status-events.svelte';
 	import Card from './Card.svelte';
 
-	let stats = $state<BufferStats | null>(null);
-	let interval: ReturnType<typeof setInterval>;
-
-	async function fetchStats() {
-		try {
-			stats = await api.getBufferStats();
-		} catch (error) {
-			console.error('Failed to fetch stats:', error);
-		}
-	}
-
-	onMount(() => {
-		fetchStats();
-		interval = setInterval(fetchStats, 5000); // Poll every 5 seconds
-
-		return () => clearInterval(interval);
-	});
+	// Use reactive state from SSE client
+	let stats = $derived(statusEvents.bufferStats);
+	let connectionStatus = $derived(statusEvents.connectionStatus);
 </script>
 
 <Card title="Statistics">
@@ -58,10 +43,20 @@
 	{:else}
 		<div class="flex items-center justify-center py-8">
 			<div class="text-center">
-				<div
-					class="inline-block w-8 h-8 border-4 border-gray-200 border-t-gray-600 rounded-full animate-spin"
-				></div>
-				<p class="text-sm text-gray-500 mt-2">Loading stats...</p>
+				{#if connectionStatus === 'error'}
+					<p class="text-sm text-red-600">Connection error</p>
+					<p class="text-xs text-gray-500 mt-1">Check console for details</p>
+				{:else if connectionStatus === 'disconnected'}
+					<p class="text-sm text-yellow-600">Disconnected</p>
+					<p class="text-xs text-gray-500 mt-1">Reconnecting...</p>
+				{:else}
+					<div
+						class="inline-block w-8 h-8 border-4 border-gray-200 border-t-gray-600 rounded-full animate-spin"
+					></div>
+					<p class="text-sm text-gray-500 mt-2">
+						Loading stats... ({connectionStatus})
+					</p>
+				{/if}
 			</div>
 		</div>
 	{/if}

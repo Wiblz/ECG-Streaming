@@ -11,6 +11,7 @@ from ecg_common.logging import get_logger, setup_logging
 
 from ecg_aggregator.api.data_buffer import AccelerometerDataBuffer, ECGDataBuffer
 from ecg_aggregator.api.server import ECGStreamingServer
+from ecg_aggregator.api.sse_broadcaster import SSEBroadcaster
 from ecg_aggregator.config import AggregatorSettings
 from ecg_aggregator.grpc_server import ECGStreamingServicer
 from ecg_aggregator.storage.persistence import ECGDatabase
@@ -53,6 +54,9 @@ class ECGAggregator:
         )
 
         self.database = ECGDatabase(db_path=config.storage.database_path)
+
+        # SSE broadcaster (shared between gRPC and HTTP servers)
+        self.sse_broadcaster = SSEBroadcaster()
 
         # gRPC server
         self.grpc_server: grpc.aio.Server | None = None
@@ -118,6 +122,7 @@ class ECGAggregator:
             ecg_buffer=self.ecg_buffer,
             acc_buffer=self.acc_buffer,
             database=self.database,
+            sse_broadcaster=self.sse_broadcaster,
         )
 
         ecg_streaming_pb2_grpc.add_ECGStreamingServiceServicer_to_server(
@@ -139,6 +144,7 @@ class ECGAggregator:
             acc_buffer=self.acc_buffer,
             database=self.database,
             grpc_servicer=self.grpc_servicer,
+            sse_broadcaster=self.sse_broadcaster,
             websocket_fps=self.config.api.websocket_fps,
             cors_origins=self.config.api.cors_origins,
         )

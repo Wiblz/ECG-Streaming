@@ -2,18 +2,23 @@
 
 import asyncio
 import contextlib
+import json
 import time
+from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
 from ecg_common import __version__
 from ecg_common.logging import get_logger
-from fastapi import FastAPI, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from sse_starlette.sse import EventSourceResponse
 
 from ecg_aggregator.api.data_buffer import AccelerometerDataBuffer, ECGDataBuffer
+from ecg_aggregator.api.sse_broadcaster import SSEBroadcaster
+from ecg_aggregator.grpc_server import ECGStreamingServicer
 from ecg_aggregator.storage.persistence import ECGDatabase
 from ecg_aggregator.sync.time_alignment import TimeAlignmentService
 
@@ -35,7 +40,8 @@ class ECGStreamingServer:
         ecg_buffer: ECGDataBuffer,
         acc_buffer: AccelerometerDataBuffer,
         database: ECGDatabase,
-        grpc_servicer: Any | None = None,
+        grpc_servicer: ECGStreamingServicer | None = None,
+        sse_broadcaster: SSEBroadcaster | None = None,
         websocket_fps: int = 30,
         cors_origins: list[str] | None = None,
     ):
@@ -47,6 +53,7 @@ class ECGStreamingServer:
             acc_buffer: Accelerometer data buffer instance
             database: Database instance
             grpc_servicer: Optional gRPC servicer for accessing device status
+            sse_broadcaster: Optional SSE broadcaster (creates new one if not provided)
             websocket_fps: WebSocket broadcast rate in FPS
             cors_origins: CORS allowed origins
         """
@@ -61,6 +68,9 @@ class ECGStreamingServer:
         # WebSocket connections
         self.ecg_connections: list[WebSocket] = []
         self.acc_connections: list[WebSocket] = []
+
+        # SSE broadcaster for status updates
+        self.sse_broadcaster = sse_broadcaster or SSEBroadcaster()
 
         # Create FastAPI app
         self.app = FastAPI(
@@ -87,6 +97,7 @@ class ECGStreamingServer:
         # Background tasks
         self._broadcast_task: asyncio.Task | None = None
         self._acc_broadcast_task: asyncio.Task | None = None
+        self._stats_broadcast_task: asyncio.Task | None = None
 
     def _register_routes(self) -> None:
         """Register API routes."""
@@ -145,6 +156,64 @@ class ECGStreamingServer:
         async def get_version() -> dict[str, str]:
             """Get API version information."""
             return {"version": __version__}
+
+        @self.app.get("/events/status")
+        async def status_events(request: Request) -> EventSourceResponse:
+            """Server-Sent Events endpoint for real-time status updates.
+
+            Streams events for:
+            - collector_update: Collector connection/heartbeat/health changes
+            - device_update: Device status changes
+            - heartbeat: Periodic keepalive (every 30s)
+
+            The frontend should connect to this endpoint and listen for events
+            instead of polling REST endpoints.
+            """
+
+            async def event_generator() -> AsyncGenerator[dict[str, str]]:
+                """Generate SSE events for this client."""
+                # Register this client with the broadcaster
+                client_queue = await self.sse_broadcaster.connect()
+
+                try:
+                    # Send initial connected event
+                    yield {"event": "connected", "data": json.dumps({"timestamp": time.time()})}
+
+                    # Send initial buffer stats immediately
+                    initial_stats = self.ecg_buffer.get_stats()
+                    yield {"event": "buffer_stats", "data": json.dumps(initial_stats)}
+
+                    # Keepalive interval
+                    last_heartbeat = time.time()
+
+                    while True:
+                        # Check if client disconnected
+                        if await request.is_disconnected():
+                            break
+
+                        # Try to get an event from the queue (non-blocking)
+                        try:
+                            message = await asyncio.wait_for(client_queue.get(), timeout=1.0)
+                            yield {
+                                "event": message["event"],
+                                "data": json.dumps(message["data"]),
+                            }
+                        except TimeoutError:
+                            # No events, check if we need to send heartbeat
+                            if time.time() - last_heartbeat > 30:
+                                yield {
+                                    "event": "heartbeat",
+                                    "data": json.dumps({"timestamp": time.time()}),
+                                }
+                                last_heartbeat = time.time()
+
+                except asyncio.CancelledError:
+                    logger.debug("SSE client cancelled")
+                finally:
+                    # Unregister client when connection closes
+                    await self.sse_broadcaster.disconnect(client_queue)
+
+            return EventSourceResponse(event_generator())
 
         @self.app.get("/collectors")
         async def get_collectors() -> dict[str, Any]:
@@ -887,8 +956,30 @@ class ECGStreamingServer:
                 logger.error(f"Error in accelerometer broadcast loop: {e}")
                 await asyncio.sleep(1.0)
 
+    async def broadcast_buffer_stats(self) -> None:
+        """Periodically broadcast buffer statistics via SSE."""
+        while True:
+            try:
+                await asyncio.sleep(5.0)  # Broadcast every 5 seconds
+
+                if self.sse_broadcaster.get_client_count() == 0:
+                    continue  # No clients, skip
+
+                # Get ECG buffer stats
+                stats = self.ecg_buffer.get_stats()
+
+                # Broadcast to SSE clients (stats dict matches BufferStatsData)
+                await self.sse_broadcaster.broadcast("buffer_stats", stats)  # type: ignore[arg-type]
+
+            except asyncio.CancelledError:
+                logger.info("Buffer stats broadcast task cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in buffer stats broadcast loop: {e}")
+                await asyncio.sleep(1.0)
+
     async def start_broadcast(self) -> None:
-        """Start the background broadcast tasks for ECG and accelerometer."""
+        """Start the background broadcast tasks for ECG, accelerometer, and stats."""
         if self._broadcast_task is None or self._broadcast_task.done():
             self._broadcast_task = asyncio.create_task(self.broadcast_data())
             logger.info(f"Started ECG WebSocket broadcast at {self.websocket_fps} FPS")
@@ -896,6 +987,10 @@ class ECGStreamingServer:
         if self._acc_broadcast_task is None or self._acc_broadcast_task.done():
             self._acc_broadcast_task = asyncio.create_task(self.broadcast_acc_data())
             logger.info(f"Started accelerometer WebSocket broadcast at {self.websocket_fps} FPS")
+
+        if self._stats_broadcast_task is None or self._stats_broadcast_task.done():
+            self._stats_broadcast_task = asyncio.create_task(self.broadcast_buffer_stats())
+            logger.info("Started buffer stats SSE broadcast (every 5s)")
 
     async def stop_broadcast(self) -> None:
         """Stop the background broadcast tasks."""
@@ -910,6 +1005,12 @@ class ECGStreamingServer:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._acc_broadcast_task
             logger.info("Stopped accelerometer WebSocket broadcast")
+
+        if self._stats_broadcast_task and not self._stats_broadcast_task.done():
+            self._stats_broadcast_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._stats_broadcast_task
+            logger.info("Stopped buffer stats SSE broadcast")
 
     async def shutdown(self) -> None:
         """Shutdown the server and close all connections."""
@@ -943,7 +1044,7 @@ def create_app(
     ecg_buffer: ECGDataBuffer,
     acc_buffer: AccelerometerDataBuffer,
     database: ECGDatabase,
-    grpc_servicer: Any | None = None,
+    grpc_servicer: ECGStreamingServicer | None = None,
     websocket_fps: int = 30,
     cors_origins: list[str] | None = None,
 ) -> tuple[FastAPI, ECGStreamingServer]:

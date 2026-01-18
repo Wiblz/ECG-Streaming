@@ -10,6 +10,7 @@ from ecg_common.models import AccelerometerSample, ECGSample
 from ecg_common.proto import ecg_streaming_pb2, ecg_streaming_pb2_grpc
 
 from ecg_aggregator.api.data_buffer import AccelerometerDataBuffer, ECGDataBuffer
+from ecg_aggregator.api.sse_broadcaster import SSEBroadcaster
 from ecg_aggregator.storage.persistence import ECGDatabase
 from ecg_aggregator.sync.time_alignment import TimeAlignmentService
 
@@ -25,6 +26,7 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
         ecg_buffer: ECGDataBuffer,
         acc_buffer: AccelerometerDataBuffer,
         database: ECGDatabase | None = None,
+        sse_broadcaster: SSEBroadcaster | None = None,
     ):
         """Initialize the servicer.
 
@@ -33,11 +35,13 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
             ecg_buffer: ECG data buffer for recent samples
             acc_buffer: Accelerometer data buffer for recent samples
             database: Optional database for persistence
+            sse_broadcaster: Optional SSE broadcaster for status updates
         """
         self.time_alignment = time_alignment
         self.ecg_buffer = ecg_buffer
         self.acc_buffer = acc_buffer
         self.database = database
+        self.sse_broadcaster = sse_broadcaster
 
         # Track connected collectors
         self.collectors: dict[str, dict] = {}  # collector_id -> metadata
@@ -99,6 +103,20 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
                         "samples_sent": 0,
                         "active_devices": 0,
                     }
+
+                    # Broadcast collector connection via SSE
+                    if self.sse_broadcaster:
+                        asyncio.create_task(
+                            self.sse_broadcaster.broadcast(
+                                "collector_update",
+                                {
+                                    "collector_id": collector_id,
+                                    "display_name": display_name,
+                                    "status": "CONNECTED",
+                                    "device_count": len(device_ids),
+                                },
+                            )
+                        )
 
                     # Persist collector to database
                     if self.database:
@@ -212,6 +230,22 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
                         }
                     )
 
+                    # Broadcast device status update via SSE
+                    if self.sse_broadcaster and collector_id:
+                        from ecg_aggregator.api.sse_broadcaster import DeviceUpdateData
+
+                        device_update: DeviceUpdateData = {
+                            "device_id": device_id,
+                            "collector_id": collector_id,
+                            "status": status_str,  # type: ignore[typeddict-item]
+                        }
+                        if status.HasField("battery_level"):
+                            device_update["battery_level"] = status.battery_level
+
+                        asyncio.create_task(
+                            self.sse_broadcaster.broadcast("device_update", device_update)
+                        )
+
                     logger.debug(f"Status update from {device_id}: {status_str}")
 
                 elif msg_type == "heartbeat":
@@ -227,6 +261,20 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
                         # Persist heartbeat to database
                         if self.database:
                             self.database.update_collector_heartbeat(collector_id)
+
+                        # Broadcast collector heartbeat via SSE (for health status)
+                        if self.sse_broadcaster:
+                            asyncio.create_task(
+                                self.sse_broadcaster.broadcast(
+                                    "collector_update",
+                                    {
+                                        "collector_id": collector_id,
+                                        "status": "HEALTHY",
+                                        "samples_sent": hb.samples_sent,
+                                        "active_devices": hb.active_devices,
+                                    },
+                                )
+                            )
 
                     logger.debug(
                         f"Heartbeat from {collector_id}: "
@@ -250,6 +298,31 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
                     if dev_status.get("collector_id") == collector_id:
                         dev_status["status"] = "DISCONNECTED"
                         dev_status["last_update"] = time.time()
+
+                        # Broadcast device disconnection via SSE
+                        if self.sse_broadcaster:
+                            asyncio.create_task(
+                                self.sse_broadcaster.broadcast(
+                                    "device_update",
+                                    {
+                                        "device_id": _device_id,
+                                        "collector_id": collector_id,
+                                        "status": "DISCONNECTED",
+                                    },
+                                )
+                            )
+
+                # Broadcast collector disconnection via SSE
+                if self.sse_broadcaster:
+                    asyncio.create_task(
+                        self.sse_broadcaster.broadcast(
+                            "collector_update",
+                            {
+                                "collector_id": collector_id,
+                                "status": "DISCONNECTED",
+                            },
+                        )
+                    )
 
                 del self.collectors[collector_id]
 

@@ -1,41 +1,12 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
-	import { api } from '$lib/api/client';
 	import type { Collector } from '$lib/types/api';
 	import { formatUptime } from '$lib/utils/format';
+	import { statusEvents } from '$lib/state/status-events.svelte';
 
-	let collectors = $state<Collector[]>([]);
-	let error = $state<string | null>(null);
-	let lastUpdate = $state<Date | null>(null);
-
-	async function fetchCollectors() {
-		try {
-			const response = await api.getCollectors();
-			if (response.error) {
-				error = response.error;
-			} else {
-				collectors = response.collectors;
-				error = null;
-			}
-			lastUpdate = new Date();
-		} catch (err) {
-			error = err instanceof Error ? err.message : 'Failed to fetch collectors';
-			console.error('Error fetching collectors:', err);
-		}
-	}
-
-	let intervalId: ReturnType<typeof setInterval> | null = null;
-
-	onMount(() => {
-		fetchCollectors();
-		intervalId = setInterval(fetchCollectors, 3000); // Poll every 3 seconds
-	});
-
-	onDestroy(() => {
-		if (intervalId !== null) {
-			clearInterval(intervalId);
-		}
-	});
+	// Use reactive state from SSE client
+	let collectors = $derived(statusEvents.getCollectors());
+	let error = $derived(statusEvents.connectionStatus === 'error' ? statusEvents.error : null);
+	let lastUpdate = $derived(statusEvents.lastUpdate);
 
 	// Helper functions for color mapping
 	function getCollectorHealthColors(health: Collector['health']) {

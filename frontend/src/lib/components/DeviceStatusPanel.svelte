@@ -1,46 +1,66 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount } from 'svelte';
 	import { api } from '$lib/api/client';
 	import type { DeviceInfo, Collector } from '$lib/types/api';
 	import { formatTimeSince, formatUptime } from '$lib/utils/format';
+	import { statusEvents } from '$lib/state/status-events.svelte';
 	import Card from './Card.svelte';
 
-	let devices = $state<DeviceInfo[]>([]);
-	let collectors = $state<Collector[]>([]);
+	// Fetch device metadata (nicknames, etc.) once on mount
+	let deviceMetadata = $state<Map<string, Pick<DeviceInfo, 'nickname' | 'sync_ready' | 'sync'>>>(
+		new Map()
+	);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
-	let intervalId: number | undefined;
 
-	async function fetchData() {
+	async function fetchDeviceMetadata() {
 		try {
-			const [devicesResponse, collectorsResponse] = await Promise.all([
-				api.getAllDevices(),
-				api.getCollectors()
-			]);
-
-			// Only show currently connected/active devices
-			devices = devicesResponse.devices.filter(
-				(d) => d.status && d.status !== 'DISCONNECTED' && d.status !== 'UNKNOWN'
+			const response = await api.getAllDevices();
+			const metadata = new Map(
+				response.devices.map((d) => [
+					d.device_id,
+					{
+						nickname: d.nickname,
+						sync_ready: d.sync_ready,
+						sync: d.sync
+					}
+				])
 			);
-			collectors = collectorsResponse.collectors;
+			deviceMetadata = metadata;
 			error = null;
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to fetch status';
+			error = e instanceof Error ? e.message : 'Failed to fetch device metadata';
 		} finally {
 			loading = false;
 		}
 	}
 
 	onMount(() => {
-		fetchData();
-		// Refresh status every 5 seconds
-		intervalId = setInterval(fetchData, 5000) as unknown as number;
+		fetchDeviceMetadata();
 	});
 
-	onDestroy(() => {
-		if (intervalId !== undefined) {
-			clearInterval(intervalId);
-		}
+	// Use SSE for real-time device status and collectors
+	let collectors = $derived(statusEvents.getCollectors());
+	let sseDevices = $derived(statusEvents.getDevices());
+
+	// Merge SSE status with local metadata and filter to active devices only
+	let devices = $derived.by(() => {
+		return sseDevices
+			.filter((d) => d.status !== 'DISCONNECTED' && d.status !== 'UNKNOWN')
+			.map((d) => {
+				const metadata = deviceMetadata.get(d.device_id);
+				return {
+					device_id: d.device_id,
+					collector_id: d.collector_id,
+					status: d.status,
+					last_update: d.last_update,
+					battery_level: d.battery_level,
+					error_message: d.error_message,
+					nickname: metadata?.nickname,
+					sync_ready: metadata?.sync_ready ?? false,
+					sync: metadata?.sync
+				} as DeviceInfo;
+			});
 	});
 
 	// Helper functions for color mapping

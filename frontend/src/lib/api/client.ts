@@ -73,3 +73,16 @@ export const api = new Proxy({} as ApiClient, {
 		return typeof value === 'function' ? value.bind(currentClient) : value;
 	}
 });
+
+/**
+ * Get the API base URL for direct HTTP connections (WebSocket, SSE, etc.)
+ */
+export function get_api_base_url(): string {
+	const envBase = import.meta.env.VITE_AGGREGATOR_HTTP as string | undefined;
+	return (
+		envBase ??
+		(typeof window !== 'undefined'
+			? `${window.location.protocol}//${window.location.hostname}:7999`
+			: 'http://localhost:7999')
+	);
+}

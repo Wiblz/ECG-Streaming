@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
 	import { invalidate } from '$app/navigation';
 	import { api } from '$lib/api/client';
 	import type { DeviceInfo, Collector } from '$lib/types/api';
 	import { formatTimeSince } from '$lib/utils/format';
+	import { statusEvents } from '$lib/state/status-events.svelte';
 	import Header from '$lib/components/Header.svelte';
 	import type { PageProps } from './$types';
 
@@ -14,8 +14,6 @@
 		node.focus();
 		return {};
 	}
-
-	let intervalId: number | undefined;
 
 	// Track editing state for nicknames
 	let editingDevice = $state<string | null>(null);
@@ -54,17 +52,50 @@
 		}
 	}
 
-	onMount(() => {
-		// Refresh every 5 seconds by invalidating the load function
-		intervalId = setInterval(() => {
-			invalidate(() => true);
-		}, 5000) as unknown as number;
+	// Use SSE for real-time collector and device status updates
+	let sseCollectors = $derived(statusEvents.getCollectors());
+	let sseDevices = $derived(statusEvents.getDevices());
+
+	// Create maps for quick lookup
+	const sseDeviceMap = $derived(new Map(sseDevices.map((d) => [d.device_id, d])));
+	const sseCollectorMap = $derived(new Map(sseCollectors.map((c) => [c.collector_id, c])));
+
+	// Merge SSE status with initial load data
+	const liveDevices = $derived.by(() => {
+		return data.devices.map((device) => {
+			const sseStatus = sseDeviceMap.get(device.device_id);
+			if (sseStatus) {
+				// Merge SSE status with device metadata from initial load
+				return {
+					...device,
+					status: sseStatus.status,
+					last_update: sseStatus.last_update,
+					battery_level: sseStatus.battery_level,
+					error_message: sseStatus.error_message,
+					collector_id: sseStatus.collector_id
+				} as DeviceInfo;
+			}
+			return device;
+		});
 	});
 
-	onDestroy(() => {
-		if (intervalId !== undefined) {
-			clearInterval(intervalId);
-		}
+	const liveCollectors = $derived.by(() => {
+		return data.collectors.map((collector) => {
+			const sseCollector = sseCollectorMap.get(collector.collector_id);
+			if (sseCollector) {
+				// Merge SSE data with initial collector data
+				return {
+					...collector,
+					connected: sseCollector.connected,
+					health: sseCollector.health,
+					samples_sent: sseCollector.samples_sent,
+					active_devices: sseCollector.active_devices,
+					last_heartbeat: sseCollector.last_heartbeat,
+					time_since_heartbeat: sseCollector.time_since_heartbeat
+				} as Collector;
+			}
+			return collector;
+		});
 	});
 
 	// Helper functions for color mapping
@@ -118,9 +149,9 @@
 		}
 	}
 
-	// Filtered and sorted devices
+	// Filtered and sorted devices (using live data from SSE)
 	const filteredDevices = $derived.by(() => {
-		let filtered = data.devices;
+		let filtered = liveDevices;
 
 		// Apply status filter
 		if (filterStatus === 'connected') {
@@ -153,7 +184,7 @@
 		return filtered;
 	});
 
-	const collectorMap = $derived(new Map(data.collectors.map((c) => [c.collector_id, c])));
+	const collectorMap = $derived(new Map(liveCollectors.map((c) => [c.collector_id, c])));
 </script>
 
 <svelte:head>
@@ -172,11 +203,11 @@
 	</div>
 
 	<!-- Collectors Summary -->
-	{#if data.collectors.length > 0}
+	{#if liveCollectors.length > 0}
 		<div class="mb-8">
 			<h2 class="text-lg font-semibold text-gray-900 mb-4">Collectors</h2>
 			<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-				{#each data.collectors as collector (collector.collector_id)}
+				{#each liveCollectors as collector (collector.collector_id)}
 					<div class="border border-gray-200 rounded-lg p-4 bg-white">
 						<div class="flex items-start justify-between mb-3">
 							<div class="flex-1 min-w-0">
@@ -270,7 +301,7 @@
 		</div>
 
 		<div class="text-sm text-gray-600">
-			Showing {filteredDevices.length} of {data.devices.length} devices
+			Showing {filteredDevices.length} of {liveDevices.length} devices
 		</div>
 	</div>
 
@@ -280,7 +311,7 @@
 			<div class="text-4xl mb-2">🔌</div>
 			<p class="text-sm font-medium text-gray-900 mb-1">No devices found</p>
 			<p class="text-xs text-gray-500">
-				{data.devices.length === 0
+				{liveDevices.length === 0
 					? 'Devices will appear after first connection'
 					: 'Try adjusting your filters'}
 			</p>

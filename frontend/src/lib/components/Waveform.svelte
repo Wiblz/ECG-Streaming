@@ -77,7 +77,7 @@
 				timestamps.length > 0
 					? `${timestamps[0].toFixed(2)}s - ${timestamps[timestamps.length - 1].toFixed(2)}s`
 					: 'empty';
-			console.log(`[${title}] Buffer: ${deviceSamples.length} samples, time range: ${timeRange}`);
+			// console.log(`[${title}] Buffer: ${deviceSamples.length} samples, time range: ${timeRange}`);
 
 			return {
 				data: [timestamps, values],
@@ -159,19 +159,19 @@
 	// Update chart when samples change
 	$effect(() => {
 		if (!plotContainer || !uPlotLib) {
-			console.log(`[${title}] Waiting for plotContainer or uPlotLib`, {
-				plotContainer: !!plotContainer,
-				uPlotLib: !!uPlotLib
-			});
+			// console.log(`[${title}] Waiting for plotContainer or uPlotLib`, {
+			// 	plotContainer: !!plotContainer,
+			// 	uPlotLib: !!uPlotLib
+			// });
 			return;
 		}
 
 		const { data, devices } = prepareChartData(samples);
 
-		console.log(`[${title}] Data prepared`, {
-			deviceCount: devices.length,
-			sampleCount: data[0]?.length || 0
-		});
+		// console.log(`[${title}] Data prepared`, {
+		// 	deviceCount: devices.length,
+		// 	sampleCount: data[0]?.length || 0
+		// });
 
 		if (devices.length === 0) {
 			// No data yet
@@ -180,11 +180,11 @@
 
 		if (!chart) {
 			// Create chart on first data
-			console.log(`[${title}] Creating chart for first time`);
+			// console.log(`[${title}] Creating chart for first time`);
 			createChart();
 		} else {
 			// Update existing chart
-			console.log(`[${title}] Updating chart data`);
+			// console.log(`[${title}] Updating chart data`);
 			chart.setData(data);
 		}
 	});
@@ -202,7 +202,7 @@
 	onMount(async () => {
 		if (!browser) return;
 
-		console.log(`[${title}] Loading uPlot...`);
+		// console.log(`[${title}] Loading uPlot...`);
 
 		// Dynamically import uPlot and utilities only in browser
 		const [uPlotModule, utilsModule] = await Promise.all([
@@ -214,7 +214,7 @@
 		createDeviceSeries = utilsModule.createDeviceSeries;
 		createAxes = utilsModule.createAxes;
 
-		console.log(`[${title}] uPlot loaded successfully`);
+		// console.log(`[${title}] uPlot loaded successfully`);
 
 		window.addEventListener('resize', handleResize);
 	});
