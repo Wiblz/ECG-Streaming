@@ -75,11 +75,9 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
         """
         collector_id: str | None = None
         device_ids: list[str] = []
-
         try:
             async for message in request_iterator:
                 msg_type = message.WhichOneof("message")
-
                 if msg_type == "registration":
                     # Handle collector registration
                     reg = message.registration

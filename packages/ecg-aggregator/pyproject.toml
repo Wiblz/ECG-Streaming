@@ -32,7 +32,7 @@ dev = [
 ]
 
 [project.scripts]
-ecg-aggregator = "ecg_aggregator.main:main"
+ecg-aggregator = "ecg_aggregator.cli:main"
 
 [tool.uv.sources]
 ecg-common = { workspace = true }

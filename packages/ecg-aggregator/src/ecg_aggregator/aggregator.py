@@ -1,13 +1,10 @@
-"""Main entry point for the ECG Aggregator."""
+"""ECG Aggregator application - core server logic."""
 
 import asyncio
 import signal
-import sys
-from pathlib import Path
 
 import uvicorn
-from ecg_common import __version__
-from ecg_common.logging import get_logger, setup_logging
+from ecg_common.logging import get_logger
 
 from ecg_aggregator.api.data_buffer import AccelerometerDataBuffer, ECGDataBuffer
 from ecg_aggregator.api.server import ECGStreamingServer
@@ -187,56 +184,4 @@ class ECGAggregator:
         await self.stop()
 
 
-def main() -> None:
-    """Main entry point."""
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description="ECG Aggregator",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"ecg-aggregator {__version__}",
-    )
-    parser.add_argument(
-        "--config",
-        type=Path,
-        default=Path("config.yaml"),
-        help="Path to configuration file",
-    )
-    args = parser.parse_args()
-
-    # Load configuration
-    try:
-        if args.config.exists():
-            config = AggregatorSettings.from_yaml(args.config)
-        else:
-            logger.warning(f"Config file {args.config} not found, using defaults")
-            config = AggregatorSettings()
-    except Exception as e:
-        logger.error(f"Failed to load configuration: {e}")
-        sys.exit(1)
-
-    # Setup logging
-    setup_logging(
-        level=config.logging.level,
-        log_file=config.logging.file,
-        log_format=config.logging.format,
-    )
-
-    # Create and run aggregator
-    aggregator = ECGAggregator(config)
-
-    try:
-        asyncio.run(aggregator.start())
-    except KeyboardInterrupt:
-        logger.info("Interrupted by user")
-    except Exception as e:
-        logger.error(f"Aggregator error: {e}")
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
+# Entry point moved to cli.py
