@@ -22,7 +22,7 @@ pip install -e packages/ecg-aggregator
 ### Start Aggregator
 
 ```bash
-ecg-aggregator
+ecg-aggregator run
 ```
 
 The aggregator will:

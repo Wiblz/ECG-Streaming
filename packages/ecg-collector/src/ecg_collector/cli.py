@@ -167,9 +167,13 @@ def ble_run(
 
 
 @usb_app.command("scan")
-def usb_scan() -> None:
+def usb_scan(
+    timeout: Annotated[
+        float, typer.Option("--timeout", "-t", help="Probe timeout per device (seconds)")
+    ] = 12.0,
+) -> None:
     """Scan for USB serial devices (ESP32)."""
-    from ecg_collector.usb.collector import discover_usb_devices
+    from ecg_collector.usb.collector import discover_usb_devices, probe_usb_device
 
     console.print("[blue]Scanning for USB devices...[/blue]")
 
@@ -179,9 +183,35 @@ def usb_scan() -> None:
         if devices:
             table = Table(title="USB Devices Found")
             table.add_column("Device Path", style="green")
+            table.add_column("ESP ID", style="cyan")
+            table.add_column("Target", style="magenta")
+            table.add_column("FW", style="yellow")
+            table.add_column("Config Required", style="red")
+            table.add_column("Message", style="white")
 
             for device in devices:
-                table.add_row(device)
+                info = await probe_usb_device(device, timeout_s=timeout)
+                if info and info.get("type") == "usb_device_info":
+                    target = info.get("current_target") or "<unassigned>"
+                    table.add_row(
+                        device,
+                        info.get("esp_id", ""),
+                        target,
+                        info.get("firmware_version", ""),
+                        str(info.get("config_required", "")),
+                        "usb_device_info",
+                    )
+                elif info:
+                    table.add_row(
+                        device,
+                        "",
+                        info.get("device_id", ""),
+                        "",
+                        "",
+                        info.get("type", ""),
+                    )
+                else:
+                    table.add_row(device, "", "", "", "", "no data")
 
             console.print(table)
             console.print(f"\n[green]Found {len(devices)} USB device(s)[/green]")

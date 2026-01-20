@@ -248,3 +248,88 @@ async def discover_usb_devices() -> list[str]:
         devices.extend(str(p) for p in dev_path.glob(pattern))
 
     return sorted(devices)
+
+
+async def probe_usb_device(device_path: str, timeout_s: float = 2.0) -> dict | None:
+    """Probe a USB device for a valid CollectorMessage.
+
+    Returns:
+        Dict with basic device info if detected, otherwise None.
+    """
+    reader: asyncio.StreamReader | None = None
+    writer: asyncio.StreamWriter | None = None
+    buffer = bytearray()
+    max_frame_len = 4096
+
+    last_message: dict | None = None
+
+    try:
+        reader, writer = await serial_asyncio.open_serial_connection(
+            url=device_path,
+            baudrate=115200,
+        )
+
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            try:
+                chunk = await asyncio.wait_for(reader.read(1024), timeout=0.2)
+            except TimeoutError:
+                continue
+            if not chunk:
+                continue
+            buffer.extend(chunk)
+
+            while len(buffer) >= 4:
+                frame_length = struct.unpack_from("<I", buffer, 0)[0]
+                if frame_length == 0 or frame_length > max_frame_len:
+                    buffer.pop(0)
+                    continue
+                if len(buffer) < 4 + frame_length:
+                    break
+
+                frame_bytes = bytes(buffer[4 : 4 + frame_length])
+                del buffer[: 4 + frame_length]
+
+                usb_frame = ecg_streaming_pb2.UsbFrame()
+                usb_frame.ParseFromString(frame_bytes)
+                computed_crc = zlib.crc32(usb_frame.payload) & 0xFFFFFFFF
+                if computed_crc != usb_frame.crc32:
+                    continue
+
+                if usb_frame.payload_type != ecg_streaming_pb2.USB_PAYLOAD_TYPE_COLLECTOR_MESSAGE:
+                    continue
+
+                collector_msg = ecg_streaming_pb2.CollectorMessage()
+                collector_msg.ParseFromString(usb_frame.payload)
+                msg_type = collector_msg.WhichOneof("message")
+
+                if msg_type == "usb_device_info":
+                    info = collector_msg.usb_device_info
+                    return {
+                        "type": "usb_device_info",
+                        "esp_id": info.esp_id,
+                        "firmware_version": info.firmware_version,
+                        "current_target": info.current_target,
+                        "config_required": info.config_required,
+                    }
+
+                device_id = None
+                if msg_type == "ecg_batch":
+                    device_id = collector_msg.ecg_batch.device_id
+                elif msg_type == "acc_batch":
+                    device_id = collector_msg.acc_batch.device_id
+                elif msg_type == "status_update":
+                    device_id = collector_msg.status_update.device_id
+
+                last_message = {
+                    "type": msg_type or "unknown",
+                    "device_id": device_id or "",
+                }
+                continue
+
+        return last_message
+    finally:
+        if writer:
+            writer.close()
+            with contextlib.suppress(Exception):
+                await writer.wait_closed()

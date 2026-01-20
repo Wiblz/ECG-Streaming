@@ -216,7 +216,7 @@ def generate_collectors_table(aggregator: ECGAggregator) -> Table:
 
 
 @app.command()
-def start(
+def run(
     config: Annotated[
         Path,
         typer.Option(
@@ -234,7 +234,7 @@ def start(
         ),
     ] = False,
 ) -> None:
-    """Start the ECG Aggregator server.
+    """Run the ECG Aggregator server.
 
     Starts both the gRPC server (for collectors) and HTTP/WebSocket server (for API/dashboard).
     By default, shows plain logs. Use --tui for interactive dashboard.
@@ -399,7 +399,7 @@ def status(
     to the running aggregator via HTTP API to show status.
     """
     console.print("[yellow]Status command not yet implemented[/yellow]")
-    console.print("Use the live display when starting: [cyan]ecg-aggregator start[/cyan]")
+    console.print("Use the live display when starting: [cyan]ecg-aggregator run[/cyan]")
     console.print("Or check the API: [cyan]http://localhost:8000/api/status[/cyan]")
 
 

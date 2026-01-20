@@ -83,7 +83,7 @@ nano packages/ecg-aggregator/config.yaml
 
 ```bash
 # Terminal 1: Start aggregator
-ecg-aggregator
+ecg-aggregator run
 
 # Terminal 2: Start collector
 ecg-collector
@@ -97,7 +97,7 @@ Run these commands from the repo root so the default config paths resolve, or pa
 
 ```bash
 # On server (e.g., 192.168.1.100):
-ecg-aggregator
+ecg-aggregator run
 
 # On edge device(s) with BLE adapters:
 # Edit packages/ecg-collector/config.yaml: aggregator.host = "192.168.1.100"
