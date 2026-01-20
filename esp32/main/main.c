@@ -338,7 +338,7 @@ static void parse_pmd_response(uint8_t *data, int len) {
         case 0x02: // ACC Measurement data
             if (len < 10) break;
             
-            // Parse timestamp (8 bytes little-endian)
+            // Parse timestamp (8 bytes little-endian, nanoseconds)
             uint64_t acc_timestamp = 0;
             memcpy(&acc_timestamp, data + 1, 8);
             
@@ -366,7 +366,11 @@ static void parse_pmd_response(uint8_t *data, int len) {
                 int16_t y = (int16_t)((data[offset+3] << 8) | data[offset+2]);
                 int16_t z = (int16_t)((data[offset+5] << 8) | data[offset+4]);
                 
-                g_acc_buffer[g_acc_count].timestamp_ns = acc_timestamp;
+                int64_t sample_offset_ns =
+                    ((int64_t)i - (int64_t)num_acc_samples + 1) * 1000000000LL / ACC_SAMPLE_RATE_HZ;
+                int64_t sample_timestamp_ns = (int64_t)acc_timestamp + sample_offset_ns;
+
+                g_acc_buffer[g_acc_count].timestamp_ns = (uint64_t)sample_timestamp_ns;
                 g_acc_buffer[g_acc_count].x_mg = x;
                 g_acc_buffer[g_acc_count].y_mg = y;
                 g_acc_buffer[g_acc_count].z_mg = z;
@@ -382,9 +386,9 @@ static void parse_pmd_response(uint8_t *data, int len) {
         case 0x00: // ECG Measurement data
             if (len < 10) break;
             
-            // Parse timestamp (8 bytes little-endian)
+            // Parse timestamp (8 bytes little-endian, nanoseconds)
             uint64_t timestamp = 0;
-            memcpy(&timestamp, data + 2, 8);
+            memcpy(&timestamp, data + 1, 8);
             
             int data_start = 10;
             int data_len = len - data_start;
@@ -416,7 +420,11 @@ static void parse_pmd_response(uint8_t *data, int len) {
                     sample |= 0xFF000000;
                 }
                 
-                g_ecg_buffer[g_ecg_count].timestamp_ns = timestamp;
+                int64_t sample_offset_ns =
+                    ((int64_t)i - (int64_t)num_samples + 1) * 1000000000LL / ECG_SAMPLE_RATE_HZ;
+                int64_t sample_timestamp_ns = (int64_t)timestamp + sample_offset_ns;
+
+                g_ecg_buffer[g_ecg_count].timestamp_ns = (uint64_t)sample_timestamp_ns;
                 g_ecg_buffer[g_ecg_count].value_uv = sample;
                 g_ecg_count++;
             }
