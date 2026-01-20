@@ -1,0 +1,131 @@
+#include "usb_provision.h"
+
+#include <string.h>
+
+#include "esp_system.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "host/ble_gap.h"
+
+#include "ble_polar.h"
+#include "config_store.h"
+#include "state.h"
+#include "usb_transport.h"
+
+static void send_usb_device_info(void) {
+#if BINARY_OUTPUT_MODE
+    ecg_streaming_UsbDeviceInfo info = ecg_streaming_UsbDeviceInfo_init_zero;
+    ecg_streaming_CollectorMessage msg = ecg_streaming_CollectorMessage_init_zero;
+
+    strlcpy(info.esp_id, g_esp_id, sizeof(info.esp_id));
+    strlcpy(info.firmware_version, esp_get_idf_version(), sizeof(info.firmware_version));
+    strlcpy(info.current_target, g_target_device_name, sizeof(info.current_target));
+    info.config_required = g_config_required;
+
+    msg.which_message = ecg_streaming_CollectorMessage_usb_device_info_tag;
+    msg.message.usb_device_info = info;
+
+    usb_send_collector_message(&msg);
+#endif
+}
+
+static void send_usb_config_ack(bool accepted, const char *message, const char *target) {
+#if BINARY_OUTPUT_MODE
+    ecg_streaming_UsbConfigAck ack = ecg_streaming_UsbConfigAck_init_zero;
+    ecg_streaming_CollectorMessage msg = ecg_streaming_CollectorMessage_init_zero;
+
+    strlcpy(ack.esp_id, g_esp_id, sizeof(ack.esp_id));
+    ack.accepted = accepted;
+    if (message) {
+        strlcpy(ack.message, message, sizeof(ack.message));
+    }
+    if (target) {
+        strlcpy(ack.target_device_id, target, sizeof(ack.target_device_id));
+    }
+
+    msg.which_message = ecg_streaming_CollectorMessage_usb_config_ack_tag;
+    msg.message.usb_config_ack = ack;
+
+    usb_send_collector_message(&msg);
+#endif
+}
+
+static void apply_usb_config(const ecg_streaming_UsbConfig *cfg) {
+    bool changed = false;
+
+    if (cfg->target_device_id[0] != '\0' &&
+        strcmp(cfg->target_device_id, g_target_device_name) != 0) {
+        strlcpy(g_target_device_name, cfg->target_device_id, sizeof(g_target_device_name));
+        changed = true;
+    }
+
+    if (cfg->ecg_sample_rate > 0) {
+        g_ecg_sample_rate_hz = cfg->ecg_sample_rate;
+    }
+    if (cfg->acc_sample_rate > 0) {
+        g_acc_sample_rate_hz = cfg->acc_sample_rate;
+    }
+    if (cfg->ecg_batch_size > 0) {
+        g_ecg_batch_size = cfg->ecg_batch_size;
+    }
+    if (cfg->acc_batch_size > 0) {
+        g_acc_batch_size = cfg->acc_batch_size;
+    }
+
+    apply_runtime_config();
+
+    if (cfg->persist) {
+        persist_usb_config_to_nvs();
+    }
+
+    g_config_required = false;
+
+    if (changed) {
+        if (g_connected) {
+            ble_gap_terminate(g_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+        } else {
+            ble_gap_disc_cancel();
+            start_scan();
+        }
+    }
+}
+
+void usb_identity_task(void *param) {
+#if BINARY_OUTPUT_MODE
+    while (1) {
+        send_usb_device_info();
+        vTaskDelay(pdMS_TO_TICKS(5000));
+    }
+#else
+    (void)param;
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+#endif
+}
+
+void usb_rx_task(void *param) {
+#if BINARY_OUTPUT_MODE
+    ecg_streaming_AggregatorMessage msg = ecg_streaming_AggregatorMessage_init_zero;
+    while (1) {
+        if (!usb_receive_aggregator_message(&msg)) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
+        }
+
+        if (msg.which_message == ecg_streaming_AggregatorMessage_usb_config_tag) {
+            ecg_streaming_UsbConfig *cfg = &msg.message.usb_config;
+            if (cfg->esp_id[0] != '\0' && strcmp(cfg->esp_id, g_esp_id) != 0) {
+                continue;
+            }
+            apply_usb_config(cfg);
+            send_usb_config_ack(true, "config applied", cfg->target_device_id);
+        }
+    }
+#else
+    (void)param;
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+#endif
+}
