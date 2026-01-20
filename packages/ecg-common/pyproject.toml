@@ -1,6 +1,6 @@
 [project]
 name = "ecg-common"
-version = "0.1.0"
+version = "0.2.0"
 description = "Shared models, protocols, and utilities for ECG-Streaming"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -11,6 +11,7 @@ dependencies = [
     "grpcio-tools>=1.68.0",
     "protobuf>=5.29.0",
     "protoletariat>=3.2.0",
+    "nanopb>=0.4.9.1",
 ]
 
 [project.optional-dependencies]

@@ -10,6 +10,24 @@ service ECGStreamingService {
   rpc StreamECG(stream CollectorMessage) returns (stream AggregatorMessage);
 }
 
+// USB framing wrapper for serialized protobuf messages.
+// Transport framing (not part of protobuf): length-prefix each UsbFrame with a
+// 32-bit little-endian size, or use COBS/SLIP with UsbFrame as the payload.
+// crc32 is computed over the payload bytes only.
+message UsbFrame {
+  uint32 version = 1;
+  UsbPayloadType payload_type = 2;
+  fixed32 seq = 3;
+  fixed32 crc32 = 4;
+  bytes payload = 5; // Serialized CollectorMessage or AggregatorMessage.
+}
+
+enum UsbPayloadType {
+  USB_PAYLOAD_TYPE_UNKNOWN = 0;
+  USB_PAYLOAD_TYPE_COLLECTOR_MESSAGE = 1;
+  USB_PAYLOAD_TYPE_AGGREGATOR_MESSAGE = 2;
+}
+
 // Messages from Collector to Aggregator
 message CollectorMessage {
   oneof message {

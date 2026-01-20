@@ -103,41 +103,44 @@ class CollectorGrpcClient:
         Yields:
             CollectorMessages from queue
         """
-        # Send registration first
-        registration = ecg_streaming_pb2.CollectorRegistration(
-            collector_id=self.collector_id,
-            device_ids=self.device_ids,
-            display_name=self.display_name,
-            metadata=self.metadata,
-        )
+        try:
+            # Send registration first
+            registration = ecg_streaming_pb2.CollectorRegistration(
+                collector_id=self.collector_id,
+                device_ids=self.device_ids,
+                display_name=self.display_name,
+                metadata=self.metadata,
+            )
 
-        reg_msg = ecg_streaming_pb2.CollectorMessage()
-        reg_msg.registration.CopyFrom(registration)
-        yield reg_msg
+            reg_msg = ecg_streaming_pb2.CollectorMessage()
+            reg_msg.registration.CopyFrom(registration)
+            yield reg_msg
 
-        logger.info(f"Sent registration for collector: {self.collector_id}")
+            logger.info(f"Sent registration for collector: {self.collector_id}")
 
-        # Send queued messages
-        while self._running:
-            try:
-                # Get next message with timeout to allow heartbeats
-                message = await asyncio.wait_for(self._message_queue.get(), timeout=10.0)
-                yield message
+            # Send queued messages
+            while self._running:
+                try:
+                    # Get next message with timeout to allow heartbeats
+                    message = await asyncio.wait_for(self._message_queue.get(), timeout=10.0)
+                    yield message
 
-            except TimeoutError:
-                # Send heartbeat if no messages for 10 seconds
-                if time.time() - self._last_heartbeat > 10.0:
-                    heartbeat = ecg_streaming_pb2.CollectorHeartbeat(
-                        timestamp_ms=int(time.time() * 1000),
-                        samples_sent=0,  # Could be tracked by caller
-                        active_devices=len(self.device_ids),
-                    )
+                except TimeoutError:
+                    # Send heartbeat if no messages for 10 seconds
+                    if time.time() - self._last_heartbeat > 10.0:
+                        heartbeat = ecg_streaming_pb2.CollectorHeartbeat(
+                            timestamp_ms=int(time.time() * 1000),
+                            samples_sent=0,  # Could be tracked by caller
+                            active_devices=len(self.device_ids),
+                        )
 
-                    hb_msg = ecg_streaming_pb2.CollectorMessage()
-                    hb_msg.heartbeat.CopyFrom(heartbeat)
-                    yield hb_msg
+                        hb_msg = ecg_streaming_pb2.CollectorMessage()
+                        hb_msg.heartbeat.CopyFrom(heartbeat)
+                        yield hb_msg
 
-                    self._last_heartbeat = time.time()
+                        self._last_heartbeat = time.time()
+        finally:
+            pass
 
     async def _stream_loop(self) -> None:
         """Main streaming loop."""
@@ -179,6 +182,8 @@ class CollectorGrpcClient:
         except Exception as e:
             logger.error(f"Stream loop error: {e}", exc_info=True)
             self._connected = False
+        finally:
+            pass
 
     async def run(self) -> None:
         """Run the gRPC client."""

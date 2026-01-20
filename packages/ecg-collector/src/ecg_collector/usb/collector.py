@@ -4,12 +4,14 @@ Reads protobuf messages from USB serial port using length-prefixed UsbFrame prot
 """
 
 import asyncio
+import contextlib
 import struct
 import time
 from collections.abc import Callable, Coroutine
 from pathlib import Path
 
 import serial
+import serial_asyncio
 from ecg_common.logging import get_logger
 from ecg_common.proto import ecg_streaming_pb2
 
@@ -27,6 +29,7 @@ class UsbCollector:
             [ecg_streaming_pb2.CollectorMessage], Coroutine[None, None, None]
         ]
         | None = None,
+        stats_interval_s: float = 5.0,
     ) -> None:
         """Initialize USB collector.
 
@@ -38,8 +41,11 @@ class UsbCollector:
         self.device_path = device_path
         self.baudrate = baudrate
         self.message_callback = message_callback
-        self.serial_port: serial.Serial | None = None
+        self.reader: asyncio.StreamReader | None = None
+        self.writer: asyncio.StreamWriter | None = None
         self.running = False
+        self.stats_interval_s = stats_interval_s
+        self._last_stats_log = time.monotonic()
         self.stats = {
             "frames_received": 0,
             "frames_crc_errors": 0,
@@ -51,11 +57,9 @@ class UsbCollector:
     async def connect(self) -> None:
         """Open serial port connection."""
         try:
-            self.serial_port = serial.Serial(
-                port=self.device_path,
+            self.reader, self.writer = await serial_asyncio.open_serial_connection(
+                url=self.device_path,
                 baudrate=self.baudrate,
-                timeout=1.0,  # 1 second read timeout
-                write_timeout=1.0,
             )
             logger.info(f"Connected to USB device: {self.device_path} @ {self.baudrate} baud")
         except (serial.SerialException, OSError) as e:
@@ -64,39 +68,13 @@ class UsbCollector:
 
     async def disconnect(self) -> None:
         """Close serial port connection."""
-        if self.serial_port and self.serial_port.is_open:
-            self.serial_port.close()
-            logger.info(f"Disconnected from USB device: {self.device_path}")
-
-    def _read_exact(self, n: int) -> bytes | None:
-        """Read exactly n bytes from serial port.
-
-        Returns:
-            Bytes read, or None if timeout/error
-        """
-        if not self.serial_port:
-            return None
-
-        data = bytearray()
-        deadline = time.monotonic() + 5.0  # 5 second total timeout
-
-        while len(data) < n:
-            if time.monotonic() > deadline:
-                logger.warning(f"Timeout reading {n} bytes (got {len(data)})")
-                return None
-
-            try:
-                remaining = n - len(data)
-                chunk = self.serial_port.read(remaining)
-                if not chunk:
-                    # No data available, yield to event loop
-                    continue
-                data.extend(chunk)
-            except (serial.SerialException, OSError) as e:
-                logger.error(f"Serial read error: {e}")
-                return None
-
-        return bytes(data)
+        if self.writer:
+            self.writer.close()
+            with contextlib.suppress(Exception):
+                await self.writer.wait_closed()
+        self.reader = None
+        self.writer = None
+        logger.info(f"Disconnected from USB device: {self.device_path}")
 
     def _crc32_ieee(self, data: bytes) -> int:
         """Calculate CRC-32/IEEE checksum.
@@ -115,7 +93,7 @@ class UsbCollector:
                 crc = (crc >> 1) ^ (0xEDB88320 & mask)
         return crc ^ 0xFFFFFFFF
 
-    async def _process_frame(self, frame_bytes: bytes) -> None:
+    async def _process_frame(self, frame_bytes: bytes) -> bool:
         """Parse and process a UsbFrame.
 
         Args:
@@ -133,7 +111,7 @@ class UsbCollector:
                 logger.warning(
                     f"CRC mismatch: expected {usb_frame.crc32:08x}, got {computed_crc:08x}"
                 )
-                return
+                return False
 
             self.stats["frames_received"] += 1
 
@@ -150,9 +128,11 @@ class UsbCollector:
             else:
                 logger.warning(f"Unknown payload type: {usb_frame.payload_type}")
 
+            return True
         except Exception as e:
             self.stats["frames_parse_errors"] += 1
             logger.error(f"Failed to parse frame: {e}")
+            return False
 
     async def run(self) -> None:
         """Main loop to read and process frames."""
@@ -162,36 +142,71 @@ class UsbCollector:
         try:
             await self.connect()
 
+            # Give ESP32 time to boot and flush any boot messages
+            logger.info("Waiting 3 seconds for ESP32 to boot...")
+            await asyncio.sleep(3)
+
+            # Flush any boot messages
+            if self.reader:
+                logger.info("Flushing serial input buffer")
+                deadline = time.monotonic() + 1.0
+                while time.monotonic() < deadline:
+                    try:
+                        chunk = await asyncio.wait_for(self.reader.read(1024), timeout=0.1)
+                    except TimeoutError:
+                        break
+                    if not chunk:
+                        break
+
+            buffer = bytearray()
+            max_frame_len = 4096
+
             while self.running:
-                if not self.serial_port or not self.serial_port.is_open:
-                    logger.error("Serial port not open")
+                if not self.reader or not self.writer:
+                    logger.error("Serial connection not open")
                     break
 
-                # Read frame length (4 bytes, little-endian)
-                length_bytes = self._read_exact(4)
-                if not length_bytes:
-                    # Timeout or error, retry
-                    await asyncio.sleep(0.1)
+                try:
+                    chunk = await self.reader.read(1024)
+                except (serial.SerialException, OSError) as e:
+                    logger.error(f"Serial read error: {e}")
+                    break
+                if not chunk:
+                    await asyncio.sleep(0.01)
                     continue
 
-                frame_length = struct.unpack("<I", length_bytes)[0]
+                buffer.extend(chunk)
+                self.stats["bytes_received"] += len(chunk)
 
-                # Sanity check frame length
-                if frame_length == 0 or frame_length > 1024 * 1024:  # 1MB max
-                    logger.error(f"Invalid frame length: {frame_length}")
-                    # Try to resync by reading byte-by-byte until we find a valid length
-                    continue
+                while len(buffer) >= 4:
+                    frame_length = struct.unpack_from("<I", buffer, 0)[0]
 
-                # Read frame data
-                frame_bytes = self._read_exact(frame_length)
-                if not frame_bytes:
-                    logger.warning(f"Failed to read frame of {frame_length} bytes")
-                    continue
+                    if frame_length == 0 or frame_length > max_frame_len:
+                        buffer.pop(0)
+                        continue
 
-                self.stats["bytes_received"] += len(frame_bytes) + 4
+                    if len(buffer) < 4 + frame_length:
+                        break
 
-                # Process frame
-                await self._process_frame(frame_bytes)
+                    frame_bytes = bytes(buffer[4 : 4 + frame_length])
+                    ok = await self._process_frame(frame_bytes)
+
+                    if ok:
+                        del buffer[: 4 + frame_length]
+                    else:
+                        buffer.pop(0)
+
+                now = time.monotonic()
+                if now - self._last_stats_log >= self.stats_interval_s:
+                    self._last_stats_log = now
+                    logger.info(
+                        "USB stats: frames=%d crc_errors=%d parse_errors=%d messages=%d bytes=%d",
+                        self.stats["frames_received"],
+                        self.stats["frames_crc_errors"],
+                        self.stats["frames_parse_errors"],
+                        self.stats["messages_received"],
+                        self.stats["bytes_received"],
+                    )
 
         except KeyboardInterrupt:
             logger.info("USB collector interrupted")

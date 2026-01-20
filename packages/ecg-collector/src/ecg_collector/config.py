@@ -63,7 +63,6 @@ class CollectorSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="ECG_COLLECTOR_",
         env_nested_delimiter="__",
-        yaml_file="config.yaml",
         extra="ignore",
     )
 

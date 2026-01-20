@@ -11,6 +11,12 @@ from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
+class UsbPayloadType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    USB_PAYLOAD_TYPE_UNKNOWN: _ClassVar[UsbPayloadType]
+    USB_PAYLOAD_TYPE_COLLECTOR_MESSAGE: _ClassVar[UsbPayloadType]
+    USB_PAYLOAD_TYPE_AGGREGATOR_MESSAGE: _ClassVar[UsbPayloadType]
+
 class DeviceStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     DEVICE_STATUS_UNKNOWN: _ClassVar[DeviceStatus]
@@ -20,12 +26,37 @@ class DeviceStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     DEVICE_STATUS_STREAMING: _ClassVar[DeviceStatus]
     DEVICE_STATUS_ERROR: _ClassVar[DeviceStatus]
 
+USB_PAYLOAD_TYPE_UNKNOWN: UsbPayloadType
+USB_PAYLOAD_TYPE_COLLECTOR_MESSAGE: UsbPayloadType
+USB_PAYLOAD_TYPE_AGGREGATOR_MESSAGE: UsbPayloadType
 DEVICE_STATUS_UNKNOWN: DeviceStatus
 DEVICE_STATUS_DISCONNECTED: DeviceStatus
 DEVICE_STATUS_CONNECTING: DeviceStatus
 DEVICE_STATUS_CONNECTED: DeviceStatus
 DEVICE_STATUS_STREAMING: DeviceStatus
 DEVICE_STATUS_ERROR: DeviceStatus
+
+class UsbFrame(_message.Message):
+    __slots__ = ("version", "payload_type", "seq", "crc32", "payload")
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    PAYLOAD_TYPE_FIELD_NUMBER: _ClassVar[int]
+    SEQ_FIELD_NUMBER: _ClassVar[int]
+    CRC32_FIELD_NUMBER: _ClassVar[int]
+    PAYLOAD_FIELD_NUMBER: _ClassVar[int]
+    version: int
+    payload_type: UsbPayloadType
+    seq: int
+    crc32: int
+    payload: bytes
+
+    def __init__(
+        self,
+        version: int | None = ...,
+        payload_type: UsbPayloadType | str | None = ...,
+        seq: int | None = ...,
+        crc32: int | None = ...,
+        payload: bytes | None = ...,
+    ) -> None: ...
 
 class CollectorMessage(_message.Message):
     __slots__ = ("registration", "ecg_batch", "status_update", "heartbeat", "acc_batch")

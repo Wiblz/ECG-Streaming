@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import time
 
 from ecg_common.logging import get_logger
 from ecg_common.proto import ecg_streaming_pb2
@@ -61,12 +62,22 @@ class UsbCollectorService:
         if msg_type == "ecg_batch":
             device_id = collector_msg.ecg_batch.device_id
             if device_id:
+                if device_id not in self.device_ids:
+                    logger.info(f"USB device discovered from ECG batch: {device_id}")
                 self.device_ids.add(device_id)
+            now_s = time.time()
+            for sample in collector_msg.ecg_batch.samples:
+                sample.host_receive_time_s = now_s
 
         elif msg_type == "acc_batch":
             device_id = collector_msg.acc_batch.device_id
             if device_id:
+                if device_id not in self.device_ids:
+                    logger.info(f"USB device discovered from ACC batch: {device_id}")
                 self.device_ids.add(device_id)
+            now_s = time.time()
+            for sample in collector_msg.acc_batch.samples:
+                sample.host_receive_time_s = now_s
 
         elif msg_type == "status_update":
             device_id = collector_msg.status_update.device_id
@@ -75,6 +86,20 @@ class UsbCollectorService:
 
         # Forward message to aggregator
         try:
+            if self.grpc_client and self.device_ids:
+                sorted_ids = sorted(self.device_ids)
+                if sorted_ids != self.grpc_client.device_ids:
+                    self.grpc_client.device_ids = sorted_ids
+                    logger.info(f"Sending updated registration with devices: {sorted_ids}")
+                    registration = ecg_streaming_pb2.CollectorRegistration(
+                        collector_id=self.grpc_client.collector_id,
+                        device_ids=sorted_ids,
+                        display_name=self.grpc_client.display_name,
+                        metadata=self.grpc_client.metadata,
+                    )
+                    reg_msg = ecg_streaming_pb2.CollectorMessage()
+                    reg_msg.registration.CopyFrom(registration)
+                    await self.grpc_client.send_message(reg_msg)
             await self.grpc_client.send_message(collector_msg)
         except Exception as e:
             logger.error(f"Failed to forward message to aggregator: {e}")

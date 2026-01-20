@@ -206,7 +206,22 @@ def usb_run(
         aggregator: Aggregator address in host:port format
         collector_id: Optional collector ID
     """
+    from ecg_collector.config import CollectorSettings
     from ecg_collector.usb.service import UsbCollectorService
+
+    # Setup logging (reuse config.yaml if present)
+    config = Path("config.yaml")
+    try:
+        settings = CollectorSettings.from_yaml(config) if config.exists() else CollectorSettings()
+    except Exception as e:
+        console.print(f"[red]Failed to load configuration: {e}[/red]")
+        settings = CollectorSettings()
+
+    setup_logging(
+        level=settings.logging.level,
+        log_file=settings.logging.file,
+        log_format=settings.logging.format,
+    )
 
     # Parse aggregator address
     try:

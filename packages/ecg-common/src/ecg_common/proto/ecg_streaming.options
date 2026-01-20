@@ -1,0 +1,32 @@
+# Nanopb options for ESP32 serialization.
+# These bounds keep memory usage predictable on-device.
+
+ecg_streaming.UsbFrame.payload max_length:2048
+
+ecg_streaming.CollectorRegistration.collector_id max_length:64
+ecg_streaming.CollectorRegistration.device_ids max_count:8
+ecg_streaming.CollectorRegistration.device_ids max_length:64
+ecg_streaming.CollectorRegistration.version max_length:32
+ecg_streaming.CollectorRegistration.metadata max_count:8
+ecg_streaming.CollectorRegistration.MetadataEntry.key max_length:32
+ecg_streaming.CollectorRegistration.MetadataEntry.value max_length:64
+ecg_streaming.CollectorRegistration.display_name max_length:64
+
+ecg_streaming.ECGSampleBatch.device_id max_length:64
+ecg_streaming.ECGSampleBatch.samples max_count:50
+
+ecg_streaming.AccelerometerSampleBatch.device_id max_length:64
+ecg_streaming.AccelerometerSampleBatch.samples max_count:50
+
+ecg_streaming.DeviceStatusUpdate.device_id max_length:64
+ecg_streaming.DeviceStatusUpdate.error_message max_length:128
+ecg_streaming.DeviceStatusUpdate.device_info max_count:8
+ecg_streaming.DeviceStatusUpdate.DeviceInfoEntry.key max_length:32
+ecg_streaming.DeviceStatusUpdate.DeviceInfoEntry.value max_length:64
+
+ecg_streaming.SyncStatusUpdate.device_id max_length:64
+
+ecg_streaming.ControlCommand.device_id max_length:64
+ecg_streaming.ControlCommand.parameters max_count:8
+ecg_streaming.ControlCommand.ParametersEntry.key max_length:32
+ecg_streaming.ControlCommand.ParametersEntry.value max_length:64

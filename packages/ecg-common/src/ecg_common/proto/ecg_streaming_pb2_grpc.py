@@ -1,7 +1,7 @@
 """Client and server classes corresponding to protobuf-defined services."""
 
 import grpc
-import warnings
+
 from ..proto import ecg_streaming_pb2 as proto_dot_ecg__streaming__pb2
 
 GRPC_GENERATED_VERSION = "1.71.2"
@@ -16,14 +16,14 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f"The grpc package installed is at version {GRPC_VERSION},"
-        + f" but the generated code in proto/ecg_streaming_pb2_grpc.py depends on"
+        + " but the generated code in proto/ecg_streaming_pb2_grpc.py depends on"
         + f" grpcio>={GRPC_GENERATED_VERSION}."
         + f" Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}"
         + f" or downgrade your generated code using grpcio-tools<={GRPC_VERSION}."
     )
 
 
-class ECGStreamingServiceStub(object):
+class ECGStreamingServiceStub:
     """ECG Streaming Service
     Bidirectional streaming between Collector and Aggregator
     """
@@ -42,7 +42,7 @@ class ECGStreamingServiceStub(object):
         )
 
 
-class ECGStreamingServiceServicer(object):
+class ECGStreamingServiceServicer:
     """ECG Streaming Service
     Bidirectional streaming between Collector and Aggregator
     """
@@ -71,7 +71,7 @@ def add_ECGStreamingServiceServicer_to_server(servicer, server):
     server.add_registered_method_handlers("ecg_streaming.ECGStreamingService", rpc_method_handlers)
 
 
-class ECGStreamingService(object):
+class ECGStreamingService:
     """ECG Streaming Service
     Bidirectional streaming between Collector and Aggregator
     """
