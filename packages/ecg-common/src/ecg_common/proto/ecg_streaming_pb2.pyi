@@ -59,17 +59,29 @@ class UsbFrame(_message.Message):
     ) -> None: ...
 
 class CollectorMessage(_message.Message):
-    __slots__ = ("registration", "ecg_batch", "status_update", "heartbeat", "acc_batch")
+    __slots__ = (
+        "registration",
+        "ecg_batch",
+        "status_update",
+        "heartbeat",
+        "acc_batch",
+        "usb_device_info",
+        "usb_config_ack",
+    )
     REGISTRATION_FIELD_NUMBER: _ClassVar[int]
     ECG_BATCH_FIELD_NUMBER: _ClassVar[int]
     STATUS_UPDATE_FIELD_NUMBER: _ClassVar[int]
     HEARTBEAT_FIELD_NUMBER: _ClassVar[int]
     ACC_BATCH_FIELD_NUMBER: _ClassVar[int]
+    USB_DEVICE_INFO_FIELD_NUMBER: _ClassVar[int]
+    USB_CONFIG_ACK_FIELD_NUMBER: _ClassVar[int]
     registration: CollectorRegistration
     ecg_batch: ECGSampleBatch
     status_update: DeviceStatusUpdate
     heartbeat: CollectorHeartbeat
     acc_batch: AccelerometerSampleBatch
+    usb_device_info: UsbDeviceInfo
+    usb_config_ack: UsbConfigAck
 
     def __init__(
         self,
@@ -78,22 +90,27 @@ class CollectorMessage(_message.Message):
         status_update: DeviceStatusUpdate | _Mapping | None = ...,
         heartbeat: CollectorHeartbeat | _Mapping | None = ...,
         acc_batch: AccelerometerSampleBatch | _Mapping | None = ...,
+        usb_device_info: UsbDeviceInfo | _Mapping | None = ...,
+        usb_config_ack: UsbConfigAck | _Mapping | None = ...,
     ) -> None: ...
 
 class AggregatorMessage(_message.Message):
-    __slots__ = ("registration_ack", "sync_status", "control")
+    __slots__ = ("registration_ack", "sync_status", "control", "usb_config")
     REGISTRATION_ACK_FIELD_NUMBER: _ClassVar[int]
     SYNC_STATUS_FIELD_NUMBER: _ClassVar[int]
     CONTROL_FIELD_NUMBER: _ClassVar[int]
+    USB_CONFIG_FIELD_NUMBER: _ClassVar[int]
     registration_ack: RegistrationAck
     sync_status: SyncStatusUpdate
     control: ControlCommand
+    usb_config: UsbConfig
 
     def __init__(
         self,
         registration_ack: RegistrationAck | _Mapping | None = ...,
         sync_status: SyncStatusUpdate | _Mapping | None = ...,
         control: ControlCommand | _Mapping | None = ...,
+        usb_config: UsbConfig | _Mapping | None = ...,
     ) -> None: ...
 
 class CollectorRegistration(_message.Message):
@@ -328,4 +345,78 @@ class ControlCommand(_message.Message):
         command: ControlCommand.CommandType | str | None = ...,
         device_id: str | None = ...,
         parameters: _Mapping[str, str] | None = ...,
+    ) -> None: ...
+
+class UsbDeviceInfo(_message.Message):
+    __slots__ = ("esp_id", "firmware_version", "current_target", "config_required")
+    ESP_ID_FIELD_NUMBER: _ClassVar[int]
+    FIRMWARE_VERSION_FIELD_NUMBER: _ClassVar[int]
+    CURRENT_TARGET_FIELD_NUMBER: _ClassVar[int]
+    CONFIG_REQUIRED_FIELD_NUMBER: _ClassVar[int]
+    esp_id: str
+    firmware_version: str
+    current_target: str
+    config_required: bool
+
+    def __init__(
+        self,
+        esp_id: str | None = ...,
+        firmware_version: str | None = ...,
+        current_target: str | None = ...,
+        config_required: bool = ...,
+    ) -> None: ...
+
+class UsbConfig(_message.Message):
+    __slots__ = (
+        "esp_id",
+        "target_device_id",
+        "ecg_sample_rate",
+        "acc_sample_rate",
+        "ecg_batch_size",
+        "acc_batch_size",
+        "persist",
+    )
+    ESP_ID_FIELD_NUMBER: _ClassVar[int]
+    TARGET_DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
+    ECG_SAMPLE_RATE_FIELD_NUMBER: _ClassVar[int]
+    ACC_SAMPLE_RATE_FIELD_NUMBER: _ClassVar[int]
+    ECG_BATCH_SIZE_FIELD_NUMBER: _ClassVar[int]
+    ACC_BATCH_SIZE_FIELD_NUMBER: _ClassVar[int]
+    PERSIST_FIELD_NUMBER: _ClassVar[int]
+    esp_id: str
+    target_device_id: str
+    ecg_sample_rate: int
+    acc_sample_rate: int
+    ecg_batch_size: int
+    acc_batch_size: int
+    persist: bool
+
+    def __init__(
+        self,
+        esp_id: str | None = ...,
+        target_device_id: str | None = ...,
+        ecg_sample_rate: int | None = ...,
+        acc_sample_rate: int | None = ...,
+        ecg_batch_size: int | None = ...,
+        acc_batch_size: int | None = ...,
+        persist: bool = ...,
+    ) -> None: ...
+
+class UsbConfigAck(_message.Message):
+    __slots__ = ("esp_id", "accepted", "message", "target_device_id")
+    ESP_ID_FIELD_NUMBER: _ClassVar[int]
+    ACCEPTED_FIELD_NUMBER: _ClassVar[int]
+    MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    TARGET_DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
+    esp_id: str
+    accepted: bool
+    message: str
+    target_device_id: str
+
+    def __init__(
+        self,
+        esp_id: str | None = ...,
+        accepted: bool = ...,
+        message: str | None = ...,
+        target_device_id: str | None = ...,
     ) -> None: ...

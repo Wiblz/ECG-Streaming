@@ -30,3 +30,14 @@ ecg_streaming.ControlCommand.device_id max_length:64
 ecg_streaming.ControlCommand.parameters max_count:8
 ecg_streaming.ControlCommand.ParametersEntry.key max_length:32
 ecg_streaming.ControlCommand.ParametersEntry.value max_length:64
+
+ecg_streaming.UsbDeviceInfo.esp_id max_length:64
+ecg_streaming.UsbDeviceInfo.firmware_version max_length:32
+ecg_streaming.UsbDeviceInfo.current_target max_length:64
+
+ecg_streaming.UsbConfig.esp_id max_length:64
+ecg_streaming.UsbConfig.target_device_id max_length:64
+
+ecg_streaming.UsbConfigAck.esp_id max_length:64
+ecg_streaming.UsbConfigAck.message max_length:128
+ecg_streaming.UsbConfigAck.target_device_id max_length:64

@@ -276,6 +276,8 @@ def usb_run(
             display_name=display_name or settings.display_name,
             allowed_device_ids=settings.usb.allowed_device_ids,
             detect_timeout_s=settings.usb.detect_timeout_s,
+            device_map=settings.usb.device_map,
+            persist_config=settings.usb.persist_config,
         )
 
         try:

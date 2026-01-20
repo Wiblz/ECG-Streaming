@@ -25,6 +25,8 @@ class MultiUsbCollectorService:
         display_name: str | None = None,
         allowed_device_ids: list[str] | None = None,
         detect_timeout_s: float = 10.0,
+        device_map: dict[str, str] | None = None,
+        persist_config: bool = True,
     ) -> None:
         """Initialize multi-USB collector service."""
         self.device_paths = device_paths
@@ -34,6 +36,8 @@ class MultiUsbCollectorService:
         self.display_name = display_name or "USB Collector"
         self.allowed_device_ids = set(allowed_device_ids or [])
         self.detect_timeout_s = detect_timeout_s
+        self.device_map = device_map or {}
+        self.persist_config = persist_config
 
         self.usb_collectors: dict[str, UsbCollector] = {}
         self.grpc_client: CollectorGrpcClient | None = None
@@ -41,6 +45,8 @@ class MultiUsbCollectorService:
         self.device_ids: set[str] = set()
         self._usb_tasks: dict[str, asyncio.Task[None]] = {}
         self._rejected_device_ids: set[str] = set()
+        self._configured_esp_ids: set[str] = set()
+        self._unmapped_esp_ids: set[str] = set()
 
     def _message_device_id(self, collector_msg: ecg_streaming_pb2.CollectorMessage) -> str | None:
         msg_type = collector_msg.WhichOneof("message")
@@ -57,9 +63,28 @@ class MultiUsbCollectorService:
             return True
         return bool(device_id) and device_id in self.allowed_device_ids
 
-    async def _handle_message(self, collector_msg: ecg_streaming_pb2.CollectorMessage) -> None:
+    async def _handle_message(
+        self,
+        collector_msg: ecg_streaming_pb2.CollectorMessage,
+        usb_collector: UsbCollector | None = None,
+    ) -> None:
         if not self.grpc_client:
             logger.warning("gRPC client not initialized, dropping message")
+            return
+
+        msg_type = collector_msg.WhichOneof("message")
+        if msg_type == "usb_device_info":
+            await self._handle_usb_device_info(collector_msg, usb_collector)
+            return
+
+        if msg_type == "usb_config_ack":
+            ack = collector_msg.usb_config_ack
+            logger.info(
+                "USB config ack from %s: %s (accepted=%s)",
+                ack.esp_id,
+                ack.message or "ok",
+                ack.accepted,
+            )
             return
 
         device_id = self._message_device_id(collector_msg)
@@ -74,7 +99,6 @@ class MultiUsbCollectorService:
                 logger.info("USB device discovered from stream: %s", device_id)
             self.device_ids.add(device_id)
 
-        msg_type = collector_msg.WhichOneof("message")
         if msg_type == "ecg_batch":
             now_s = time.time()
             for sample in collector_msg.ecg_batch.samples:
@@ -103,15 +127,62 @@ class MultiUsbCollectorService:
         except Exception as e:
             logger.error("Failed to forward message to aggregator: %s", e)
 
+    async def _handle_usb_device_info(
+        self,
+        collector_msg: ecg_streaming_pb2.CollectorMessage,
+        usb_collector: UsbCollector | None,
+    ) -> None:
+        info = collector_msg.usb_device_info
+        esp_id = info.esp_id
+        if not esp_id:
+            return
+
+        desired_target = self.device_map.get(esp_id)
+        if not desired_target:
+            if esp_id not in self._unmapped_esp_ids:
+                logger.info("USB device %s has no mapping; add to usb.device_map", esp_id)
+                self._unmapped_esp_ids.add(esp_id)
+            return
+
+        if info.current_target == desired_target and not info.config_required:
+            self._configured_esp_ids.add(esp_id)
+            return
+
+        if esp_id in self._configured_esp_ids and info.current_target == desired_target:
+            return
+
+        if not usb_collector:
+            logger.warning("No USB collector available to configure %s", esp_id)
+            return
+
+        config_msg = ecg_streaming_pb2.UsbConfig(
+            esp_id=esp_id,
+            target_device_id=desired_target,
+            persist=self.persist_config,
+        )
+        agg_msg = ecg_streaming_pb2.AggregatorMessage()
+        agg_msg.usb_config.CopyFrom(config_msg)
+
+        try:
+            await usb_collector.send_aggregator_message(agg_msg)
+            self._configured_esp_ids.add(esp_id)
+            logger.info("Sent USB config to %s -> %s", esp_id, desired_target)
+        except Exception as e:
+            logger.error("Failed sending USB config to %s: %s", esp_id, e)
+
     async def _run_usb_device(self, device_path: str) -> None:
         first_message = asyncio.Event()
 
         async def _callback(msg: ecg_streaming_pb2.CollectorMessage) -> None:
             if not first_message.is_set():
-                device_id = self._message_device_id(msg)
-                if self._device_id_allowed(device_id):
+                msg_type = msg.WhichOneof("message")
+                if msg_type == "usb_device_info":
                     first_message.set()
-            await self._handle_message(msg)
+                else:
+                    device_id = self._message_device_id(msg)
+                    if self._device_id_allowed(device_id):
+                        first_message.set()
+            await self._handle_message(msg, usb_collector)
 
         usb_collector = UsbCollector(device_path=device_path, message_callback=_callback)
         self.usb_collectors[device_path] = usb_collector

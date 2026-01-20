@@ -127,18 +127,6 @@ typedef struct _ecg_streaming_CollectorHeartbeat {
     int32_t active_devices; /* Number of currently streaming devices */
 } ecg_streaming_CollectorHeartbeat;
 
-/* Messages from Collector to Aggregator */
-typedef struct _ecg_streaming_CollectorMessage {
-    pb_size_t which_message;
-    union {
-        ecg_streaming_CollectorRegistration registration;
-        ecg_streaming_ECGSampleBatch ecg_batch;
-        ecg_streaming_DeviceStatusUpdate status_update;
-        ecg_streaming_CollectorHeartbeat heartbeat;
-        ecg_streaming_AccelerometerSampleBatch acc_batch;
-    } message;
-} ecg_streaming_CollectorMessage;
-
 /* Sync status update from aggregator */
 typedef struct _ecg_streaming_SyncStatusUpdate {
     char device_id[65];
@@ -162,6 +150,25 @@ typedef struct _ecg_streaming_ControlCommand {
     ecg_streaming_ControlCommand_ParametersEntry parameters[8]; /* Additional command parameters */
 } ecg_streaming_ControlCommand;
 
+/* USB device identity information (ESP32 -> host) */
+typedef struct _ecg_streaming_UsbDeviceInfo {
+    char esp_id[65];
+    char firmware_version[33];
+    char current_target[65];
+    bool config_required;
+} ecg_streaming_UsbDeviceInfo;
+
+/* USB configuration command (host -> ESP32) */
+typedef struct _ecg_streaming_UsbConfig {
+    char esp_id[65];
+    char target_device_id[65];
+    int32_t ecg_sample_rate;
+    int32_t acc_sample_rate;
+    int32_t ecg_batch_size;
+    int32_t acc_batch_size;
+    bool persist;
+} ecg_streaming_UsbConfig;
+
 /* Messages from Aggregator to Collector */
 typedef struct _ecg_streaming_AggregatorMessage {
     pb_size_t which_message;
@@ -169,8 +176,31 @@ typedef struct _ecg_streaming_AggregatorMessage {
         ecg_streaming_RegistrationAck registration_ack;
         ecg_streaming_SyncStatusUpdate sync_status;
         ecg_streaming_ControlCommand control;
+        ecg_streaming_UsbConfig usb_config;
     } message;
 } ecg_streaming_AggregatorMessage;
+
+/* USB configuration acknowledgment (ESP32 -> host) */
+typedef struct _ecg_streaming_UsbConfigAck {
+    char esp_id[65];
+    bool accepted;
+    char message[129];
+    char target_device_id[65];
+} ecg_streaming_UsbConfigAck;
+
+/* Messages from Collector to Aggregator */
+typedef struct _ecg_streaming_CollectorMessage {
+    pb_size_t which_message;
+    union {
+        ecg_streaming_CollectorRegistration registration;
+        ecg_streaming_ECGSampleBatch ecg_batch;
+        ecg_streaming_DeviceStatusUpdate status_update;
+        ecg_streaming_CollectorHeartbeat heartbeat;
+        ecg_streaming_AccelerometerSampleBatch acc_batch;
+        ecg_streaming_UsbDeviceInfo usb_device_info;
+        ecg_streaming_UsbConfigAck usb_config_ack;
+    } message;
+} ecg_streaming_CollectorMessage;
 
 
 #ifdef __cplusplus
@@ -210,6 +240,9 @@ extern "C" {
 
 
 
+
+
+
 /* Initializer values for message structs */
 #define ecg_streaming_UsbFrame_init_default      {0, _ecg_streaming_UsbPayloadType_MIN, 0, 0, {{NULL}, NULL}}
 #define ecg_streaming_CollectorMessage_init_default {0, {ecg_streaming_CollectorRegistration_init_default}}
@@ -227,6 +260,9 @@ extern "C" {
 #define ecg_streaming_SyncStatusUpdate_init_default {"", 0, 0, 0, 0}
 #define ecg_streaming_ControlCommand_init_default {_ecg_streaming_ControlCommand_CommandType_MIN, false, "", 0, {ecg_streaming_ControlCommand_ParametersEntry_init_default, ecg_streaming_ControlCommand_ParametersEntry_init_default, ecg_streaming_ControlCommand_ParametersEntry_init_default, ecg_streaming_ControlCommand_ParametersEntry_init_default, ecg_streaming_ControlCommand_ParametersEntry_init_default, ecg_streaming_ControlCommand_ParametersEntry_init_default, ecg_streaming_ControlCommand_ParametersEntry_init_default, ecg_streaming_ControlCommand_ParametersEntry_init_default}}
 #define ecg_streaming_ControlCommand_ParametersEntry_init_default {"", ""}
+#define ecg_streaming_UsbDeviceInfo_init_default {"", "", "", 0}
+#define ecg_streaming_UsbConfig_init_default     {"", "", 0, 0, 0, 0, 0}
+#define ecg_streaming_UsbConfigAck_init_default  {"", 0, "", ""}
 #define ecg_streaming_UsbFrame_init_zero         {0, _ecg_streaming_UsbPayloadType_MIN, 0, 0, {{NULL}, NULL}}
 #define ecg_streaming_CollectorMessage_init_zero {0, {ecg_streaming_CollectorRegistration_init_zero}}
 #define ecg_streaming_AggregatorMessage_init_zero {0, {ecg_streaming_RegistrationAck_init_zero}}
@@ -243,6 +279,9 @@ extern "C" {
 #define ecg_streaming_SyncStatusUpdate_init_zero {"", 0, 0, 0, 0}
 #define ecg_streaming_ControlCommand_init_zero   {_ecg_streaming_ControlCommand_CommandType_MIN, false, "", 0, {ecg_streaming_ControlCommand_ParametersEntry_init_zero, ecg_streaming_ControlCommand_ParametersEntry_init_zero, ecg_streaming_ControlCommand_ParametersEntry_init_zero, ecg_streaming_ControlCommand_ParametersEntry_init_zero, ecg_streaming_ControlCommand_ParametersEntry_init_zero, ecg_streaming_ControlCommand_ParametersEntry_init_zero, ecg_streaming_ControlCommand_ParametersEntry_init_zero, ecg_streaming_ControlCommand_ParametersEntry_init_zero}}
 #define ecg_streaming_ControlCommand_ParametersEntry_init_zero {"", ""}
+#define ecg_streaming_UsbDeviceInfo_init_zero    {"", "", "", 0}
+#define ecg_streaming_UsbConfig_init_zero        {"", "", 0, 0, 0, 0, 0}
+#define ecg_streaming_UsbConfigAck_init_zero     {"", 0, "", ""}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define ecg_streaming_UsbFrame_version_tag       1
@@ -286,11 +325,6 @@ extern "C" {
 #define ecg_streaming_CollectorHeartbeat_timestamp_ms_tag 1
 #define ecg_streaming_CollectorHeartbeat_samples_sent_tag 2
 #define ecg_streaming_CollectorHeartbeat_active_devices_tag 3
-#define ecg_streaming_CollectorMessage_registration_tag 1
-#define ecg_streaming_CollectorMessage_ecg_batch_tag 2
-#define ecg_streaming_CollectorMessage_status_update_tag 3
-#define ecg_streaming_CollectorMessage_heartbeat_tag 4
-#define ecg_streaming_CollectorMessage_acc_batch_tag 5
 #define ecg_streaming_SyncStatusUpdate_device_id_tag 1
 #define ecg_streaming_SyncStatusUpdate_sync_ready_tag 2
 #define ecg_streaming_SyncStatusUpdate_offset_s_tag 3
@@ -301,9 +335,32 @@ extern "C" {
 #define ecg_streaming_ControlCommand_command_tag 1
 #define ecg_streaming_ControlCommand_device_id_tag 2
 #define ecg_streaming_ControlCommand_parameters_tag 3
+#define ecg_streaming_UsbDeviceInfo_esp_id_tag   1
+#define ecg_streaming_UsbDeviceInfo_firmware_version_tag 2
+#define ecg_streaming_UsbDeviceInfo_current_target_tag 3
+#define ecg_streaming_UsbDeviceInfo_config_required_tag 4
+#define ecg_streaming_UsbConfig_esp_id_tag       1
+#define ecg_streaming_UsbConfig_target_device_id_tag 2
+#define ecg_streaming_UsbConfig_ecg_sample_rate_tag 3
+#define ecg_streaming_UsbConfig_acc_sample_rate_tag 4
+#define ecg_streaming_UsbConfig_ecg_batch_size_tag 5
+#define ecg_streaming_UsbConfig_acc_batch_size_tag 6
+#define ecg_streaming_UsbConfig_persist_tag      7
 #define ecg_streaming_AggregatorMessage_registration_ack_tag 1
 #define ecg_streaming_AggregatorMessage_sync_status_tag 2
 #define ecg_streaming_AggregatorMessage_control_tag 3
+#define ecg_streaming_AggregatorMessage_usb_config_tag 4
+#define ecg_streaming_UsbConfigAck_esp_id_tag    1
+#define ecg_streaming_UsbConfigAck_accepted_tag  2
+#define ecg_streaming_UsbConfigAck_message_tag   3
+#define ecg_streaming_UsbConfigAck_target_device_id_tag 4
+#define ecg_streaming_CollectorMessage_registration_tag 1
+#define ecg_streaming_CollectorMessage_ecg_batch_tag 2
+#define ecg_streaming_CollectorMessage_status_update_tag 3
+#define ecg_streaming_CollectorMessage_heartbeat_tag 4
+#define ecg_streaming_CollectorMessage_acc_batch_tag 5
+#define ecg_streaming_CollectorMessage_usb_device_info_tag 6
+#define ecg_streaming_CollectorMessage_usb_config_ack_tag 7
 
 /* Struct field encoding specification for nanopb */
 #define ecg_streaming_UsbFrame_FIELDLIST(X, a) \
@@ -320,7 +377,9 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (message,registration,message.registration), 
 X(a, STATIC,   ONEOF,    MESSAGE,  (message,ecg_batch,message.ecg_batch),   2) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (message,status_update,message.status_update),   3) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (message,heartbeat,message.heartbeat),   4) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (message,acc_batch,message.acc_batch),   5)
+X(a, STATIC,   ONEOF,    MESSAGE,  (message,acc_batch,message.acc_batch),   5) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (message,usb_device_info,message.usb_device_info),   6) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (message,usb_config_ack,message.usb_config_ack),   7)
 #define ecg_streaming_CollectorMessage_CALLBACK NULL
 #define ecg_streaming_CollectorMessage_DEFAULT NULL
 #define ecg_streaming_CollectorMessage_message_registration_MSGTYPE ecg_streaming_CollectorRegistration
@@ -328,16 +387,20 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (message,acc_batch,message.acc_batch),   5)
 #define ecg_streaming_CollectorMessage_message_status_update_MSGTYPE ecg_streaming_DeviceStatusUpdate
 #define ecg_streaming_CollectorMessage_message_heartbeat_MSGTYPE ecg_streaming_CollectorHeartbeat
 #define ecg_streaming_CollectorMessage_message_acc_batch_MSGTYPE ecg_streaming_AccelerometerSampleBatch
+#define ecg_streaming_CollectorMessage_message_usb_device_info_MSGTYPE ecg_streaming_UsbDeviceInfo
+#define ecg_streaming_CollectorMessage_message_usb_config_ack_MSGTYPE ecg_streaming_UsbConfigAck
 
 #define ecg_streaming_AggregatorMessage_FIELDLIST(X, a) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (message,registration_ack,message.registration_ack),   1) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (message,sync_status,message.sync_status),   2) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (message,control,message.control),   3)
+X(a, STATIC,   ONEOF,    MESSAGE,  (message,control,message.control),   3) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (message,usb_config,message.usb_config),   4)
 #define ecg_streaming_AggregatorMessage_CALLBACK NULL
 #define ecg_streaming_AggregatorMessage_DEFAULT NULL
 #define ecg_streaming_AggregatorMessage_message_registration_ack_MSGTYPE ecg_streaming_RegistrationAck
 #define ecg_streaming_AggregatorMessage_message_sync_status_MSGTYPE ecg_streaming_SyncStatusUpdate
 #define ecg_streaming_AggregatorMessage_message_control_MSGTYPE ecg_streaming_ControlCommand
+#define ecg_streaming_AggregatorMessage_message_usb_config_MSGTYPE ecg_streaming_UsbConfig
 
 #define ecg_streaming_CollectorRegistration_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, STRING,   collector_id,      1) \
@@ -442,6 +505,33 @@ X(a, STATIC,   SINGULAR, STRING,   value,             2)
 #define ecg_streaming_ControlCommand_ParametersEntry_CALLBACK NULL
 #define ecg_streaming_ControlCommand_ParametersEntry_DEFAULT NULL
 
+#define ecg_streaming_UsbDeviceInfo_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   esp_id,            1) \
+X(a, STATIC,   SINGULAR, STRING,   firmware_version,   2) \
+X(a, STATIC,   SINGULAR, STRING,   current_target,    3) \
+X(a, STATIC,   SINGULAR, BOOL,     config_required,   4)
+#define ecg_streaming_UsbDeviceInfo_CALLBACK NULL
+#define ecg_streaming_UsbDeviceInfo_DEFAULT NULL
+
+#define ecg_streaming_UsbConfig_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   esp_id,            1) \
+X(a, STATIC,   SINGULAR, STRING,   target_device_id,   2) \
+X(a, STATIC,   SINGULAR, INT32,    ecg_sample_rate,   3) \
+X(a, STATIC,   SINGULAR, INT32,    acc_sample_rate,   4) \
+X(a, STATIC,   SINGULAR, INT32,    ecg_batch_size,    5) \
+X(a, STATIC,   SINGULAR, INT32,    acc_batch_size,    6) \
+X(a, STATIC,   SINGULAR, BOOL,     persist,           7)
+#define ecg_streaming_UsbConfig_CALLBACK NULL
+#define ecg_streaming_UsbConfig_DEFAULT NULL
+
+#define ecg_streaming_UsbConfigAck_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   esp_id,            1) \
+X(a, STATIC,   SINGULAR, BOOL,     accepted,          2) \
+X(a, STATIC,   SINGULAR, STRING,   message,           3) \
+X(a, STATIC,   SINGULAR, STRING,   target_device_id,   4)
+#define ecg_streaming_UsbConfigAck_CALLBACK NULL
+#define ecg_streaming_UsbConfigAck_DEFAULT NULL
+
 extern const pb_msgdesc_t ecg_streaming_UsbFrame_msg;
 extern const pb_msgdesc_t ecg_streaming_CollectorMessage_msg;
 extern const pb_msgdesc_t ecg_streaming_AggregatorMessage_msg;
@@ -458,6 +548,9 @@ extern const pb_msgdesc_t ecg_streaming_CollectorHeartbeat_msg;
 extern const pb_msgdesc_t ecg_streaming_SyncStatusUpdate_msg;
 extern const pb_msgdesc_t ecg_streaming_ControlCommand_msg;
 extern const pb_msgdesc_t ecg_streaming_ControlCommand_ParametersEntry_msg;
+extern const pb_msgdesc_t ecg_streaming_UsbDeviceInfo_msg;
+extern const pb_msgdesc_t ecg_streaming_UsbConfig_msg;
+extern const pb_msgdesc_t ecg_streaming_UsbConfigAck_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define ecg_streaming_UsbFrame_fields &ecg_streaming_UsbFrame_msg
@@ -476,6 +569,9 @@ extern const pb_msgdesc_t ecg_streaming_ControlCommand_ParametersEntry_msg;
 #define ecg_streaming_SyncStatusUpdate_fields &ecg_streaming_SyncStatusUpdate_msg
 #define ecg_streaming_ControlCommand_fields &ecg_streaming_ControlCommand_msg
 #define ecg_streaming_ControlCommand_ParametersEntry_fields &ecg_streaming_ControlCommand_ParametersEntry_msg
+#define ecg_streaming_UsbDeviceInfo_fields &ecg_streaming_UsbDeviceInfo_msg
+#define ecg_streaming_UsbConfig_fields &ecg_streaming_UsbConfig_msg
+#define ecg_streaming_UsbConfigAck_fields &ecg_streaming_UsbConfigAck_msg
 
 /* Maximum encoded size of messages (where known) */
 /* ecg_streaming_UsbFrame_size depends on runtime parameters */
@@ -495,6 +591,9 @@ extern const pb_msgdesc_t ecg_streaming_ControlCommand_ParametersEntry_msg;
 #define ecg_streaming_ECGSampleBatch_size        2177
 #define ecg_streaming_ECGSample_size             40
 #define ecg_streaming_SyncStatusUpdate_size      97
+#define ecg_streaming_UsbConfigAck_size          265
+#define ecg_streaming_UsbConfig_size             178
+#define ecg_streaming_UsbDeviceInfo_size         168
 
 #ifdef __cplusplus
 } /* extern "C" */

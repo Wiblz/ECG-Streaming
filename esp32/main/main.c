@@ -5,6 +5,9 @@
 #include "freertos/task.h"
 
 #include "esp_log.h"
+#include "esp_system.h"
+#include "esp_mac.h"
+#include "nvs.h"
 #include "nvs_flash.h"
 #include "esp_timer.h"
 
@@ -20,14 +23,24 @@
 #include "services/gatt/ble_svc_gatt.h"
 
 #include "pb.h"
+#include "pb_decode.h"
 #include "pb_encode.h"
 #include "ecg_streaming.pb.h"
 
 static const char *TAG = "H10_COMBINED";
-static const char *TARGET_DEVICE_NAME = CONFIG_POLAR_H10_NAME;
 #define BINARY_OUTPUT_MODE CONFIG_BINARY_OUTPUT_MODE
 
-#define DEVICE_ID CONFIG_DEVICE_ID
+#define DEVICE_ID_MAX_LEN 64
+
+static char g_target_device_name[DEVICE_ID_MAX_LEN];
+static char g_device_id[DEVICE_ID_MAX_LEN];
+static char g_esp_id[32];
+static bool g_has_persisted_config = false;
+static bool g_config_required = true;
+static int g_ecg_sample_rate_hz = CONFIG_ECG_SAMPLE_RATE;
+static int g_acc_sample_rate_hz = CONFIG_ACC_SAMPLE_RATE;
+static int g_ecg_batch_size = CONFIG_ECG_BATCH_SIZE;
+static int g_acc_batch_size = CONFIG_ACC_BATCH_SIZE;
 
 static uint8_t g_own_addr_type;
 static ble_addr_t g_target_addr;
@@ -49,8 +62,8 @@ static uint32_t g_usb_seq = 0;
 // PMD Measurement Types
 #define PMD_TYPE_ECG 0x00
 #define PMD_TYPE_ACC 0x02
-#define ECG_SAMPLE_RATE_HZ CONFIG_ECG_SAMPLE_RATE
-#define ACC_SAMPLE_RATE_HZ CONFIG_ACC_SAMPLE_RATE
+#define ECG_SAMPLE_RATE_HZ g_ecg_sample_rate_hz
+#define ACC_SAMPLE_RATE_HZ g_acc_sample_rate_hz
 
 // ECG Sample Structure
 typedef struct {
@@ -164,6 +177,104 @@ static uint32_t crc32_ieee(const uint8_t *data, size_t len) {
     return crc ^ 0xFFFFFFFFu;
 }
 
+static void format_esp_id(char *out, size_t out_len) {
+    uint8_t mac[6] = {0};
+    esp_efuse_mac_get_default(mac);
+    snprintf(out, out_len, "%02X%02X%02X%02X%02X%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
+static void load_usb_config_from_nvs(void) {
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open("ecg_usb", NVS_READONLY, &handle);
+    if (err != ESP_OK) {
+        return;
+    }
+
+    size_t len = sizeof(g_target_device_name);
+    if (nvs_get_str(handle, "target_name", g_target_device_name, &len) == ESP_OK) {
+        g_has_persisted_config = true;
+    }
+
+    int32_t value = 0;
+    if (nvs_get_i32(handle, "ecg_rate", &value) == ESP_OK && value > 0) {
+        g_ecg_sample_rate_hz = value;
+    }
+    if (nvs_get_i32(handle, "acc_rate", &value) == ESP_OK && value > 0) {
+        g_acc_sample_rate_hz = value;
+    }
+    if (nvs_get_i32(handle, "ecg_batch", &value) == ESP_OK && value > 0) {
+        g_ecg_batch_size = value;
+    }
+    if (nvs_get_i32(handle, "acc_batch", &value) == ESP_OK && value > 0) {
+        g_acc_batch_size = value;
+    }
+
+    nvs_close(handle);
+}
+
+static void persist_usb_config_to_nvs(void) {
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open("ecg_usb", NVS_READWRITE, &handle);
+    if (err != ESP_OK) {
+        return;
+    }
+
+    nvs_set_str(handle, "target_name", g_target_device_name);
+    nvs_set_i32(handle, "ecg_rate", g_ecg_sample_rate_hz);
+    nvs_set_i32(handle, "acc_rate", g_acc_sample_rate_hz);
+    nvs_set_i32(handle, "ecg_batch", g_ecg_batch_size);
+    nvs_set_i32(handle, "acc_batch", g_acc_batch_size);
+    nvs_commit(handle);
+    nvs_close(handle);
+    g_has_persisted_config = true;
+}
+
+static int normalize_ecg_rate(int rate) {
+    if (rate == 130) {
+        return rate;
+    }
+    return 130;
+}
+
+static int normalize_acc_rate(int rate) {
+    switch (rate) {
+        case 25:
+        case 50:
+        case 100:
+        case 200:
+            return rate;
+        default:
+            return 100;
+    }
+}
+
+static int clamp_batch_size(int value, int max_value) {
+    if (value <= 0) {
+        return max_value;
+    }
+    if (value > max_value) {
+        return max_value;
+    }
+    return value;
+}
+
+static void apply_runtime_config(void) {
+    g_ecg_sample_rate_hz = normalize_ecg_rate(g_ecg_sample_rate_hz);
+    g_acc_sample_rate_hz = normalize_acc_rate(g_acc_sample_rate_hz);
+    g_ecg_batch_size = clamp_batch_size(g_ecg_batch_size, MAX_ECG_SAMPLES);
+    g_acc_batch_size = clamp_batch_size(g_acc_batch_size, MAX_ACC_SAMPLES);
+
+    if (g_target_device_name[0] == '\0') {
+        g_target_device_name[0] = '\0';
+    }
+    strlcpy(g_device_id, g_target_device_name, sizeof(g_device_id));
+}
+
+static bool has_target_device(void) {
+    return g_target_device_name[0] != '\0';
+}
+
 // ============================================================================
 // Output Functions
 // ============================================================================
@@ -173,6 +284,8 @@ static uint32_t crc32_ieee(const uint8_t *data, size_t len) {
 // Static buffers for protobuf encoding (avoids stack overflow)
 static uint8_t g_frame_buf[4096];
 static uint8_t g_payload_buf[4096];
+static uint8_t g_rx_frame_buf[4096];
+static uint8_t g_rx_payload_buf[2048];
 static ecg_streaming_ECGSampleBatch g_ecg_batch;
 static ecg_streaming_AccelerometerSampleBatch g_acc_batch;
 static ecg_streaming_CollectorMessage g_collector_msg;
@@ -183,12 +296,31 @@ typedef struct {
     size_t len;
 } bytes_view_t;
 
+typedef struct {
+    uint8_t *data;
+    size_t max_len;
+    size_t len;
+} bytes_sink_t;
+
 static bool encode_bytes_cb(pb_ostream_t *stream, const pb_field_t *field, void *const *arg) {
     const bytes_view_t *view = (const bytes_view_t *)(*arg);
     if (!pb_encode_tag_for_field(stream, field)) {
         return false;
     }
     return pb_encode_string(stream, view->data, view->len);
+}
+
+static bool decode_bytes_cb(pb_istream_t *stream, const pb_field_t *field, void **arg) {
+    bytes_sink_t *sink = (bytes_sink_t *)(*arg);
+    size_t len = stream->bytes_left;
+    if (len > sink->max_len) {
+        return false;
+    }
+    if (!pb_read(stream, sink->data, len)) {
+        return false;
+    }
+    sink->len = len;
+    return true;
 }
 
 static bool send_usb_frame(ecg_streaming_UsbPayloadType type,
@@ -241,6 +373,84 @@ static bool send_collector_message(const ecg_streaming_CollectorMessage *msg) {
 
 #endif // BINARY_OUTPUT_MODE
 
+static void send_usb_device_info(void) {
+#if BINARY_OUTPUT_MODE
+    ecg_streaming_UsbDeviceInfo info = ecg_streaming_UsbDeviceInfo_init_zero;
+    g_collector_msg = (ecg_streaming_CollectorMessage)ecg_streaming_CollectorMessage_init_zero;
+
+    strlcpy(info.esp_id, g_esp_id, sizeof(info.esp_id));
+    strlcpy(info.firmware_version, esp_get_idf_version(), sizeof(info.firmware_version));
+    strlcpy(info.current_target, g_target_device_name, sizeof(info.current_target));
+    info.config_required = g_config_required;
+
+    g_collector_msg.which_message = ecg_streaming_CollectorMessage_usb_device_info_tag;
+    g_collector_msg.message.usb_device_info = info;
+
+    send_collector_message(&g_collector_msg);
+#endif
+}
+
+static void send_usb_config_ack(bool accepted, const char *message, const char *target) {
+#if BINARY_OUTPUT_MODE
+    ecg_streaming_UsbConfigAck ack = ecg_streaming_UsbConfigAck_init_zero;
+    g_collector_msg = (ecg_streaming_CollectorMessage)ecg_streaming_CollectorMessage_init_zero;
+
+    strlcpy(ack.esp_id, g_esp_id, sizeof(ack.esp_id));
+    ack.accepted = accepted;
+    if (message) {
+        strlcpy(ack.message, message, sizeof(ack.message));
+    }
+    if (target) {
+        strlcpy(ack.target_device_id, target, sizeof(ack.target_device_id));
+    }
+
+    g_collector_msg.which_message = ecg_streaming_CollectorMessage_usb_config_ack_tag;
+    g_collector_msg.message.usb_config_ack = ack;
+
+    send_collector_message(&g_collector_msg);
+#endif
+}
+
+static void apply_usb_config(const ecg_streaming_UsbConfig *cfg) {
+    bool changed = false;
+
+    if (cfg->target_device_id[0] != '\0' &&
+        strcmp(cfg->target_device_id, g_target_device_name) != 0) {
+        strlcpy(g_target_device_name, cfg->target_device_id, sizeof(g_target_device_name));
+        changed = true;
+    }
+
+    if (cfg->ecg_sample_rate > 0) {
+        g_ecg_sample_rate_hz = cfg->ecg_sample_rate;
+    }
+    if (cfg->acc_sample_rate > 0) {
+        g_acc_sample_rate_hz = cfg->acc_sample_rate;
+    }
+    if (cfg->ecg_batch_size > 0) {
+        g_ecg_batch_size = cfg->ecg_batch_size;
+    }
+    if (cfg->acc_batch_size > 0) {
+        g_acc_batch_size = cfg->acc_batch_size;
+    }
+
+    apply_runtime_config();
+
+    if (cfg->persist) {
+        persist_usb_config_to_nvs();
+    }
+
+    g_config_required = false;
+
+    if (changed) {
+        if (g_connected) {
+            ble_gap_terminate(g_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+        } else {
+            ble_gap_disc_cancel();
+            start_scan();
+        }
+    }
+}
+
 static void output_ecg_binary(void) {
     if (g_ecg_count == 0) return;
 
@@ -249,7 +459,7 @@ static void output_ecg_binary(void) {
     g_ecg_batch = (ecg_streaming_ECGSampleBatch)ecg_streaming_ECGSampleBatch_init_zero;
     g_collector_msg = (ecg_streaming_CollectorMessage)ecg_streaming_CollectorMessage_init_zero;
 
-    strlcpy(g_ecg_batch.device_id, DEVICE_ID, sizeof(g_ecg_batch.device_id));
+    strlcpy(g_ecg_batch.device_id, g_device_id, sizeof(g_ecg_batch.device_id));
     g_ecg_batch.batch_timestamp_ms = (int64_t)(esp_timer_get_time() / 1000);
     g_ecg_batch.samples_count = (pb_size_t)g_ecg_count;
 
@@ -281,7 +491,7 @@ static void output_acc_binary(void) {
     g_acc_batch = (ecg_streaming_AccelerometerSampleBatch)ecg_streaming_AccelerometerSampleBatch_init_zero;
     g_collector_msg = (ecg_streaming_CollectorMessage)ecg_streaming_CollectorMessage_init_zero;
 
-    strlcpy(g_acc_batch.device_id, DEVICE_ID, sizeof(g_acc_batch.device_id));
+    strlcpy(g_acc_batch.device_id, g_device_id, sizeof(g_acc_batch.device_id));
     g_acc_batch.batch_timestamp_ms = (int64_t)(esp_timer_get_time() / 1000);
     g_acc_batch.samples_count = (pb_size_t)g_acc_count;
 
@@ -305,6 +515,84 @@ static void output_acc_binary(void) {
     // In debug mode: no output here, just status in watchdog_task
 
     g_acc_count = 0;
+}
+
+// ============================================================================
+// USB RX (Host -> ESP32)
+// ============================================================================
+
+static void usb_rx_task(void *param) {
+#if BINARY_OUTPUT_MODE
+    while (1) {
+        uint8_t len_le[4];
+        if (fread(len_le, 1, sizeof(len_le), stdin) != sizeof(len_le)) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
+        }
+
+        uint32_t frame_len = (uint32_t)len_le[0] |
+                             ((uint32_t)len_le[1] << 8) |
+                             ((uint32_t)len_le[2] << 16) |
+                             ((uint32_t)len_le[3] << 24);
+
+        if (frame_len == 0 || frame_len > sizeof(g_rx_frame_buf)) {
+            continue;
+        }
+
+        if (fread(g_rx_frame_buf, 1, frame_len, stdin) != frame_len) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
+        }
+
+        ecg_streaming_UsbFrame frame = ecg_streaming_UsbFrame_init_zero;
+        bytes_sink_t sink = {
+            .data = g_rx_payload_buf,
+            .max_len = sizeof(g_rx_payload_buf),
+            .len = 0,
+        };
+        frame.payload.funcs.decode = decode_bytes_cb;
+        frame.payload.arg = &sink;
+
+        pb_istream_t stream = pb_istream_from_buffer(g_rx_frame_buf, frame_len);
+        if (!pb_decode(&stream, ecg_streaming_UsbFrame_fields, &frame)) {
+            continue;
+        }
+
+        if (sink.len == 0) {
+            continue;
+        }
+
+        uint32_t computed_crc = crc32_ieee(sink.data, sink.len);
+        if (computed_crc != frame.crc32) {
+            continue;
+        }
+
+        if (frame.payload_type != ecg_streaming_UsbPayloadType_USB_PAYLOAD_TYPE_AGGREGATOR_MESSAGE) {
+            continue;
+        }
+
+        ecg_streaming_AggregatorMessage agg_msg =
+            (ecg_streaming_AggregatorMessage)ecg_streaming_AggregatorMessage_init_zero;
+        pb_istream_t payload_stream = pb_istream_from_buffer(sink.data, sink.len);
+        if (!pb_decode(&payload_stream, ecg_streaming_AggregatorMessage_fields, &agg_msg)) {
+            continue;
+        }
+
+        if (agg_msg.which_message == ecg_streaming_AggregatorMessage_usb_config_tag) {
+            ecg_streaming_UsbConfig *cfg = &agg_msg.message.usb_config;
+            if (cfg->esp_id[0] != '\0' && strcmp(cfg->esp_id, g_esp_id) != 0) {
+                continue;
+            }
+            apply_usb_config(cfg);
+            send_usb_config_ack(true, "config applied", cfg->target_device_id);
+        }
+    }
+#else
+    (void)param;
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+#endif
 }
 
 // ============================================================================
@@ -378,7 +666,7 @@ static void parse_pmd_response(uint8_t *data, int len) {
             }
             
             // Output if buffer is getting full
-            if (g_acc_count >= 50) {
+            if (g_acc_count >= g_acc_batch_size) {
                 output_acc_binary();
             }
             break;
@@ -430,7 +718,7 @@ static void parse_pmd_response(uint8_t *data, int len) {
             }
             
             // Output if buffer is getting full
-            if (g_ecg_count >= 50) {
+            if (g_ecg_count >= g_ecg_batch_size) {
                 output_ecg_binary();
             }
             break;
@@ -561,6 +849,8 @@ static int svc_disc_cb(uint16_t conn_handle,
 
 static void pmd_start_ecg(uint16_t conn_handle, uint16_t ctrl_handle)
 {
+    uint16_t ecg_rate = (uint16_t)g_ecg_sample_rate_hz;
+
     // Simple START command
     uint8_t cmd_simple[2] = {0x02, PMD_TYPE_ECG};
     
@@ -577,7 +867,7 @@ static void pmd_start_ecg(uint16_t conn_handle, uint16_t ctrl_handle)
     // Full settings: 130 Hz, 14-bit
     uint8_t cmd_full[10] = {
         0x02, 0x00,              // START, ECG
-        0x00, 0x01, 0x82, 0x00,  // Sample Rate: 130 Hz
+        0x00, 0x01, (uint8_t)(ecg_rate & 0xFF), (uint8_t)((ecg_rate >> 8) & 0xFF),  // Sample Rate
         0x01, 0x01, 0x0E, 0x00   // Resolution: 14-bit
     };
     
@@ -594,6 +884,8 @@ static void pmd_start_ecg(uint16_t conn_handle, uint16_t ctrl_handle)
 
 static void pmd_start_acc(uint16_t conn_handle, uint16_t ctrl_handle)
 {
+    uint16_t acc_rate = (uint16_t)g_acc_sample_rate_hz;
+
     // Simple START command
     uint8_t cmd_simple[2] = {0x02, PMD_TYPE_ACC};
     
@@ -610,8 +902,7 @@ static void pmd_start_acc(uint16_t conn_handle, uint16_t ctrl_handle)
     // Full settings: 200 Hz, 16-bit, 2g range
     uint8_t cmd_full[14] = {
         0x02, 0x02,              // START, ACC
-        0x00, 0x01, 0x64, 0x00,  // SAMPLE_RATE: 100 Hz (0x64 = 100)
-        // 0x00, 0x01, 0xC8, 0x00,  // SAMPLE_RATE: 200 Hz (0xC8 = 200)
+        0x00, 0x01, (uint8_t)(acc_rate & 0xFF), (uint8_t)((acc_rate >> 8) & 0xFF),  // SAMPLE_RATE
         0x01, 0x01, 0x10, 0x00,  // RESOLUTION: 16-bit
         0x02, 0x01, 0x02, 0x00   // RANGE: 2g
     };
@@ -647,7 +938,7 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         }
 
         // Compare with target device name
-        if (strcmp(device_name, TARGET_DEVICE_NAME) != 0) {
+        if (strcmp(device_name, g_target_device_name) != 0) {
             return 0;
         }
 
@@ -805,11 +1096,28 @@ static void watchdog_task(void *param) {
     }
 }
 
+static void usb_identity_task(void *param) {
+#if BINARY_OUTPUT_MODE
+    while (1) {
+        send_usb_device_info();
+        vTaskDelay(pdMS_TO_TICKS(5000));
+    }
+#else
+    (void)param;
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+#endif
+}
+
 // ============================================================================
 // BLE Initialization
 // ============================================================================
 
 static int start_scan(void) {
+    if (!has_target_device()) {
+        return 0;
+    }
     struct ble_gap_disc_params p;
     memset(&p, 0, sizeof(p));
     p.passive = 0;
@@ -842,6 +1150,10 @@ static void host_task(void *param) {
 // ============================================================================
 
 void app_main(void) {
+    g_target_device_name[0] = '\0';
+    g_device_id[0] = '\0';
+    format_esp_id(g_esp_id, sizeof(g_esp_id));
+
 #if BINARY_OUTPUT_MODE
     // In binary mode, disable all logging to avoid corrupting USB framing
     esp_log_level_set("*", ESP_LOG_NONE);
@@ -852,8 +1164,7 @@ void app_main(void) {
 
     ESP_LOGI(TAG, "");
     ESP_LOGI(TAG, "Polar H10 ECG + ACC Streamer");
-    ESP_LOGI(TAG, "Device ID: %s", DEVICE_ID);
-    ESP_LOGI(TAG, "Target Device: %s", TARGET_DEVICE_NAME);
+    ESP_LOGI(TAG, "Target/Device ID: %s", g_target_device_name);
     ESP_LOGI(TAG, "ECG: %d Hz | ACC: %d Hz", ECG_SAMPLE_RATE_HZ, ACC_SAMPLE_RATE_HZ);
     ESP_LOGI(TAG, "Mode: HUMAN READABLE");
     ESP_LOGI(TAG, "");
@@ -865,6 +1176,10 @@ void app_main(void) {
         nvs_flash_init();
     }
 
+    load_usb_config_from_nvs();
+    apply_runtime_config();
+    g_config_required = !g_has_persisted_config || !has_target_device();
+
     nimble_port_init();
     ble_svc_gap_init();
     ble_svc_gatt_init();
@@ -875,4 +1190,6 @@ void app_main(void) {
     nimble_port_freertos_init(host_task);
     
     xTaskCreate(watchdog_task, "watchdog", 4096, NULL, 5, NULL);
+    xTaskCreate(usb_identity_task, "usb_id", 4096, NULL, 4, NULL);
+    xTaskCreate(usb_rx_task, "usb_rx", 4096, NULL, 4, NULL);
 }

@@ -36,6 +36,8 @@ message CollectorMessage {
     DeviceStatusUpdate status_update = 3;
     CollectorHeartbeat heartbeat = 4;
     AccelerometerSampleBatch acc_batch = 5;
+    UsbDeviceInfo usb_device_info = 6;
+    UsbConfigAck usb_config_ack = 7;
   }
 }
 
@@ -45,6 +47,7 @@ message AggregatorMessage {
     RegistrationAck registration_ack = 1;
     SyncStatusUpdate sync_status = 2;
     ControlCommand control = 3;
+    UsbConfig usb_config = 4;
   }
 }
 
@@ -143,4 +146,31 @@ message ControlCommand {
   CommandType command = 1;
   optional string device_id = 2;  // Target device (if applicable)
   map<string, string> parameters = 3;  // Additional command parameters
+}
+
+// USB device identity information (ESP32 -> host)
+message UsbDeviceInfo {
+  string esp_id = 1;
+  string firmware_version = 2;
+  string current_target = 3;
+  bool config_required = 4;
+}
+
+// USB configuration command (host -> ESP32)
+message UsbConfig {
+  string esp_id = 1;
+  string target_device_id = 2;
+  int32 ecg_sample_rate = 3;
+  int32 acc_sample_rate = 4;
+  int32 ecg_batch_size = 5;
+  int32 acc_batch_size = 6;
+  bool persist = 7;
+}
+
+// USB configuration acknowledgment (ESP32 -> host)
+message UsbConfigAck {
+  string esp_id = 1;
+  bool accepted = 2;
+  string message = 3;
+  string target_device_id = 4;
 }

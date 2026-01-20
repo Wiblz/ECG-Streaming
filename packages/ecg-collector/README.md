@@ -45,4 +45,6 @@ See `packages/ecg-collector/config.example.yaml` for configuration options. Defa
 - `ble`: BLE adapter settings
 - `aggregator`: Aggregator connection settings (host, port)
 - `logging`: Logging configuration
-- `usb`: USB settings (autodiscover, devices, allowlist)
+- `usb`: USB settings (autodiscover, devices, allowlist, device_map, persist_config)
+  - `usb.device_map` uses ESP IDs reported over USB to assign a target Polar device ID.
+  - Provisioning is required before the ESP will start scanning for a Polar device.

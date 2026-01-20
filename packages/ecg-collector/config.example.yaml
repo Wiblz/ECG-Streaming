@@ -37,4 +37,7 @@ usb:
   auto_discover: true            # Auto-discover USB devices when none specified
   devices: []                    # Explicit device paths (e.g., /dev/ttyACM0)
   allowed_device_ids: []         # Optional allowlist (empty allows all)
-  detect_timeout_s: 3.0          # Seconds to detect valid USB data
+  device_map:                    # Map esp_id -> Polar device ID
+    # "A1B2C3D4E5F6": "Polar H10 ABC123"
+  persist_config: true           # Persist config on device when supported
+  detect_timeout_s: 10.0         # Seconds to detect valid USB data

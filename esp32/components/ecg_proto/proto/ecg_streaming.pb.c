@@ -54,6 +54,15 @@ PB_BIND(ecg_streaming_ControlCommand, ecg_streaming_ControlCommand, 2)
 PB_BIND(ecg_streaming_ControlCommand_ParametersEntry, ecg_streaming_ControlCommand_ParametersEntry, AUTO)
 
 
+PB_BIND(ecg_streaming_UsbDeviceInfo, ecg_streaming_UsbDeviceInfo, AUTO)
+
+
+PB_BIND(ecg_streaming_UsbConfig, ecg_streaming_UsbConfig, AUTO)
+
+
+PB_BIND(ecg_streaming_UsbConfigAck, ecg_streaming_UsbConfigAck, 2)
+
+
 
 
 

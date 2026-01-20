@@ -72,6 +72,14 @@ class USBConfig(BaseSettings):
         default_factory=list,
         description="Optional allowlist of device IDs (empty allows all)",
     )
+    device_map: dict[str, str] = Field(
+        default_factory=dict,
+        description="Mapping of esp_id to Polar device ID for USB provisioning",
+    )
+    persist_config: bool = Field(
+        default=True,
+        description="Persist USB configuration on device when supported",
+    )
     detect_timeout_s: float = Field(
         default=10.0,
         description="Timeout to detect valid USB data before skipping a device",

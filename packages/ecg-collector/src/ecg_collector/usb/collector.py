@@ -7,6 +7,7 @@ import asyncio
 import contextlib
 import struct
 import time
+import zlib
 from collections.abc import Callable, Coroutine
 from pathlib import Path
 
@@ -53,6 +54,7 @@ class UsbCollector:
             "messages_received": 0,
             "bytes_received": 0,
         }
+        self._tx_seq = 0
 
     async def connect(self) -> None:
         """Open serial port connection."""
@@ -85,13 +87,27 @@ class UsbCollector:
         Returns:
             CRC-32 value
         """
-        crc = 0xFFFFFFFF
-        for byte in data:
-            crc ^= byte
-            for _ in range(8):
-                mask = -(crc & 1)
-                crc = (crc >> 1) ^ (0xEDB88320 & mask)
-        return crc ^ 0xFFFFFFFF
+        return zlib.crc32(data) & 0xFFFFFFFF
+
+    async def send_aggregator_message(self, message: ecg_streaming_pb2.AggregatorMessage) -> None:
+        """Send an AggregatorMessage to the USB device."""
+        if not self.writer:
+            raise RuntimeError("USB writer not initialized")
+
+        payload = message.SerializeToString()
+        usb_frame = ecg_streaming_pb2.UsbFrame(
+            version=1,
+            payload_type=ecg_streaming_pb2.USB_PAYLOAD_TYPE_AGGREGATOR_MESSAGE,
+            seq=self._tx_seq,
+            crc32=self._crc32_ieee(payload),
+            payload=payload,
+        )
+        self._tx_seq = (self._tx_seq + 1) & 0xFFFFFFFF
+
+        frame_bytes = usb_frame.SerializeToString()
+        frame_len = struct.pack("<I", len(frame_bytes))
+        self.writer.write(frame_len + frame_bytes)
+        await self.writer.drain()
 
     async def _process_frame(self, frame_bytes: bytes) -> bool:
         """Parse and process a UsbFrame.
@@ -141,22 +157,6 @@ class UsbCollector:
 
         try:
             await self.connect()
-
-            # Give ESP32 time to boot and flush any boot messages
-            logger.info("Waiting 3 seconds for ESP32 to boot...")
-            await asyncio.sleep(3)
-
-            # Flush any boot messages
-            if self.reader:
-                logger.info("Flushing serial input buffer")
-                deadline = time.monotonic() + 1.0
-                while time.monotonic() < deadline:
-                    try:
-                        chunk = await asyncio.wait_for(self.reader.read(1024), timeout=0.1)
-                    except TimeoutError:
-                        break
-                    if not chunk:
-                        break
 
             buffer = bytearray()
             max_frame_len = 4096

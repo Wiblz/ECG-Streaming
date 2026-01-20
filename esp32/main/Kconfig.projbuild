@@ -25,19 +25,6 @@ menu "ECG Collector Configuration"
         default 1 if OUTPUT_MODE_BINARY
         default 0 if OUTPUT_MODE_HUMAN
 
-    config POLAR_H10_NAME
-        string "Polar H10 Device Name"
-        default "Polar H10 0781CC39"
-        help
-            Full BLE device name to scan for (e.g., "Polar H10 0787323A").
-            The ESP32 will scan for this name in BLE advertisements and connect automatically.
-
-    config DEVICE_ID
-        string "Device ID"
-        default "0781CC39"
-        help
-            Unique identifier for this device (typically the last 8 characters of the Polar H10 serial).
-
     choice ECG_SAMPLE_RATE_CHOICE
         prompt "ECG Sample Rate"
         default ECG_SAMPLE_RATE_130
