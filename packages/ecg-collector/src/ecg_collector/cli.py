@@ -14,6 +14,8 @@ from rich.table import Table
 
 console = Console()
 
+DEFAULT_CONFIG_PATH = Path("packages") / "ecg-collector" / "config.yaml"
+
 # Main app
 app = typer.Typer(
     help="ECG Collector - Stream ECG data from Polar H10 devices via BLE or USB",
@@ -106,7 +108,7 @@ def ble_test(device_id: str) -> None:
 def ble_run(
     config: Annotated[
         Path, typer.Option("--config", "-c", help="Path to configuration file")
-    ] = Path("config.yaml"),
+    ] = DEFAULT_CONFIG_PATH,
 ) -> None:
     """Run BLE collector with config file.
 
@@ -136,7 +138,9 @@ def ble_run(
 
     # Validate configuration
     if not settings.device_ids:
-        console.print("[red]No devices configured. Please add device_ids to config.yaml[/red]")
+        console.print(
+            f"[red]No devices configured. Please add device_ids to {DEFAULT_CONFIG_PATH}[/red]"
+        )
         sys.exit(1)
 
     console.print("[blue]Starting BLE Collector...[/blue]")
@@ -209,8 +213,8 @@ def usb_run(
     from ecg_collector.config import CollectorSettings
     from ecg_collector.usb.service import UsbCollectorService
 
-    # Setup logging (reuse config.yaml if present)
-    config = Path("config.yaml")
+    # Setup logging (reuse config if present)
+    config = DEFAULT_CONFIG_PATH
     try:
         settings = CollectorSettings.from_yaml(config) if config.exists() else CollectorSettings()
     except Exception as e:

@@ -21,7 +21,7 @@ pip install -e packages/ecg-collector
 ### Start Collector
 
 ```bash
-ecg-collector --config config.yaml
+ecg-collector
 ```
 
 ### CLI Tools
@@ -39,7 +39,7 @@ ecg-collector-cli adapter-stats
 
 ## Configuration
 
-See `config.example.yaml` for configuration options:
+See `packages/ecg-collector/config.example.yaml` for configuration options. Default config path is `packages/ecg-collector/config.yaml`.
 
 - `device_ids`: List of Polar H10 device IDs to connect to
 - `ble`: BLE adapter settings

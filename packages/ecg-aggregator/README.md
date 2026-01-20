@@ -22,7 +22,7 @@ pip install -e packages/ecg-aggregator
 ### Start Aggregator
 
 ```bash
-ecg-aggregator --config config.yaml
+ecg-aggregator
 ```
 
 The aggregator will:
@@ -43,10 +43,10 @@ The aggregator will:
 
 ## Configuration
 
-See `config.example.yaml` for configuration options:
+See `packages/ecg-aggregator/config.example.yaml` for configuration options. Default config path is `packages/ecg-aggregator/config.yaml`.
 
-- `aggregator.grpc_port`: gRPC server port for collectors
-- `aggregator.api_port`: HTTP/WebSocket server port for dashboard
+- `grpc.port`: gRPC server port for collectors
+- `api.port`: HTTP/WebSocket server port for dashboard
 - `sync`: Time synchronization settings
 - `storage`: Database settings
 - `api`: API server settings

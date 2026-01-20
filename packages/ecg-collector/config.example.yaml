@@ -1,0 +1,33 @@
+# ECG Collector Configuration Example
+# Copy to packages/ecg-collector/config.yaml and customize for your setup
+
+# Unique collector ID (useful when running multiple collectors)
+collector_id: "collector-1"
+
+# Human-readable display name for dashboards
+display_name: "ECG Collector 1"
+
+# List of Polar H10 device IDs to connect to
+# Find device IDs with: ecg-collector-cli scan
+device_ids:
+  - "Polar H10 ABC123"
+  - "Polar H10 DEF456"
+  # - "Polar H10 GHI789"
+
+# BLE configuration
+ble:
+  max_devices_per_adapter: 7    # Maximum devices per BLE adapter
+  connection_timeout: 10         # Connection timeout in seconds
+
+# Aggregator connection
+aggregator:
+  host: "localhost"              # Aggregator hostname or IP
+  port: 50051                    # Aggregator gRPC port
+  batch_size: 50                 # Samples per batch to send
+  batch_interval: 0.1            # Interval between batches (seconds)
+
+# Logging
+logging:
+  level: "INFO"                  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "detailed"             # simple or detailed
+  file: null                     # Optional log file path

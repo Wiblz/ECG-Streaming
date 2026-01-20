@@ -138,37 +138,39 @@ UV="$HOME/.local/bin/uv"
 echo "Setting up Python environment and installing packages..."
 $UV sync --package ecg-collector
 
-# Generate configuration file in project directory
+# Generate configuration file in package directory
 echo "Creating configuration..."
-cat > config.yaml << CONFIG
-collector:
-  collector_id: "$(hostname)-collector"
-  display_name: "$DISPLAY_NAME"
-  device_ids:
-$(echo "$DEVICE_IDS" | tr ',' '\n' | sed 's/^/    - /')
+CONFIG_DIR="$INSTALL_DIR/packages/ecg-collector"
+CONFIG_PATH="$CONFIG_DIR/config.yaml"
+mkdir -p "$CONFIG_DIR"
+cat > "$CONFIG_PATH" << CONFIG
+collector_id: "$(hostname)-collector"
+display_name: "$DISPLAY_NAME"
+device_ids:
+$(echo "$DEVICE_IDS" | tr ',' '\n' | sed 's/^/  - /')
 
-  ble:
-    max_devices_per_adapter: 7
-    connection_timeout: 10
+ble:
+  max_devices_per_adapter: 7
+  connection_timeout: 10
 
-  aggregator:
-    host: "$AGGREGATOR_HOST"
-    port: 50051
-    batch_size: 50
-    batch_interval: 0.1
+aggregator:
+  host: "$AGGREGATOR_HOST"
+  port: 50051
+  batch_size: 50
+  batch_interval: 0.1
 
-  logging:
-    level: INFO
-    format: detailed
+logging:
+  level: INFO
+  format: detailed
 CONFIG
 
-echo "Configuration created at $INSTALL_DIR/config.yaml"
+echo "Configuration created at $CONFIG_PATH"
 
 echo ""
 echo "=== Installation Complete ==="
 echo ""
 echo "Installation directory: $INSTALL_DIR"
-echo "Configuration file: $INSTALL_DIR/config.yaml"
+echo "Configuration file: $CONFIG_PATH"
 echo ""
 echo "To run the collector:"
 echo "  cd $INSTALL_DIR && .venv/bin/ecg-collector"
@@ -188,4 +190,4 @@ echo "To run the collector:"
 echo "  ssh -t $SSH_TARGET 'cd $INSTALL_DIR && .venv/bin/ecg-collector'"
 echo ""
 echo "To edit config:"
-echo "  ssh $SSH_TARGET 'nano $INSTALL_DIR/config.yaml'"
+echo "  ssh $SSH_TARGET 'nano $INSTALL_DIR/packages/ecg-collector/config.yaml'"

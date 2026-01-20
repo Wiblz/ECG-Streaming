@@ -66,13 +66,15 @@ uv pip install -e packages/ecg-aggregator
 ### Configuration
 
 ```bash
-# Copy example config
-cp config.example.yaml config.yaml
+# Copy example configs
+cp packages/ecg-collector/config.example.yaml packages/ecg-collector/config.yaml
+cp packages/ecg-aggregator/config.example.yaml packages/ecg-aggregator/config.yaml
 
 # Edit configuration
 # - Add your Polar H10 device IDs
 # - Configure aggregator host/port
-nano config.yaml
+nano packages/ecg-collector/config.yaml
+nano packages/ecg-aggregator/config.yaml
 ```
 
 ### Running
@@ -81,23 +83,25 @@ nano config.yaml
 
 ```bash
 # Terminal 1: Start aggregator
-ecg-aggregator --config config.yaml
+ecg-aggregator
 
 # Terminal 2: Start collector
-ecg-collector --config config.yaml
+ecg-collector
 
 # Access dashboard at http://localhost:8000
 ```
+
+Run these commands from the repo root so the default config paths resolve, or pass `--config` explicitly.
 
 **Distributed deployment:**
 
 ```bash
 # On server (e.g., 192.168.1.100):
-ecg-aggregator --config config.yaml
+ecg-aggregator
 
 # On edge device(s) with BLE adapters:
-# Edit config.yaml: collector.aggregator.host = "192.168.1.100"
-ecg-collector --config config.yaml
+# Edit packages/ecg-collector/config.yaml: aggregator.host = "192.168.1.100"
+ecg-collector
 ```
 
 ## Project Structure
@@ -112,6 +116,7 @@ ECG-Streaming/
 │   │       └── logging.py    # Logging utilities
 │   │
 │   ├── ecg-collector/        # Collector module
+│   │   ├── config.example.yaml  # Collector config example
 │   │   └── src/ecg_collector/
 │   │       ├── collector/    # BLE device drivers
 │   │       ├── grpc_client.py  # gRPC client
@@ -120,6 +125,7 @@ ECG-Streaming/
 │   │       └── cli.py        # CLI utilities
 │   │
 │   └── ecg-aggregator/       # Aggregator + Dashboard
+│       ├── config.example.yaml  # Aggregator config example
 │       └── src/ecg_aggregator/
 │           ├── grpc_server.py  # gRPC server
 │           ├── sync/         # Time alignment engine
@@ -127,8 +133,6 @@ ECG-Streaming/
 │           ├── api/          # WebSocket/REST API
 │           ├── config.py     # Configuration
 │           └── main.py       # Entry point
-│
-├── config.example.yaml       # Example configuration
 └── README.md                 # This file
 ```
 
@@ -175,17 +179,17 @@ ecg-collector-cli test-connection "Polar H10 ABC123"
 
 ## Configuration
 
-See `config.example.yaml` for detailed configuration options:
+See `packages/ecg-collector/config.example.yaml` and `packages/ecg-aggregator/config.example.yaml` for detailed configuration options:
 
 **Collector:**
-- `collector.device_ids` - List of Polar H10 device IDs
-- `collector.aggregator.host` - Aggregator hostname/IP
-- `collector.aggregator.port` - Aggregator gRPC port (default: 50051)
+- `device_ids` - List of Polar H10 device IDs
+- `aggregator.host` - Aggregator hostname/IP
+- `aggregator.port` - Aggregator gRPC port (default: 50051)
 
 **Aggregator:**
-- `aggregator.grpc.port` - gRPC server port (default: 50051)
-- `aggregator.api.port` - HTTP/WebSocket port (default: 8000)
-- `aggregator.storage.database_path` - SQLite database path
+- `grpc.port` - gRPC server port (default: 50051)
+- `api.port` - HTTP/WebSocket port (default: 8000)
+- `storage.database_path` - SQLite database path
 
 ## Deployment Scenarios
 

@@ -109,9 +109,6 @@ class CollectorSettings(BaseSettings):
         import yaml
 
         with open(config_path) as f:
-            config_data = yaml.safe_load(f)
+            config_data = yaml.safe_load(f) or {}
 
-        # Extract collector-specific configuration
-        collector_config = config_data.get("collector", {})
-
-        return cls(**collector_config)
+        return cls(**config_data)

@@ -30,6 +30,8 @@ app = typer.Typer(
 console = Console()
 logger = get_logger(__name__)
 
+DEFAULT_CONFIG_PATH = Path("packages") / "ecg-aggregator" / "config.yaml"
+
 # Global log buffer for TUI
 log_buffer: deque[str] = deque(maxlen=50)
 
@@ -223,7 +225,7 @@ def start(
             help="Path to configuration file",
             exists=False,
         ),
-    ] = Path("config.yaml"),
+    ] = DEFAULT_CONFIG_PATH,
     tui: Annotated[
         bool,
         typer.Option(
@@ -389,7 +391,7 @@ def status(
             "-c",
             help="Path to configuration file",
         ),
-    ] = Path("config.yaml"),
+    ] = DEFAULT_CONFIG_PATH,
 ) -> None:
     """Show aggregator status (requires aggregator to be running).
 

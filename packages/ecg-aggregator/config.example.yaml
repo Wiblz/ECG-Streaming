@@ -1,0 +1,35 @@
+# ECG Aggregator Configuration Example
+# Copy to packages/ecg-aggregator/config.yaml and customize for your setup
+
+# gRPC Server (receives data from collectors)
+grpc:
+  port: 50051                    # gRPC server port
+
+# Time synchronization
+sync:
+  window_size: 100               # Sliding window size for sync
+  min_samples: 5                 # Minimum samples to calculate offset
+  buffer_confidence_threshold: 0.8  # Minimum confidence to buffer samples
+
+# HTTP/WebSocket API (serves dashboard and REST API)
+api:
+  port: 8000                     # HTTP/WebSocket server port
+  websocket_fps: 30              # WebSocket broadcast rate (frames/sec)
+  cors_origins:
+    - "*"                        # CORS origins (change for production)
+
+# Database storage
+storage:
+  database_path: "ecg_data.db"   # SQLite database file
+  batch_size: 100                # Samples per database batch
+
+# Data buffer
+buffer:
+  duration_seconds: 30           # Buffer duration (seconds)
+  max_samples: 100000            # Maximum samples in buffer
+
+# Logging
+logging:
+  level: "INFO"                  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "detailed"             # simple or detailed
+  file: null                     # Optional log file path
