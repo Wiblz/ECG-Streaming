@@ -193,28 +193,37 @@ def usb_scan() -> None:
 
 @usb_app.command("run")
 def usb_run(
-    device: Annotated[
-        str, typer.Option("--device", "-d", help="USB device path (e.g., /dev/ttyACM0)")
-    ],
     aggregator: Annotated[
-        str, typer.Option("--aggregator", "-a", help="Aggregator address (host:port)")
-    ] = "localhost:50051",
+        str | None, typer.Option("--aggregator", "-a", help="Aggregator address (host:port)")
+    ] = None,
+    devices: Annotated[
+        list[str] | None,
+        typer.Option("--device", "-d", help="USB device path (repeatable)"),
+    ] = None,
     collector_id: Annotated[
         str | None, typer.Option("--id", "-i", help="Collector ID (auto-generated if not provided)")
     ] = None,
+    display_name: Annotated[
+        str | None, typer.Option("--name", "-n", help="Collector display name")
+    ] = None,
+    config: Annotated[
+        Path, typer.Option("--config", "-c", help="Path to configuration file")
+    ] = DEFAULT_CONFIG_PATH,
 ) -> None:
     """Run USB collector for ESP32 device.
 
     Args:
-        device: USB device path (e.g., /dev/ttyACM0)
         aggregator: Aggregator address in host:port format
+        devices: USB device paths (repeatable)
         collector_id: Optional collector ID
+        display_name: Optional display name
+        config: Path to YAML configuration file
     """
     from ecg_collector.config import CollectorSettings
-    from ecg_collector.usb.service import UsbCollectorService
+    from ecg_collector.usb.collector import discover_usb_devices
+    from ecg_collector.usb.service import MultiUsbCollectorService
 
-    # Setup logging (reuse config if present)
-    config = DEFAULT_CONFIG_PATH
+    # Load configuration
     try:
         settings = CollectorSettings.from_yaml(config) if config.exists() else CollectorSettings()
     except Exception as e:
@@ -227,27 +236,46 @@ def usb_run(
         log_format=settings.logging.format,
     )
 
-    # Parse aggregator address
-    try:
-        host, port_str = aggregator.rsplit(":", 1)
-        port = int(port_str)
-    except ValueError:
-        console.print(f"[red]Invalid aggregator address: {aggregator}[/red]")
-        console.print("Format should be host:port (e.g., localhost:50051)")
+    # Resolve aggregator address
+    if aggregator:
+        try:
+            host, port_str = aggregator.rsplit(":", 1)
+            port = int(port_str)
+        except ValueError:
+            console.print(f"[red]Invalid aggregator address: {aggregator}[/red]")
+            console.print("Format should be host:port (e.g., localhost:50051)")
+            return
+    else:
+        host = settings.aggregator.host
+        port = settings.aggregator.port
+
+    # Resolve device paths
+    device_paths = devices or settings.usb.devices
+    if not device_paths and settings.usb.auto_discover:
+        device_paths = asyncio.run(discover_usb_devices())
+
+    if not device_paths:
+        console.print("[red]No USB devices configured or discovered[/red]")
+        console.print("Use --device to specify device paths or enable usb.auto_discover")
         return
 
     console.print("[blue]Starting USB collector:[/blue]")
-    console.print(f"  Device: {device}")
+    console.print(f"  Devices: {', '.join(device_paths)}")
     console.print(f"  Aggregator: {host}:{port}")
     if collector_id:
         console.print(f"  Collector ID: {collector_id}")
+    if display_name:
+        console.print(f"  Display Name: {display_name}")
 
     async def _run() -> None:
-        service = UsbCollectorService(
-            device_path=device,
+        service = MultiUsbCollectorService(
+            device_paths=device_paths,
             aggregator_host=host,
             aggregator_port=port,
-            collector_id=collector_id,
+            collector_id=collector_id or settings.collector_id,
+            display_name=display_name or settings.display_name,
+            allowed_device_ids=settings.usb.allowed_device_ids,
+            detect_timeout_s=settings.usb.detect_timeout_s,
         )
 
         try:

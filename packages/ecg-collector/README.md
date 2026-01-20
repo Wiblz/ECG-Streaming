@@ -45,3 +45,4 @@ See `packages/ecg-collector/config.example.yaml` for configuration options. Defa
 - `ble`: BLE adapter settings
 - `aggregator`: Aggregator connection settings (host, port)
 - `logging`: Logging configuration
+- `usb`: USB settings (autodiscover, devices, allowlist)

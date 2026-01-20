@@ -31,3 +31,10 @@ logging:
   level: "INFO"                  # DEBUG, INFO, WARNING, ERROR, CRITICAL
   format: "detailed"             # simple or detailed
   file: null                     # Optional log file path
+
+# USB configuration
+usb:
+  auto_discover: true            # Auto-discover USB devices when none specified
+  devices: []                    # Explicit device paths (e.g., /dev/ttyACM0)
+  allowed_device_ids: []         # Optional allowlist (empty allows all)
+  detect_timeout_s: 3.0          # Seconds to detect valid USB data

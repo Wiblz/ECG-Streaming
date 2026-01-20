@@ -57,6 +57,27 @@ class LoggingConfig(BaseSettings):
     )
 
 
+class USBConfig(BaseSettings):
+    """USB collector configuration."""
+
+    auto_discover: bool = Field(
+        default=True,
+        description="Auto-discover USB devices when no devices are specified",
+    )
+    devices: list[str] = Field(
+        default_factory=list,
+        description="Explicit USB device paths (e.g., /dev/ttyACM0)",
+    )
+    allowed_device_ids: list[str] = Field(
+        default_factory=list,
+        description="Optional allowlist of device IDs (empty allows all)",
+    )
+    detect_timeout_s: float = Field(
+        default=10.0,
+        description="Timeout to detect valid USB data before skipping a device",
+    )
+
+
 class CollectorSettings(BaseSettings):
     """Main collector configuration."""
 
@@ -94,6 +115,11 @@ class CollectorSettings(BaseSettings):
     logging: LoggingConfig = Field(
         default_factory=LoggingConfig,
         description="Logging configuration",
+    )
+
+    usb: USBConfig = Field(
+        default_factory=USBConfig,
+        description="USB collector settings",
     )
 
     @classmethod
