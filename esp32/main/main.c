@@ -6,6 +6,7 @@
 
 #include "esp_log.h"
 #include "nvs_flash.h"
+#include "esp_timer.h"
 
 #include "os/os_mbuf.h"
 
@@ -18,20 +19,15 @@
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 
-// ============================================================================
-// OUTPUT MODE SELECTION
-// ============================================================================
-// Set to 1 for binary output (data streaming)
-// Set to 0 for human-readable logs (debugging)
-#define BINARY_OUTPUT_MODE 1
+#include "pb.h"
+#include "pb_encode.h"
+#include "ecg_streaming.pb.h"
 
 static const char *TAG = "H10_COMBINED";
-static const char *TARGET_MAC_STR = "24:ac:ac:07:87:32";
+static const char *TARGET_DEVICE_NAME = CONFIG_POLAR_H10_NAME;
+#define BINARY_OUTPUT_MODE CONFIG_BINARY_OUTPUT_MODE
 
-#define DEVICE_ID "0787323A"
-// static const uint8_t DEVICE_ID_BYTES[8] = {
-//     '0', '7', '8', '7', '3', '2', '3', 'A'
-// };
+#define DEVICE_ID CONFIG_DEVICE_ID
 
 static uint8_t g_own_addr_type;
 static ble_addr_t g_target_addr;
@@ -48,10 +44,13 @@ static uint16_t g_pmd_cccd_handle = 0;
 
 static uint32_t g_notification_count = 0;
 static TickType_t g_last_command_time = 0;
+static uint32_t g_usb_seq = 0;
 
 // PMD Measurement Types
 #define PMD_TYPE_ECG 0x00
 #define PMD_TYPE_ACC 0x02
+#define ECG_SAMPLE_RATE_HZ CONFIG_ECG_SAMPLE_RATE
+#define ACC_SAMPLE_RATE_HZ CONFIG_ACC_SAMPLE_RATE
 
 // ECG Sample Structure
 typedef struct {
@@ -68,8 +67,8 @@ typedef struct {
 } acc_sample_t;
 
 // Buffers
-#define MAX_ECG_SAMPLES 100
-#define MAX_ACC_SAMPLES 100
+#define MAX_ECG_SAMPLES CONFIG_ECG_BATCH_SIZE
+#define MAX_ACC_SAMPLES CONFIG_ACC_BATCH_SIZE
 static ecg_sample_t g_ecg_buffer[MAX_ECG_SAMPLES];
 static acc_sample_t g_acc_buffer[MAX_ACC_SAMPLES];
 static int g_ecg_count = 0;
@@ -103,110 +102,208 @@ static void pmd_start_acc(uint16_t conn_handle, uint16_t ctrl_handle);
 // Helper Functions
 // ============================================================================
 
-static bool parse_mac(const char *s, uint8_t out[6]) {
-    if (!s) return false;
-    int b[6];
-    if (sscanf(s, "%x:%x:%x:%x:%x:%x",
-               &b[5], &b[4], &b[3], &b[2], &b[1], &b[0]) != 6) {
-        return false;
-    }
-    for (int i = 0; i < 6; i++) out[i] = (uint8_t)b[i];
-    return true;
-}
-
 static void addr_to_str(const ble_addr_t *addr, char *out, size_t out_len) {
     snprintf(out, out_len, "%02x:%02x:%02x:%02x:%02x:%02x",
             addr->val[5], addr->val[4], addr->val[3],
             addr->val[2], addr->val[1], addr->val[0]);
 }
 
+/**
+ * Parse BLE advertising data to extract the device name.
+ * Advertising data is in TLV format: [Length][Type][Value]...
+ * AD Type 0x09 = Complete Local Name
+ * AD Type 0x08 = Shortened Local Name
+ *
+ * Returns true if device name was found and extracted.
+ */
+static bool parse_adv_name(const uint8_t *adv_data, uint8_t adv_len,
+                          char *name_out, size_t name_out_len) {
+    if (!adv_data || !name_out || name_out_len == 0) {
+        return false;
+    }
+
+    uint8_t pos = 0;
+    while (pos < adv_len) {
+        uint8_t length = adv_data[pos];
+
+        // End of data or invalid length
+        if (length == 0 || pos + length >= adv_len) {
+            break;
+        }
+
+        uint8_t type = adv_data[pos + 1];
+
+        // AD Type 0x09 = Complete Local Name
+        // AD Type 0x08 = Shortened Local Name
+        if (type == 0x09 || type == 0x08) {
+            uint8_t name_len = length - 1; // Subtract type byte
+
+            // Copy name (ensure null termination)
+            size_t copy_len = name_len < (name_out_len - 1) ? name_len : (name_out_len - 1);
+            memcpy(name_out, &adv_data[pos + 2], copy_len);
+            name_out[copy_len] = '\0';
+
+            return true;
+        }
+
+        pos += length + 1;
+    }
+
+    return false;
+}
+
+static uint32_t crc32_ieee(const uint8_t *data, size_t len) {
+    uint32_t crc = 0xFFFFFFFFu;
+    for (size_t i = 0; i < len; i++) {
+        crc ^= data[i];
+        for (int bit = 0; bit < 8; bit++) {
+            uint32_t mask = -(crc & 1u);
+            crc = (crc >> 1) ^ (0xEDB88320u & mask);
+        }
+    }
+    return crc ^ 0xFFFFFFFFu;
+}
+
 // ============================================================================
 // Output Functions
 // ============================================================================
 
+#if BINARY_OUTPUT_MODE
+
+// Static buffers for protobuf encoding (avoids stack overflow)
+static uint8_t g_frame_buf[4096];
+static uint8_t g_payload_buf[4096];
+static ecg_streaming_ECGSampleBatch g_ecg_batch;
+static ecg_streaming_AccelerometerSampleBatch g_acc_batch;
+static ecg_streaming_CollectorMessage g_collector_msg;
+static ecg_streaming_UsbFrame g_usb_frame;
+
+typedef struct {
+    const uint8_t *data;
+    size_t len;
+} bytes_view_t;
+
+static bool encode_bytes_cb(pb_ostream_t *stream, const pb_field_t *field, void *const *arg) {
+    const bytes_view_t *view = (const bytes_view_t *)(*arg);
+    if (!pb_encode_tag_for_field(stream, field)) {
+        return false;
+    }
+    return pb_encode_string(stream, view->data, view->len);
+}
+
+static bool send_usb_frame(ecg_streaming_UsbPayloadType type,
+                           const uint8_t *payload, size_t payload_len) {
+    bytes_view_t view = {
+        .data = payload,
+        .len = payload_len,
+    };
+
+    // Use static frame struct
+    g_usb_frame = (ecg_streaming_UsbFrame)ecg_streaming_UsbFrame_init_zero;
+    g_usb_frame.version = 1;
+    g_usb_frame.payload_type = type;
+    g_usb_frame.seq = g_usb_seq++;
+    g_usb_frame.crc32 = crc32_ieee(payload, payload_len);
+    g_usb_frame.payload.funcs.encode = encode_bytes_cb;
+    g_usb_frame.payload.arg = (void *)&view;
+
+    pb_ostream_t stream = pb_ostream_from_buffer(g_frame_buf, sizeof(g_frame_buf));
+    if (!pb_encode(&stream, ecg_streaming_UsbFrame_fields, &g_usb_frame)) {
+        ESP_LOGE(TAG, "UsbFrame encode failed");
+        return false;
+    }
+
+    uint32_t frame_len = (uint32_t)stream.bytes_written;
+    uint8_t len_le[4] = {
+        (uint8_t)(frame_len & 0xFF),
+        (uint8_t)((frame_len >> 8) & 0xFF),
+        (uint8_t)((frame_len >> 16) & 0xFF),
+        (uint8_t)((frame_len >> 24) & 0xFF),
+    };
+
+    fwrite(len_le, 1, sizeof(len_le), stdout);
+    fwrite(g_frame_buf, 1, frame_len, stdout);
+    fflush(stdout);
+    return true;
+}
+
+static bool send_collector_message(const ecg_streaming_CollectorMessage *msg) {
+    pb_ostream_t stream = pb_ostream_from_buffer(g_payload_buf, sizeof(g_payload_buf));
+
+    if (!pb_encode(&stream, ecg_streaming_CollectorMessage_fields, msg)) {
+        ESP_LOGE(TAG, "CollectorMessage encode failed");
+        return false;
+    }
+
+    return send_usb_frame(ecg_streaming_UsbPayloadType_USB_PAYLOAD_TYPE_COLLECTOR_MESSAGE,
+                          g_payload_buf, stream.bytes_written);
+}
+
+#endif // BINARY_OUTPUT_MODE
+
 static void output_ecg_binary(void) {
     if (g_ecg_count == 0) return;
-    
+
 #if BINARY_OUTPUT_MODE
-    // Binary format: [SYNC:2][DEV_ID:8][TYPE:1][COUNT:1][DATA:N*7]
-    uint8_t header[12];
-    header[0] = 0xAA;
-    header[1] = 0x55;
-    memcpy(&header[2], DEVICE_ID_BYTES, 8);
-    header[10] = 0x01;  // TYPE: ECG
-    header[11] = (uint8_t)g_ecg_count;
-    
-    fwrite(header, 1, 12, stdout);
-    
-    const int CHUNK_SIZE = 10;
-    
-    for (int chunk = 0; chunk < g_ecg_count; chunk += CHUNK_SIZE) {
-        int chunk_end = chunk + CHUNK_SIZE;
-        if (chunk_end > g_ecg_count) chunk_end = g_ecg_count;
-        
-        for (int i = chunk; i < chunk_end; i++) {
-            uint32_t ts_us = (uint32_t)(g_ecg_buffer[i].timestamp_ns / 1000);
-            fwrite(&ts_us, 4, 1, stdout);
-            
-            int32_t val = g_ecg_buffer[i].value_uv;
-            uint8_t bytes[3] = {
-                (uint8_t)(val & 0xFF),
-                (uint8_t)((val >> 8) & 0xFF),
-                (uint8_t)((val >> 16) & 0xFF)
-            };
-            fwrite(bytes, 1, 3, stdout);
-        }
-        
-        if (chunk_end < g_ecg_count) {
-            vTaskDelay(pdMS_TO_TICKS(1));
-        }
+    // Use static structs to avoid stack overflow
+    g_ecg_batch = (ecg_streaming_ECGSampleBatch)ecg_streaming_ECGSampleBatch_init_zero;
+    g_collector_msg = (ecg_streaming_CollectorMessage)ecg_streaming_CollectorMessage_init_zero;
+
+    strlcpy(g_ecg_batch.device_id, DEVICE_ID, sizeof(g_ecg_batch.device_id));
+    g_ecg_batch.batch_timestamp_ms = (int64_t)(esp_timer_get_time() / 1000);
+    g_ecg_batch.samples_count = (pb_size_t)g_ecg_count;
+
+    for (int i = 0; i < g_ecg_count; i++) {
+        ecg_streaming_ECGSample *sample = &g_ecg_batch.samples[i];
+        sample->device_timestamp_us = (double)(g_ecg_buffer[i].timestamp_ns / 1000);
+        sample->host_receive_time_s = 0.0;
+        sample->raw_value = g_ecg_buffer[i].value_uv;
+        sample->sample_rate = ECG_SAMPLE_RATE_HZ;
     }
-    
-    fflush(stdout);
+
+    g_collector_msg.which_message = ecg_streaming_CollectorMessage_ecg_batch_tag;
+    g_collector_msg.message.ecg_batch = g_ecg_batch;
+
+    if (!send_collector_message(&g_collector_msg)) {
+        ESP_LOGE(TAG, "Failed to send ECG batch");
+    }
 #endif
     // In debug mode: no output here, just status in watchdog_task
-    
+
     g_ecg_count = 0;
 }
 
 static void output_acc_binary(void) {
     if (g_acc_count == 0) return;
-    
+
 #if BINARY_OUTPUT_MODE
-    // Binary format: [SYNC:2][DEV_ID:8][TYPE:1][COUNT:1][DATA:N*10]
-    uint8_t header[12];
-    header[0] = 0xAA;
-    header[1] = 0x55;
-    memcpy(&header[2], DEVICE_ID_BYTES, 8);
-    header[10] = 0x02;  // TYPE: ACC
-    header[11] = (uint8_t)g_acc_count;
-    
-    fwrite(header, 1, 12, stdout);
-    
-    const int CHUNK_SIZE = 10;
-    
-    for (int chunk = 0; chunk < g_acc_count; chunk += CHUNK_SIZE) {
-        int chunk_end = chunk + CHUNK_SIZE;
-        if (chunk_end > g_acc_count) chunk_end = g_acc_count;
-        
-        for (int i = chunk; i < chunk_end; i++) {
-            uint32_t ts_us = (uint32_t)(g_acc_buffer[i].timestamp_ns / 1000);
-            fwrite(&ts_us, 4, 1, stdout);
-            
-            fwrite(&g_acc_buffer[i].x_mg, 2, 1, stdout);
-            fwrite(&g_acc_buffer[i].y_mg, 2, 1, stdout);
-            fwrite(&g_acc_buffer[i].z_mg, 2, 1, stdout);
-        }
-        
-        if (chunk_end < g_acc_count) {
-            vTaskDelay(pdMS_TO_TICKS(1));
-        }
+    // Use static structs to avoid stack overflow
+    g_acc_batch = (ecg_streaming_AccelerometerSampleBatch)ecg_streaming_AccelerometerSampleBatch_init_zero;
+    g_collector_msg = (ecg_streaming_CollectorMessage)ecg_streaming_CollectorMessage_init_zero;
+
+    strlcpy(g_acc_batch.device_id, DEVICE_ID, sizeof(g_acc_batch.device_id));
+    g_acc_batch.batch_timestamp_ms = (int64_t)(esp_timer_get_time() / 1000);
+    g_acc_batch.samples_count = (pb_size_t)g_acc_count;
+
+    for (int i = 0; i < g_acc_count; i++) {
+        ecg_streaming_AccelerometerSample *sample = &g_acc_batch.samples[i];
+        sample->device_timestamp_us = (double)(g_acc_buffer[i].timestamp_ns / 1000);
+        sample->host_receive_time_s = 0.0;
+        sample->x = (float)g_acc_buffer[i].x_mg / 1000.0f;
+        sample->y = (float)g_acc_buffer[i].y_mg / 1000.0f;
+        sample->z = (float)g_acc_buffer[i].z_mg / 1000.0f;
+        sample->sample_rate = ACC_SAMPLE_RATE_HZ;
     }
-    
-    fflush(stdout);
+
+    g_collector_msg.which_message = ecg_streaming_CollectorMessage_acc_batch_tag;
+    g_collector_msg.message.acc_batch = g_acc_batch;
+
+    if (!send_collector_message(&g_collector_msg)) {
+        ESP_LOGE(TAG, "Failed to send ACC batch");
+    }
 #endif
     // In debug mode: no output here, just status in watchdog_task
-    
+
     g_acc_count = 0;
 }
 
@@ -534,17 +631,22 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
 
         const struct ble_gap_disc_desc *desc = &event->disc;
 
-        uint8_t want[6];
-        if (!parse_mac(TARGET_MAC_STR, want)) {
-            ESP_LOGE(TAG, "MAC parse error");
+        // Extract device name from advertising data
+        char device_name[64] = {0};
+        if (!parse_adv_name(desc->data, desc->length_data, device_name, sizeof(device_name))) {
+            // No device name in advertising data, skip this device
             return 0;
         }
 
-        if (memcmp(desc->addr.val, want, 6) != 0) return 0;
+        // Compare with target device name
+        if (strcmp(device_name, TARGET_DEVICE_NAME) != 0) {
+            return 0;
+        }
 
+        // Found the target device
         char addr_str[18];
         addr_to_str(&desc->addr, addr_str, sizeof(addr_str));
-        ESP_LOGI(TAG, "H10 found: %s", addr_str);
+        ESP_LOGI(TAG, "H10 found: %s (MAC: %s)", device_name, addr_str);
 
         g_connecting = true;
         ble_gap_disc_cancel();
@@ -732,20 +834,22 @@ static void host_task(void *param) {
 // ============================================================================
 
 void app_main(void) {
+#if BINARY_OUTPUT_MODE
+    // In binary mode, disable all logging to avoid corrupting USB framing
+    esp_log_level_set("*", ESP_LOG_NONE);
+#else
+    // In human-readable mode, enable normal logging
     esp_log_level_set("*", ESP_LOG_INFO);
     esp_log_level_set("NimBLE", ESP_LOG_WARN);
-    
+
     ESP_LOGI(TAG, "");
     ESP_LOGI(TAG, "Polar H10 ECG + ACC Streamer");
     ESP_LOGI(TAG, "Device ID: %s", DEVICE_ID);
-    ESP_LOGI(TAG, "Target: %s", TARGET_MAC_STR);
-    ESP_LOGI(TAG, "ECG: 130 Hz | ACC: 200 Hz");
-#if BINARY_OUTPUT_MODE
-    ESP_LOGI(TAG, "Mode: BINARY OUTPUT");
-#else
+    ESP_LOGI(TAG, "Target Device: %s", TARGET_DEVICE_NAME);
+    ESP_LOGI(TAG, "ECG: %d Hz | ACC: %d Hz", ECG_SAMPLE_RATE_HZ, ACC_SAMPLE_RATE_HZ);
     ESP_LOGI(TAG, "Mode: HUMAN READABLE");
-#endif
     ESP_LOGI(TAG, "");
+#endif
 
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {

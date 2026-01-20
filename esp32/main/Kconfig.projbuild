@@ -1,0 +1,95 @@
+menu "ECG Collector Configuration"
+
+    choice OUTPUT_MODE
+        prompt "Output Mode"
+        default OUTPUT_MODE_BINARY
+        help
+            Select output mode: Binary for production use with USB collector,
+            or Human-readable for debugging and testing.
+
+        config OUTPUT_MODE_BINARY
+            bool "Binary (Protobuf USB Protocol)"
+            help
+                Output data as length-prefixed protobuf messages over USB.
+                Use this mode for production with the ecg-collector USB service.
+
+        config OUTPUT_MODE_HUMAN
+            bool "Human-readable (Debug Logs)"
+            help
+                Output human-readable status messages to serial console.
+                Use this mode for debugging and verifying device connectivity.
+    endchoice
+
+    config BINARY_OUTPUT_MODE
+        int
+        default 1 if OUTPUT_MODE_BINARY
+        default 0 if OUTPUT_MODE_HUMAN
+
+    config POLAR_H10_NAME
+        string "Polar H10 Device Name"
+        default "Polar H10 0781CC39"
+        help
+            Full BLE device name to scan for (e.g., "Polar H10 0787323A").
+            The ESP32 will scan for this name in BLE advertisements and connect automatically.
+
+    config DEVICE_ID
+        string "Device ID"
+        default "0781CC39"
+        help
+            Unique identifier for this device (typically the last 8 characters of the Polar H10 serial).
+
+    choice ECG_SAMPLE_RATE_CHOICE
+        prompt "ECG Sample Rate"
+        default ECG_SAMPLE_RATE_130
+        help
+            ECG sampling rate in Hz. Polar H10 supports 130 Hz.
+
+        config ECG_SAMPLE_RATE_130
+            bool "130 Hz"
+    endchoice
+
+    config ECG_SAMPLE_RATE
+        int
+        default 130 if ECG_SAMPLE_RATE_130
+
+    choice ACC_SAMPLE_RATE_CHOICE
+        prompt "Accelerometer Sample Rate"
+        default ACC_SAMPLE_RATE_100
+        help
+            Accelerometer sampling rate in Hz. Polar H10 supports 25, 50, 100, and 200 Hz.
+
+        config ACC_SAMPLE_RATE_25
+            bool "25 Hz"
+
+        config ACC_SAMPLE_RATE_50
+            bool "50 Hz"
+
+        config ACC_SAMPLE_RATE_100
+            bool "100 Hz"
+
+        config ACC_SAMPLE_RATE_200
+            bool "200 Hz"
+    endchoice
+
+    config ACC_SAMPLE_RATE
+        int
+        default 25 if ACC_SAMPLE_RATE_25
+        default 50 if ACC_SAMPLE_RATE_50
+        default 100 if ACC_SAMPLE_RATE_100
+        default 200 if ACC_SAMPLE_RATE_200
+
+    config ECG_BATCH_SIZE
+        int "ECG Batch Size"
+        default 50
+        range 1 200
+        help
+            Number of ECG samples to batch before sending.
+
+    config ACC_BATCH_SIZE
+        int "Accelerometer Batch Size"
+        default 50
+        range 1 200
+        help
+            Number of accelerometer samples to batch before sending.
+
+endmenu
