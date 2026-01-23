@@ -186,6 +186,7 @@ def usb_scan(
             table.add_column("ESP ID", style="cyan")
             table.add_column("Target", style="magenta")
             table.add_column("FW", style="yellow")
+            table.add_column("Polar", style="blue")
             table.add_column("Config Required", style="red")
             table.add_column("Message", style="white")
 
@@ -198,6 +199,7 @@ def usb_scan(
                         info.get("esp_id", ""),
                         target,
                         info.get("firmware_version", ""),
+                        str(info.get("polar_connected", "")),
                         str(info.get("config_required", "")),
                         "usb_device_info",
                     )
@@ -208,10 +210,11 @@ def usb_scan(
                         info.get("device_id", ""),
                         "",
                         "",
+                        "",
                         info.get("type", ""),
                     )
                 else:
-                    table.add_row(device, "", "", "", "", "no data")
+                    table.add_row(device, "", "", "", "", "", "no data")
 
             console.print(table)
             console.print(f"\n[green]Found {len(devices)} USB device(s)[/green]")

@@ -9,6 +9,7 @@
 
 #include "ble_polar.h"
 #include "config_store.h"
+#include "ecg_streaming.pb.h"
 #include "state.h"
 #include "usb_transport.h"
 

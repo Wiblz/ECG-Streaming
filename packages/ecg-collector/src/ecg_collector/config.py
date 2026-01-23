@@ -81,7 +81,7 @@ class USBConfig(BaseSettings):
         description="Persist USB configuration on device when supported",
     )
     detect_timeout_s: float = Field(
-        default=10.0,
+        default=20.0,
         description="Timeout to detect valid USB data before skipping a device",
     )
 

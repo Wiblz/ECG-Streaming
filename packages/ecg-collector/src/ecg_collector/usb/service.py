@@ -24,7 +24,7 @@ class MultiUsbCollectorService:
         collector_id: str | None = None,
         display_name: str | None = None,
         allowed_device_ids: list[str] | None = None,
-        detect_timeout_s: float = 10.0,
+        detect_timeout_s: float = 20.0,
         device_map: dict[str, str] | None = None,
         persist_config: bool = True,
     ) -> None:

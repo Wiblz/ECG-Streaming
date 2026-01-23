@@ -154,6 +154,7 @@ message UsbDeviceInfo {
   string firmware_version = 2;
   string current_target = 3;
   bool config_required = 4;
+  bool polar_connected = 5;
 }
 
 // USB configuration command (host -> ESP32)

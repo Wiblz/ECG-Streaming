@@ -2,36 +2,87 @@
 #include "freertos/task.h"
 
 #include "esp_log.h"
-
-#include "ble_polar.h"
 #include "config_store.h"
 #include "state.h"
+#include "usb_output.h"
 #include "usb_provision.h"
+#include "usb_transport.h"
+#include "ble_polar.h"
+
+static const char *TAG = "H10_COMBINED";
+
+// ============================================================================
+// Watchdog Task - Status every second
+// ============================================================================
+
+static void watchdog_task(void *param) {
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        
+        // Start ACC after first ECG data arrives
+        if (g_connected && g_ecg_started && !g_acc_started && g_ecg_packet_count >= 2) {
+            ESP_LOGI(TAG, "ECG streaming confirmed, starting ACC...");
+            pmd_start_acc(g_conn_handle, g_pmd_ctrl_handle);
+            g_acc_started = true;
+        }
+        
+        // Calculate rates
+        float elapsed_sec = 0;
+        float ecg_rate = 0;
+        float acc_rate = 0;
+        
+        if (g_first_sample_time > 0) {
+            TickType_t elapsed_ticks = xTaskGetTickCount() - g_first_sample_time;
+            elapsed_sec = elapsed_ticks * portTICK_PERIOD_MS / 1000.0f;
+            
+            if (elapsed_sec > 0) {
+                ecg_rate = g_total_ecg_samples / elapsed_sec;
+                acc_rate = g_total_acc_samples / elapsed_sec;
+            }
+        }
+        
+        // Print status every second
+        if (g_connected) {
+            ESP_LOGI(TAG, "Status: ECG %lu pkt/%lu smp (%.1f Hz) | ACC %lu pkt/%lu smp (%.1f Hz) | Buf: ECG %d ACC %d", 
+                     g_ecg_packet_count, g_total_ecg_samples, ecg_rate,
+                     g_acc_packet_count, g_total_acc_samples, acc_rate,
+                     g_ecg_count, g_acc_count);
+        }
+    }
+}
+
+// ============================================================================
+// BLE Initialization
+// ============================================================================
+
+// ============================================================================
+// Main
+// ============================================================================
 
 void app_main(void) {
+    g_target_device_name[0] = '\0';
+    g_device_id[0] = '\0';
+
 #if BINARY_OUTPUT_MODE
+    // In binary mode, disable all logging to avoid corrupting USB framing
     esp_log_level_set("*", ESP_LOG_NONE);
 #else
+    // In human-readable mode, enable normal logging
     esp_log_level_set("*", ESP_LOG_INFO);
     esp_log_level_set("NimBLE", ESP_LOG_WARN);
-#endif
 
+    ESP_LOGI(TAG, "");
+    ESP_LOGI(TAG, "Polar H10 ECG + ACC Streamer");
+    ESP_LOGI(TAG, "Target/Device ID: %s", g_target_device_name);
+    ESP_LOGI(TAG, "ECG: %d Hz | ACC: %d Hz", g_ecg_sample_rate_hz, g_acc_sample_rate_hz);
+    ESP_LOGI(TAG, "Mode: HUMAN READABLE");
+    ESP_LOGI(TAG, "");
+#endif
     config_store_init();
-
-#if !BINARY_OUTPUT_MODE
-    ESP_LOGI("H10_COMBINED", "Polar H10 ECG + ACC Streamer");
-    if (has_target_device()) {
-        ESP_LOGI("H10_COMBINED", "Target/Device ID: %s", g_target_device_name);
-    } else {
-        ESP_LOGI("H10_COMBINED", "Target/Device ID: <unassigned>");
-    }
-    ESP_LOGI("H10_COMBINED", "ECG: %d Hz | ACC: %d Hz", g_ecg_sample_rate_hz, g_acc_sample_rate_hz);
-    ESP_LOGI("H10_COMBINED", "Mode: HUMAN READABLE");
-    ESP_LOGI("H10_COMBINED", "");
-#endif
+    usb_transport_init();
 
     ble_init();
-
+    
     xTaskCreate(watchdog_task, "watchdog", 4096, NULL, 5, NULL);
     xTaskCreate(usb_identity_task, "usb_id", 4096, NULL, 4, NULL);
     xTaskCreate(usb_rx_task, "usb_rx", 4096, NULL, 4, NULL);

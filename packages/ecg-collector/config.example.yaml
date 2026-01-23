@@ -40,4 +40,4 @@ usb:
   device_map:                    # Map esp_id -> Polar device ID
     # "A1B2C3D4E5F6": "Polar H10 ABC123"
   persist_config: true           # Persist config on device when supported
-  detect_timeout_s: 10.0         # Seconds to detect valid USB data
+  detect_timeout_s: 20.0         # Seconds to detect valid USB data

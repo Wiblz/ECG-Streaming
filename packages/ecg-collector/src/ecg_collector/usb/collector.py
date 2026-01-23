@@ -125,7 +125,7 @@ class UsbCollector:
             if computed_crc != usb_frame.crc32:
                 self.stats["frames_crc_errors"] += 1
                 logger.warning(
-                    f"CRC mismatch: expected {usb_frame.crc32:08x}, got {computed_crc:08x}"
+                    f"[{self.device_path}] CRC mismatch: expected {usb_frame.crc32:08x}, got {computed_crc:08x}"
                 )
                 return False
 
@@ -147,7 +147,7 @@ class UsbCollector:
             return True
         except Exception as e:
             self.stats["frames_parse_errors"] += 1
-            logger.error(f"Failed to parse frame: {e}")
+            logger.error(f"[{self.device_path}] Failed to parse frame: {e}")
             return False
 
     async def run(self) -> None:
@@ -163,13 +163,13 @@ class UsbCollector:
 
             while self.running:
                 if not self.reader or not self.writer:
-                    logger.error("Serial connection not open")
+                    logger.error(f"[{self.device_path}] Serial connection not open")
                     break
 
                 try:
                     chunk = await self.reader.read(1024)
                 except (serial.SerialException, OSError) as e:
-                    logger.error(f"Serial read error: {e}")
+                    logger.error(f"[{self.device_path}] Serial read error: {e}")
                     break
                 if not chunk:
                     await asyncio.sleep(0.01)
@@ -200,7 +200,8 @@ class UsbCollector:
                 if now - self._last_stats_log >= self.stats_interval_s:
                     self._last_stats_log = now
                     logger.info(
-                        "USB stats: frames=%d crc_errors=%d parse_errors=%d messages=%d bytes=%d",
+                        "[%s] USB stats: frames=%d crc_errors=%d parse_errors=%d messages=%d bytes=%d",
+                        self.device_path,
                         self.stats["frames_received"],
                         self.stats["frames_crc_errors"],
                         self.stats["frames_parse_errors"],
@@ -311,6 +312,7 @@ async def probe_usb_device(device_path: str, timeout_s: float = 2.0) -> dict | N
                         "firmware_version": info.firmware_version,
                         "current_target": info.current_target,
                         "config_required": info.config_required,
+                        "polar_connected": info.polar_connected,
                     }
 
                 device_id = None

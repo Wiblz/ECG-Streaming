@@ -10,6 +10,9 @@
 #define DEVICE_ID_MAX_LEN 64
 #define BINARY_OUTPUT_MODE CONFIG_BINARY_OUTPUT_MODE
 
+#define MAX_ECG_SAMPLES CONFIG_ECG_BATCH_SIZE
+#define MAX_ACC_SAMPLES CONFIG_ACC_BATCH_SIZE
+
 typedef struct {
     uint64_t timestamp_ns;
     int32_t value_uv;
@@ -21,9 +24,6 @@ typedef struct {
     int16_t y_mg;
     int16_t z_mg;
 } acc_sample_t;
-
-#define MAX_ECG_SAMPLES CONFIG_ECG_BATCH_SIZE
-#define MAX_ACC_SAMPLES CONFIG_ACC_BATCH_SIZE
 
 extern char g_target_device_name[DEVICE_ID_MAX_LEN];
 extern char g_device_id[DEVICE_ID_MAX_LEN];
@@ -50,6 +50,7 @@ extern uint16_t g_pmd_cccd_handle;
 
 extern uint32_t g_notification_count;
 extern TickType_t g_last_command_time;
+extern uint32_t g_usb_seq;
 
 extern ecg_sample_t g_ecg_buffer[MAX_ECG_SAMPLES];
 extern acc_sample_t g_acc_buffer[MAX_ACC_SAMPLES];

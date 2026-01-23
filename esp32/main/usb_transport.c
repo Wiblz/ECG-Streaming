@@ -1,10 +1,7 @@
 #include "usb_transport.h"
 
 #include <stdio.h>
-#include <string.h>
 
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include "pb.h"
 #include "pb_decode.h"
 #include "pb_encode.h"
@@ -16,7 +13,6 @@ static uint8_t g_payload_buf[4096];
 static uint8_t g_rx_frame_buf[4096];
 static uint8_t g_rx_payload_buf[2048];
 static ecg_streaming_UsbFrame g_usb_frame;
-static uint32_t g_usb_seq = 0;
 
 typedef struct {
     const uint8_t *data;
@@ -94,6 +90,10 @@ static bool send_usb_frame(ecg_streaming_UsbPayloadType type,
     fwrite(g_frame_buf, 1, frame_len, stdout);
     fflush(stdout);
     return true;
+}
+
+void usb_transport_init(void) {
+    g_usb_frame = (ecg_streaming_UsbFrame)ecg_streaming_UsbFrame_init_zero;
 }
 
 bool usb_send_collector_message(const ecg_streaming_CollectorMessage *msg) {
