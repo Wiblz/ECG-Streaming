@@ -40,6 +40,7 @@
 		if (path === '/') return [{ label: 'Dashboard', href: '/' }];
 		if (path === '/devices') return [{ label: 'Devices', href: '/devices' }];
 		if (path === '/sessions') return [{ label: 'Sessions', href: '/sessions' }];
+		if (path === '/sync') return [{ label: 'Sync', href: '/sync' }];
 		if (path.startsWith('/sessions/')) {
 			const sessionId = path.split('/').pop();
 			return [
@@ -94,6 +95,14 @@
 							: 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'}"
 					>
 						Sessions
+					</a>
+					<a
+						href="/sync"
+						class="px-3 py-2 text-sm font-medium rounded-lg transition-colors {isActive('/sync')
+							? 'bg-gray-100 text-gray-900'
+							: 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'}"
+					>
+						Sync
 					</a>
 				</nav>
 			</div>
