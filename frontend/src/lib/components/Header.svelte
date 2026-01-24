@@ -53,7 +53,7 @@
 </script>
 
 <header class="border-b border-gray-200 bg-white/80 backdrop-blur-sm sticky top-0 z-10">
-	<div class="container mx-auto px-6 py-4 max-w-7xl">
+	<div class="px-6 py-4">
 		<div class="flex items-center justify-between gap-6">
 			<!-- Logo/Branding -->
 			<div class="flex items-center gap-6">

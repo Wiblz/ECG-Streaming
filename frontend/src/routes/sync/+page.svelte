@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import Header from '$lib/components/Header.svelte';
 	import PulsingCircle from '$lib/components/PulsingCircle.svelte';
 	import Button from '$lib/components/buttons/Button.svelte';
 	import IconButton from '$lib/components/buttons/IconButton.svelte';
@@ -83,17 +84,18 @@
 	<title>Device Synchronization - ECG Streaming</title>
 </svelte:head>
 
-<div
-	bind:this={containerElement}
-	class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex flex-col items-center justify-center relative"
->
-	<!-- Exit button (top-left) -->
-	<a href="/" class="absolute top-4 left-4">
-		<Button variant="ghost" size="sm">← Exit</Button>
-	</a>
+<div class="h-screen overflow-hidden flex flex-col">
+	<!-- Header (hidden in fullscreen) -->
+	{#if !isFullscreen}
+		<Header />
+	{/if}
 
+	<div
+		bind:this={containerElement}
+		class="flex-1 overflow-hidden bg-linear-to-br from-gray-50 to-gray-100 flex flex-col relative"
+	>
 	<!-- Fullscreen button (top-right) -->
-	<div class="absolute top-4 right-4">
+	<div class="absolute top-4 right-4 z-10">
 		<Button
 			variant="ghost"
 			size="sm"
@@ -105,7 +107,7 @@
 	</div>
 
 	<!-- Central pulsing circle -->
-	<div class="flex-1 flex items-center justify-center">
+	<div class="flex-1 flex items-center justify-center min-h-0">
 		<PulsingCircle
 			bind:this={pulsingCircle}
 			{delayPattern}
@@ -116,7 +118,7 @@
 	</div>
 
 	<!-- Control panel -->
-	<div class="w-full max-w-4xl p-6 bg-white border-t border-gray-200 shadow-lg">
+	<div class="w-full max-w-4xl mx-auto p-6 bg-white border-t border-gray-200 shadow-lg">
 		<div class="space-y-6">
 			<!-- Main controls -->
 			<div class="flex items-center justify-center gap-4">
@@ -159,5 +161,6 @@
 				</div>
 			</div>
 		</div>
+	</div>
 	</div>
 </div>
