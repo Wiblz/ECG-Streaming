@@ -3,14 +3,14 @@
 import json
 import logging
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime, timezone
 
 
 class JsonLineFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         payload = {
-            "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+            "timestamp": datetime.fromtimestamp(record.created, tz=UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -32,6 +32,7 @@ def setup_logging(
     Args:
         level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
         log_file: Optional path to log file
+        ble_debug_file: Optional path to BLE debug log file
         log_format: Format style - "simple" or "detailed"
     """
     # Define log formats
