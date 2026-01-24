@@ -35,6 +35,7 @@ export class ECGWebSocket {
 	private ws: WebSocket | null = null
 	private reconnectTimeout: ReturnType<typeof setTimeout> | null = null
 	private url: string
+	private shouldReconnect: boolean = true
 
 	constructor(url: string = resolveDefaultUrl()) {
 		this.url = url
@@ -44,6 +45,7 @@ export class ECGWebSocket {
 		console.log('[WebSocket] Attempting to connect to:', this.url)
 		setWsState(ConnectionState.CONNECTING)
 		setWsError(null)
+		this.shouldReconnect = true
 
 		try {
 			this.ws = new WebSocket(this.url)
@@ -73,7 +75,9 @@ export class ECGWebSocket {
 			this.ws.onclose = (event) => {
 				console.log('[WebSocket] Connection closed. Code:', event.code, 'Reason:', event.reason)
 				setWsState(ConnectionState.DISCONNECTED)
-				this.scheduleReconnect()
+				if (this.shouldReconnect) {
+					this.scheduleReconnect()
+				}
 			}
 		} catch (error) {
 			console.error('[WebSocket] Failed to create WebSocket:', error)
@@ -114,6 +118,7 @@ export class ECGWebSocket {
 	}
 
 	disconnect() {
+		this.shouldReconnect = false
 		if (this.reconnectTimeout) {
 			clearTimeout(this.reconnectTimeout)
 			this.reconnectTimeout = null

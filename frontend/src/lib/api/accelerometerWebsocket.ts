@@ -37,6 +37,7 @@ export class AccelerometerWebSocket {
 	private ws: WebSocket | null = null
 	private reconnectTimeout: ReturnType<typeof setTimeout> | null = null
 	private url: string
+	private shouldReconnect: boolean = true
 
 	constructor(url: string = resolveDefaultUrl()) {
 		this.url = url
@@ -46,6 +47,7 @@ export class AccelerometerWebSocket {
 		console.log('[AccelerometerWebSocket] Attempting to connect to:', this.url)
 		setAccWsState(ConnectionState.CONNECTING)
 		setAccWsError(null)
+		this.shouldReconnect = true
 
 		try {
 			this.ws = new WebSocket(this.url)
@@ -79,7 +81,9 @@ export class AccelerometerWebSocket {
 					event.reason
 				)
 				setAccWsState(ConnectionState.DISCONNECTED)
-				this.scheduleReconnect()
+				if (this.shouldReconnect) {
+					this.scheduleReconnect()
+				}
 			}
 		} catch (error) {
 			console.error('[AccelerometerWebSocket] Failed to create WebSocket:', error)
@@ -115,6 +119,7 @@ export class AccelerometerWebSocket {
 	}
 
 	disconnect() {
+		this.shouldReconnect = false
 		if (this.reconnectTimeout) {
 			clearTimeout(this.reconnectTimeout)
 			this.reconnectTimeout = null
