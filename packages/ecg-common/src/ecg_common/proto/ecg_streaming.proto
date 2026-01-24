@@ -38,6 +38,7 @@ message CollectorMessage {
     AccelerometerSampleBatch acc_batch = 5;
     UsbDeviceInfo usb_device_info = 6;
     UsbConfigAck usb_config_ack = 7;
+    BleNotificationDebug ble_debug = 8;
   }
 }
 
@@ -174,4 +175,16 @@ message UsbConfigAck {
   bool accepted = 2;
   string message = 3;
   string target_device_id = 4;
+}
+
+// Debug telemetry for BLE PMD notifications (ESP32 -> host)
+message BleNotificationDebug {
+  string device_id = 1;
+  uint32 frame_type = 2;
+  uint32 pmd_type = 3;
+  uint32 notif_len = 4;
+  uint32 sample_count = 5;
+  uint64 pmd_timestamp_ns = 6;
+  uint32 interval_ms = 7;
+  uint64 notification_index = 8;
 }

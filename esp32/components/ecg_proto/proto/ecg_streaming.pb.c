@@ -63,6 +63,9 @@ PB_BIND(ecg_streaming_UsbConfig, ecg_streaming_UsbConfig, AUTO)
 PB_BIND(ecg_streaming_UsbConfigAck, ecg_streaming_UsbConfigAck, 2)
 
 
+PB_BIND(ecg_streaming_BleNotificationDebug, ecg_streaming_BleNotificationDebug, AUTO)
+
+
 
 
 

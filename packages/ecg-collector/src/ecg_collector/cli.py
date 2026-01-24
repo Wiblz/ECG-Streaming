@@ -133,6 +133,7 @@ def ble_run(
     setup_logging(
         level=settings.logging.level,
         log_file=settings.logging.file,
+        ble_debug_file=settings.logging.ble_debug_file,
         log_format=settings.logging.format,
     )
 
@@ -266,6 +267,7 @@ def usb_run(
     setup_logging(
         level=settings.logging.level,
         log_file=settings.logging.file,
+        ble_debug_file=settings.logging.ble_debug_file,
         log_format=settings.logging.format,
     )
 

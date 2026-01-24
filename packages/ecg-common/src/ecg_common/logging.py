@@ -1,13 +1,30 @@
 """Logging configuration for ECG Streaming application."""
 
+import json
 import logging
 import sys
 from pathlib import Path
+from datetime import datetime, timezone
+
+
+class JsonLineFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        extra = getattr(record, "ble_debug", None)
+        if isinstance(extra, dict):
+            payload.update(extra)
+        return json.dumps(payload, ensure_ascii=True)
 
 
 def setup_logging(
     level: str = "INFO",
     log_file: Path | None = None,
+    ble_debug_file: Path | None = None,
     log_format: str = "detailed",
 ) -> None:
     """Configure application-wide logging.
@@ -49,6 +66,18 @@ def setup_logging(
         file_handler.setLevel(logging.DEBUG)  # Always log everything to file
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
+
+    # BLE debug file handler (optional)
+    if ble_debug_file:
+        ble_debug_file.parent.mkdir(parents=True, exist_ok=True)
+        ble_debug_handler = logging.FileHandler(ble_debug_file)
+        ble_debug_handler.setLevel(logging.DEBUG)
+        ble_debug_handler.setFormatter(JsonLineFormatter())
+        ble_logger = logging.getLogger("ecg_collector.ble_debug")
+        ble_logger.handlers.clear()
+        ble_logger.setLevel(logging.DEBUG)
+        ble_logger.addHandler(ble_debug_handler)
+        ble_logger.propagate = False
 
     # Reduce noise from third-party libraries
     logging.getLogger("bleak").setLevel(logging.WARNING)

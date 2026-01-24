@@ -41,3 +41,4 @@ ecg_streaming.UsbConfig.target_device_id max_length:64
 ecg_streaming.UsbConfigAck.esp_id max_length:64
 ecg_streaming.UsbConfigAck.message max_length:128
 ecg_streaming.UsbConfigAck.target_device_id max_length:64
+ecg_streaming.BleNotificationDebug.device_id max_length:64

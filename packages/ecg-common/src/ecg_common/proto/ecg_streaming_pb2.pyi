@@ -46,7 +46,7 @@ class UsbFrame(_message.Message):
         ...
 
 class CollectorMessage(_message.Message):
-    __slots__ = ('registration', 'ecg_batch', 'status_update', 'heartbeat', 'acc_batch', 'usb_device_info', 'usb_config_ack')
+    __slots__ = ('registration', 'ecg_batch', 'status_update', 'heartbeat', 'acc_batch', 'usb_device_info', 'usb_config_ack', 'ble_debug')
     REGISTRATION_FIELD_NUMBER: _ClassVar[int]
     ECG_BATCH_FIELD_NUMBER: _ClassVar[int]
     STATUS_UPDATE_FIELD_NUMBER: _ClassVar[int]
@@ -54,6 +54,7 @@ class CollectorMessage(_message.Message):
     ACC_BATCH_FIELD_NUMBER: _ClassVar[int]
     USB_DEVICE_INFO_FIELD_NUMBER: _ClassVar[int]
     USB_CONFIG_ACK_FIELD_NUMBER: _ClassVar[int]
+    BLE_DEBUG_FIELD_NUMBER: _ClassVar[int]
     registration: CollectorRegistration
     ecg_batch: ECGSampleBatch
     status_update: DeviceStatusUpdate
@@ -61,8 +62,9 @@ class CollectorMessage(_message.Message):
     acc_batch: AccelerometerSampleBatch
     usb_device_info: UsbDeviceInfo
     usb_config_ack: UsbConfigAck
+    ble_debug: BleNotificationDebug
 
-    def __init__(self, registration: _Optional[_Union[CollectorRegistration, _Mapping]]=..., ecg_batch: _Optional[_Union[ECGSampleBatch, _Mapping]]=..., status_update: _Optional[_Union[DeviceStatusUpdate, _Mapping]]=..., heartbeat: _Optional[_Union[CollectorHeartbeat, _Mapping]]=..., acc_batch: _Optional[_Union[AccelerometerSampleBatch, _Mapping]]=..., usb_device_info: _Optional[_Union[UsbDeviceInfo, _Mapping]]=..., usb_config_ack: _Optional[_Union[UsbConfigAck, _Mapping]]=...) -> None:
+    def __init__(self, registration: _Optional[_Union[CollectorRegistration, _Mapping]]=..., ecg_batch: _Optional[_Union[ECGSampleBatch, _Mapping]]=..., status_update: _Optional[_Union[DeviceStatusUpdate, _Mapping]]=..., heartbeat: _Optional[_Union[CollectorHeartbeat, _Mapping]]=..., acc_batch: _Optional[_Union[AccelerometerSampleBatch, _Mapping]]=..., usb_device_info: _Optional[_Union[UsbDeviceInfo, _Mapping]]=..., usb_config_ack: _Optional[_Union[UsbConfigAck, _Mapping]]=..., ble_debug: _Optional[_Union[BleNotificationDebug, _Mapping]]=...) -> None:
         ...
 
 class AggregatorMessage(_message.Message):
@@ -310,4 +312,26 @@ class UsbConfigAck(_message.Message):
     target_device_id: str
 
     def __init__(self, esp_id: _Optional[str]=..., accepted: bool=..., message: _Optional[str]=..., target_device_id: _Optional[str]=...) -> None:
+        ...
+
+class BleNotificationDebug(_message.Message):
+    __slots__ = ('device_id', 'frame_type', 'pmd_type', 'notif_len', 'sample_count', 'pmd_timestamp_ns', 'interval_ms', 'notification_index')
+    DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
+    FRAME_TYPE_FIELD_NUMBER: _ClassVar[int]
+    PMD_TYPE_FIELD_NUMBER: _ClassVar[int]
+    NOTIF_LEN_FIELD_NUMBER: _ClassVar[int]
+    SAMPLE_COUNT_FIELD_NUMBER: _ClassVar[int]
+    PMD_TIMESTAMP_NS_FIELD_NUMBER: _ClassVar[int]
+    INTERVAL_MS_FIELD_NUMBER: _ClassVar[int]
+    NOTIFICATION_INDEX_FIELD_NUMBER: _ClassVar[int]
+    device_id: str
+    frame_type: int
+    pmd_type: int
+    notif_len: int
+    sample_count: int
+    pmd_timestamp_ns: int
+    interval_ms: int
+    notification_index: int
+
+    def __init__(self, device_id: _Optional[str]=..., frame_type: _Optional[int]=..., pmd_type: _Optional[int]=..., notif_len: _Optional[int]=..., sample_count: _Optional[int]=..., pmd_timestamp_ns: _Optional[int]=..., interval_ms: _Optional[int]=..., notification_index: _Optional[int]=...) -> None:
         ...

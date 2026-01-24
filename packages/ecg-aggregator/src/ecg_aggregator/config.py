@@ -90,6 +90,10 @@ class LoggingConfig(BaseSettings):
         default=None,
         description="Optional log file path",
     )
+    ble_debug_file: Path | None = Field(
+        default=None,
+        description="Optional log file path for BLE debug messages",
+    )
 
 
 class AggregatorSettings(BaseSettings):

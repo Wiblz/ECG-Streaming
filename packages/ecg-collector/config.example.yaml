@@ -30,7 +30,8 @@ aggregator:
 logging:
   level: "INFO"                  # DEBUG, INFO, WARNING, ERROR, CRITICAL
   format: "detailed"             # simple or detailed
-  file: null                     # Optional log file path
+  file: "/tmp/ecg-collector.log" # Optional log file path
+  ble_debug_file: "/tmp/ecg-ble-debug.log" # Optional BLE debug log file path
 
 # USB configuration
 usb:

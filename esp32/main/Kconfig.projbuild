@@ -79,4 +79,20 @@ menu "ECG Collector Configuration"
         help
             Number of accelerometer samples to batch before sending.
 
+    menu "BLE PMD debug over USB"
+        config DEBUG_PMD_PROTO_ENABLE
+            bool "Enable PMD debug messages over USB"
+            default n
+            help
+                Send BLE PMD notification telemetry as protobuf debug messages.
+
+        config DEBUG_PMD_PROTO_EVERY_N
+            int "PMD debug message interval (notifications)"
+            default 10
+            range 1 1000
+            depends on DEBUG_PMD_PROTO_ENABLE
+            help
+                Emit one debug message every N PMD notifications.
+    endmenu
+
 endmenu

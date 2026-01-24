@@ -246,6 +246,20 @@ class ECGStreamingServicer(ecg_streaming_pb2_grpc.ECGStreamingServiceServicer):
 
                     logger.debug(f"Status update from {device_id}: {status_str}")
 
+                elif msg_type == "ble_debug":
+                    dbg = message.ble_debug
+                    logger.debug(
+                        "BLE debug from %s: frame=0x%02X pmd=0x%02X len=%d samples=%d ts_ns=%d interval_ms=%d idx=%d",
+                        dbg.device_id or "<unknown>",
+                        dbg.frame_type,
+                        dbg.pmd_type,
+                        dbg.notif_len,
+                        dbg.sample_count,
+                        dbg.pmd_timestamp_ns,
+                        dbg.interval_ms,
+                        dbg.notification_index,
+                    )
+
                 elif msg_type == "heartbeat":
                     # Handle heartbeat
                     hb = message.heartbeat

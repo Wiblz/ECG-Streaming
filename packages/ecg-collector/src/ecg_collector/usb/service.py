@@ -11,6 +11,7 @@ from ecg_collector.grpc_client import CollectorGrpcClient
 from ecg_collector.usb.collector import UsbCollector, discover_usb_devices
 
 logger = get_logger(__name__)
+ble_debug_logger = get_logger("ecg_collector.ble_debug")
 
 
 class MultiUsbCollectorService:
@@ -75,6 +76,25 @@ class MultiUsbCollectorService:
         msg_type = collector_msg.WhichOneof("message")
         if msg_type == "usb_device_info":
             await self._handle_usb_device_info(collector_msg, usb_collector)
+            return
+
+        if msg_type == "ble_debug":
+            dbg = collector_msg.ble_debug
+            ble_debug_logger.info(
+                "ble_debug",
+                extra={
+                    "ble_debug": {
+                        "device_id": dbg.device_id or "",
+                        "frame_type_hex": f"0x{dbg.frame_type:02X}",
+                        "pmd_type_hex": f"0x{dbg.pmd_type:02X}",
+                        "notif_len": dbg.notif_len,
+                        "sample_count": dbg.sample_count,
+                        "pmd_timestamp_ns": dbg.pmd_timestamp_ns,
+                        "interval_ms": dbg.interval_ms,
+                        "notification_index": dbg.notification_index,
+                    }
+                },
+            )
             return
 
         if msg_type == "usb_config_ack":

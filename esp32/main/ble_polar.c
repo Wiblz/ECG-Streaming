@@ -7,6 +7,7 @@
 #include "freertos/task.h"
 
 #include "esp_log.h"
+#include "esp_timer.h"
 
 #include "os/os_mbuf.h"
 
@@ -20,8 +21,10 @@
 #include "services/gatt/ble_svc_gatt.h"
 
 #include "config_store.h"
+#include "ecg_streaming.pb.h"
 #include "state.h"
 #include "usb_output.h"
+#include "usb_transport.h"
 
 static const char *TAG = "H10_COMBINED";
 
@@ -75,23 +78,30 @@ static bool parse_adv_name(const uint8_t *adv_data, uint8_t adv_len,
 
 static void parse_pmd_response(uint8_t *data, int len) {
     g_notification_count++;
+    uint64_t now_us = (uint64_t)esp_timer_get_time();
+    static uint64_t last_notif_us = 0;
+    static uint64_t notif_index = 0;
 
     if (len < 2) {
         return;
     }
 
-    uint8_t response_code = data[0];
-    uint8_t measurement_type = data[1];
+    uint8_t frame_type = data[0];
+    uint8_t pmd_type = data[1];
+    uint32_t debug_pmd_type =
+        (frame_type == 0xF0 || frame_type == 0x80) ? pmd_type : frame_type;
+    uint32_t sample_count = 0;
+    uint64_t timestamp_ns = 0;
 
-    switch (response_code) {
+    switch (frame_type) {
         case 0xF0: // Settings Response
-            ESP_LOGI(TAG, "Settings response for type 0x%02X", measurement_type);
+            ESP_LOGI(TAG, "Settings response for type 0x%02X", pmd_type);
 
             vTaskDelay(pdMS_TO_TICKS(300));
-            if (measurement_type == PMD_TYPE_ECG && !g_ecg_started) {
+            if (pmd_type == PMD_TYPE_ECG && !g_ecg_started) {
                 ESP_LOGI(TAG, "Starting ECG...");
                 pmd_start_ecg(g_conn_handle, g_pmd_ctrl_handle);
-            } else if (measurement_type == PMD_TYPE_ACC && !g_acc_started) {
+            } else if (pmd_type == PMD_TYPE_ACC && !g_acc_started) {
                 ESP_LOGI(TAG, "Starting ACC...");
                 pmd_start_acc(g_conn_handle, g_pmd_ctrl_handle);
             }
@@ -102,10 +112,12 @@ static void parse_pmd_response(uint8_t *data, int len) {
 
             uint64_t acc_timestamp = 0;
             memcpy(&acc_timestamp, data + 1, 8);
+            timestamp_ns = acc_timestamp;
 
             int acc_data_start = 10;
             int acc_data_len = len - acc_data_start;
             int num_acc_samples = acc_data_len / 6;
+            sample_count = (uint32_t)num_acc_samples;
 
             g_acc_packet_count++;
             g_total_acc_samples += num_acc_samples;
@@ -146,10 +158,12 @@ static void parse_pmd_response(uint8_t *data, int len) {
 
             uint64_t timestamp = 0;
             memcpy(&timestamp, data + 1, 8);
+            timestamp_ns = timestamp;
 
             int data_start = 10;
             int data_len = len - data_start;
             int num_samples = data_len / 3;
+            sample_count = (uint32_t)num_samples;
 
             g_ecg_packet_count++;
             g_total_ecg_samples += num_samples;
@@ -188,13 +202,38 @@ static void parse_pmd_response(uint8_t *data, int len) {
             break;
 
         case 0x80: // Error
-            ESP_LOGE(TAG, "PMD Error! type=0x%02X", measurement_type);
+            ESP_LOGE(TAG, "PMD Error! type=0x%02X", pmd_type);
             if (len > 2) ESP_LOGE(TAG, "Error code: 0x%02X", data[2]);
             break;
 
         default:
             break;
     }
+
+#if BINARY_OUTPUT_MODE && CONFIG_DEBUG_PMD_PROTO_ENABLE
+    notif_index++;
+    if (notif_index % CONFIG_DEBUG_PMD_PROTO_EVERY_N == 0) {
+        ecg_streaming_BleNotificationDebug dbg =
+            (ecg_streaming_BleNotificationDebug)ecg_streaming_BleNotificationDebug_init_zero;
+        ecg_streaming_CollectorMessage msg =
+            (ecg_streaming_CollectorMessage)ecg_streaming_CollectorMessage_init_zero;
+
+        strlcpy(dbg.device_id, g_device_id, sizeof(dbg.device_id));
+        dbg.frame_type = frame_type;
+        dbg.pmd_type = debug_pmd_type;
+        dbg.notif_len = (uint32_t)len;
+        dbg.sample_count = sample_count;
+        dbg.pmd_timestamp_ns = timestamp_ns;
+        dbg.interval_ms = last_notif_us == 0 ? 0 : (uint32_t)((now_us - last_notif_us) / 1000);
+        dbg.notification_index = notif_index;
+
+        msg.which_message = ecg_streaming_CollectorMessage_ble_debug_tag;
+        msg.message.ble_debug = dbg;
+        usb_send_collector_message(&msg);
+    }
+#endif
+
+    last_notif_us = now_us;
 }
 
 static int write_cb(uint16_t conn_handle, const struct ble_gatt_error *error,
