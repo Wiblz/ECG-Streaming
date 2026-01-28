@@ -1,7 +1,8 @@
 import { addSamples } from '$lib/state/acc-data.svelte'
 import { isPaused } from '$lib/state/pause.svelte'
 import { ConnectionState, setAccWsError, setAccWsState } from '$lib/state/websocket.svelte'
-import type { AccelerometerDataMessage, InitMessage } from '$lib/types/api'
+import type { AccelerometerDataMessage, BufferedAccelerometerSample, InitMessage } from '$lib/types/api'
+import { flattenGroupedSamples } from '$lib/utils/samples'
 
 const DEFAULT_PATH = '/ws/accelerometer'
 
@@ -103,8 +104,11 @@ export class AccelerometerWebSocket {
 			return
 		}
 
-		if (msg.samples.length > 0) {
-			addSamples(msg.samples)
+		// Flatten grouped data back into samples array with device_id
+		const samples = flattenGroupedSamples<BufferedAccelerometerSample>(msg.devices)
+
+		if (samples.length > 0) {
+			addSamples(samples)
 		}
 	}
 

@@ -25,6 +25,8 @@ typedef enum _ecg_streaming_DeviceStatus {
 typedef struct _ecg_streaming_ECGSample {
     int32_t value; /* Raw ECG value (μV or device units) */
     uint64_t polar_clock_us; /* Polar device clock (microseconds since Polar boot) */
+    pb_callback_t device_id; /* Device identifier (e.g., "Polar H10 ABC123") */
+    uint64_t wall_clock_us; /* Wall clock (epoch time) when collector received frame (microseconds) */
 } ecg_streaming_ECGSample;
 
 /* Individual accelerometer sample with precise timestamp */
@@ -33,6 +35,8 @@ typedef struct _ecg_streaming_AccelerometerSample {
     float y; /* Y-axis acceleration (g) */
     float z; /* Z-axis acceleration (g) */
     uint64_t polar_clock_us; /* Polar device clock (microseconds since Polar boot) */
+    pb_callback_t device_id; /* Device identifier (e.g., "Polar H10 ABC123") */
+    uint64_t wall_clock_us; /* Wall clock (epoch time) when collector received frame (microseconds) */
 } ecg_streaming_AccelerometerSample;
 
 
@@ -49,32 +53,40 @@ extern "C" {
 
 
 /* Initializer values for message structs */
-#define ecg_streaming_ECGSample_init_default     {0, 0}
-#define ecg_streaming_AccelerometerSample_init_default {0, 0, 0, 0}
-#define ecg_streaming_ECGSample_init_zero        {0, 0}
-#define ecg_streaming_AccelerometerSample_init_zero {0, 0, 0, 0}
+#define ecg_streaming_ECGSample_init_default     {0, 0, {{NULL}, NULL}, 0}
+#define ecg_streaming_AccelerometerSample_init_default {0, 0, 0, 0, {{NULL}, NULL}, 0}
+#define ecg_streaming_ECGSample_init_zero        {0, 0, {{NULL}, NULL}, 0}
+#define ecg_streaming_AccelerometerSample_init_zero {0, 0, 0, 0, {{NULL}, NULL}, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define ecg_streaming_ECGSample_value_tag        1
 #define ecg_streaming_ECGSample_polar_clock_us_tag 2
+#define ecg_streaming_ECGSample_device_id_tag    3
+#define ecg_streaming_ECGSample_wall_clock_us_tag 4
 #define ecg_streaming_AccelerometerSample_x_tag  1
 #define ecg_streaming_AccelerometerSample_y_tag  2
 #define ecg_streaming_AccelerometerSample_z_tag  3
 #define ecg_streaming_AccelerometerSample_polar_clock_us_tag 4
+#define ecg_streaming_AccelerometerSample_device_id_tag 5
+#define ecg_streaming_AccelerometerSample_wall_clock_us_tag 6
 
 /* Struct field encoding specification for nanopb */
 #define ecg_streaming_ECGSample_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, INT32,    value,             1) \
-X(a, STATIC,   SINGULAR, UINT64,   polar_clock_us,    2)
-#define ecg_streaming_ECGSample_CALLBACK NULL
+X(a, STATIC,   SINGULAR, UINT64,   polar_clock_us,    2) \
+X(a, CALLBACK, SINGULAR, STRING,   device_id,         3) \
+X(a, STATIC,   SINGULAR, UINT64,   wall_clock_us,     4)
+#define ecg_streaming_ECGSample_CALLBACK pb_default_field_callback
 #define ecg_streaming_ECGSample_DEFAULT NULL
 
 #define ecg_streaming_AccelerometerSample_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, FLOAT,    x,                 1) \
 X(a, STATIC,   SINGULAR, FLOAT,    y,                 2) \
 X(a, STATIC,   SINGULAR, FLOAT,    z,                 3) \
-X(a, STATIC,   SINGULAR, UINT64,   polar_clock_us,    4)
-#define ecg_streaming_AccelerometerSample_CALLBACK NULL
+X(a, STATIC,   SINGULAR, UINT64,   polar_clock_us,    4) \
+X(a, CALLBACK, SINGULAR, STRING,   device_id,         5) \
+X(a, STATIC,   SINGULAR, UINT64,   wall_clock_us,     6)
+#define ecg_streaming_AccelerometerSample_CALLBACK pb_default_field_callback
 #define ecg_streaming_AccelerometerSample_DEFAULT NULL
 
 extern const pb_msgdesc_t ecg_streaming_ECGSample_msg;
@@ -85,9 +97,8 @@ extern const pb_msgdesc_t ecg_streaming_AccelerometerSample_msg;
 #define ecg_streaming_AccelerometerSample_fields &ecg_streaming_AccelerometerSample_msg
 
 /* Maximum encoded size of messages (where known) */
-#define ECG_STREAMING_COMMON_PB_H_MAX_SIZE       ecg_streaming_AccelerometerSample_size
-#define ecg_streaming_AccelerometerSample_size   26
-#define ecg_streaming_ECGSample_size             22
+/* ecg_streaming_ECGSample_size depends on runtime parameters */
+/* ecg_streaming_AccelerometerSample_size depends on runtime parameters */
 
 #ifdef __cplusplus
 } /* extern "C" */

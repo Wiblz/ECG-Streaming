@@ -1,11 +1,14 @@
 export interface BufferedECGSample {
+	id: string
 	device_id: string
 	global_time: number
 	raw_value: number
 	confidence: number
+	wall_clock_us: number
 }
 
 export interface BufferedAccelerometerSample {
+	id: string
 	device_id: string
 	global_time: number
 	x: number
@@ -13,6 +16,7 @@ export interface BufferedAccelerometerSample {
 	z: number
 	magnitude: number
 	confidence: number
+	wall_clock_us: number
 }
 
 export interface InitMessage {
@@ -23,14 +27,14 @@ export interface InitMessage {
 
 export interface DataMessage {
 	type: 'data'
-	samples: BufferedECGSample[]
+	devices: Record<string, Omit<BufferedECGSample, 'device_id'>[]>
 	timestamp: number
 	count: number
 }
 
 export interface AccelerometerDataMessage {
 	type: 'data'
-	samples: BufferedAccelerometerSample[]
+	devices: Record<string, Omit<BufferedAccelerometerSample, 'device_id'>[]>
 	timestamp: number
 	count: number
 }
@@ -83,13 +87,16 @@ export interface Session {
 }
 
 export interface SessionSample {
+	id: number
 	device_id: string
 	global_time: number
 	raw_value: number
 	confidence: number
+	wall_clock_us: number
 }
 
 export interface SessionAccelerometerSample {
+	id: number
 	device_id: string
 	global_time: number
 	x: number
@@ -97,6 +104,7 @@ export interface SessionAccelerometerSample {
 	z: number
 	magnitude: number
 	confidence: number
+	wall_clock_us: number
 }
 
 export interface SessionsResponse {
@@ -106,13 +114,13 @@ export interface SessionsResponse {
 
 export interface SessionSamplesResponse {
 	session_id: number
-	samples: SessionSample[]
+	devices: Record<string, Omit<SessionSample, 'device_id'>[]>
 	count: number
 }
 
 export interface SessionAccelerometerSamplesResponse {
 	session_id: number
-	samples: SessionAccelerometerSample[]
+	devices: Record<string, Omit<SessionAccelerometerSample, 'device_id'>[]>
 	count: number
 }
 

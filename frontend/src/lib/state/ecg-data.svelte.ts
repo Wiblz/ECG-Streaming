@@ -1,7 +1,7 @@
 import { SvelteMap } from 'svelte/reactivity'
 import type { BufferedECGSample } from '$lib/types/api'
 
-const MAX_DURATION = 10 // seconds
+const MAX_DURATION = 15 // seconds - keep more than window duration to avoid gaps
 
 // Reactive state for ECG samples - using SvelteMap for proper reactivity
 const _samples = new SvelteMap<string, BufferedECGSample[]>()

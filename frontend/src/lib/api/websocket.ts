@@ -2,7 +2,8 @@ import { setDevices } from '$lib/state/devices.svelte'
 import { addSamples } from '$lib/state/ecg-data.svelte'
 import { isPaused } from '$lib/state/pause.svelte'
 import { ConnectionState, setWsError, setWsState } from '$lib/state/websocket.svelte'
-import type { DataMessage, InitMessage } from '$lib/types/api'
+import type { BufferedECGSample, DataMessage, InitMessage } from '$lib/types/api'
+import { flattenGroupedSamples } from '$lib/utils/samples'
 
 const DEFAULT_PATH = '/ws/ecg'
 
@@ -102,8 +103,11 @@ export class ECGWebSocket {
 			return
 		}
 
-		if (msg.samples.length > 0) {
-			addSamples(msg.samples)
+		// Flatten grouped data back into samples array with device_id
+		const samples = flattenGroupedSamples<BufferedECGSample>(msg.devices)
+
+		if (samples.length > 0) {
+			addSamples(samples)
 		}
 	}
 

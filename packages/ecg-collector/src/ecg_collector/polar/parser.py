@@ -9,7 +9,11 @@ from ecg_common.proto import common_pb2
 
 
 def parse_ecg_frame(
-    raw_data: bytes, last_sample_polar_clock_us: int, sample_rate: int
+    raw_data: bytes,
+    last_sample_polar_clock_us: int,
+    sample_rate: int,
+    device_id: str,
+    wall_clock_us: int,
 ) -> list[common_pb2.ECGSample]:
     """Parse ECG samples from raw PMD frame data with timestamps.
 
@@ -22,9 +26,11 @@ def parse_ecg_frame(
         raw_data: Raw bytes from PMD frame (after 10-byte header)
         last_sample_polar_clock_us: Polar clock timestamp of last sample (microseconds since Polar boot)
         sample_rate: Sample rate in Hz
+        device_id: Device identifier (e.g., "Polar H10 ABC123")
+        wall_clock_us: Wall clock (epoch time) when collector received frame (microseconds)
 
     Returns:
-        List of ECGSample proto messages with polar_clock_us timestamps
+        List of ECGSample proto messages with polar_clock_us, device_id, and wall_clock_us
     """
     sample_count = len(raw_data) // 3
     interval_us = 1_000_000 // sample_rate  # Interval in microseconds
@@ -37,13 +43,24 @@ def parse_ecg_frame(
 
         # Calculate timestamp for this sample (counting backwards from last sample)
         polar_clock_us = last_sample_polar_clock_us - (sample_count - i - 1) * interval_us
-        samples.append(common_pb2.ECGSample(value=raw_value, polar_clock_us=int(polar_clock_us)))
+        samples.append(
+            common_pb2.ECGSample(
+                value=raw_value,
+                polar_clock_us=int(polar_clock_us),
+                device_id=device_id,
+                wall_clock_us=wall_clock_us,
+            )
+        )
 
     return samples
 
 
 def parse_acc_frame(
-    raw_data: bytes, last_sample_polar_clock_us: int, sample_rate: int
+    raw_data: bytes,
+    last_sample_polar_clock_us: int,
+    sample_rate: int,
+    device_id: str,
+    wall_clock_us: int,
 ) -> list[common_pb2.AccelerometerSample]:
     """Parse accelerometer samples from raw PMD frame data with timestamps.
 
@@ -56,9 +73,11 @@ def parse_acc_frame(
         raw_data: Raw bytes from PMD frame (after 10-byte header)
         last_sample_polar_clock_us: Polar clock timestamp of last sample (microseconds since Polar boot)
         sample_rate: Sample rate in Hz
+        device_id: Device identifier (e.g., "Polar H10 ABC123")
+        wall_clock_us: Wall clock (epoch time) when collector received frame (microseconds)
 
     Returns:
-        List of AccelerometerSample proto messages with polar_clock_us timestamps
+        List of AccelerometerSample proto messages with polar_clock_us, device_id, and wall_clock_us
     """
     sample_count = len(raw_data) // 6
     interval_us = 1_000_000 // sample_rate  # Interval in microseconds
@@ -78,7 +97,14 @@ def parse_acc_frame(
         # Calculate timestamp for this sample (counting backwards from last sample)
         polar_clock_us = last_sample_polar_clock_us - (sample_count - i - 1) * interval_us
         samples.append(
-            common_pb2.AccelerometerSample(x=x_g, y=y_g, z=z_g, polar_clock_us=int(polar_clock_us))
+            common_pb2.AccelerometerSample(
+                x=x_g,
+                y=y_g,
+                z=z_g,
+                polar_clock_us=int(polar_clock_us),
+                device_id=device_id,
+                wall_clock_us=wall_clock_us,
+            )
         )
 
     return samples

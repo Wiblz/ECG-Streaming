@@ -18,6 +18,8 @@ enum DeviceStatus {
 message ECGSample {
   int32 value = 1;                    // Raw ECG value (μV or device units)
   uint64 polar_clock_us = 2;          // Polar device clock (microseconds since Polar boot)
+  string device_id = 3;               // Device identifier (e.g., "Polar H10 ABC123")
+  uint64 wall_clock_us = 4;           // Wall clock (epoch time) when collector received frame (microseconds)
 }
 
 // Individual accelerometer sample with precise timestamp
@@ -26,4 +28,6 @@ message AccelerometerSample {
   float y = 2;                        // Y-axis acceleration (g)
   float z = 3;                        // Z-axis acceleration (g)
   uint64 polar_clock_us = 4;          // Polar device clock (microseconds since Polar boot)
+  string device_id = 5;               // Device identifier (e.g., "Polar H10 ABC123")
+  uint64 wall_clock_us = 6;           // Wall clock (epoch time) when collector received frame (microseconds)
 }

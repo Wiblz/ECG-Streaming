@@ -225,7 +225,13 @@ class ECGDataBuffer(DataBuffer[BufferedECGSample]):
     """
 
     def add_sample(
-        self, device_id: str, global_time: float, raw_value: int, confidence: float
+        self,
+        device_id: str,
+        global_time: float,
+        raw_value: int,
+        confidence: float,
+        wall_clock_us: int,
+        polar_clock_us: int,
     ) -> None:
         """Add a synchronized ECG sample to the buffer.
 
@@ -234,6 +240,8 @@ class ECGDataBuffer(DataBuffer[BufferedECGSample]):
             global_time: Synchronized global timestamp
             raw_value: Raw ECG value
             confidence: Synchronization confidence
+            wall_clock_us: Wall clock (epoch time) when collector received frame (microseconds)
+            polar_clock_us: Polar device timestamp (microseconds since Polar boot)
         """
         import time as time_module
 
@@ -241,11 +249,16 @@ class ECGDataBuffer(DataBuffer[BufferedECGSample]):
 
         logger = get_logger(__name__)
 
+        # Create unique sample ID from device_id and polar_clock_us
+        sample_id = f"{device_id}:{polar_clock_us}"
+
         sample = BufferedECGSample(
+            id=sample_id,
             device_id=device_id,
             global_time=global_time,
             raw_value=raw_value,
             confidence=confidence,
+            wall_clock_us=wall_clock_us,
         )
 
         with self._lock:
@@ -282,6 +295,8 @@ class AccelerometerDataBuffer(DataBuffer[BufferedAccelerometerSample]):
         y: float,
         z: float,
         confidence: float,
+        wall_clock_us: int,
+        polar_clock_us: int,
     ) -> None:
         """Add a synchronized accelerometer sample to the buffer.
 
@@ -294,11 +309,17 @@ class AccelerometerDataBuffer(DataBuffer[BufferedAccelerometerSample]):
             y: Y-axis acceleration (g)
             z: Z-axis acceleration (g)
             confidence: Synchronization confidence
+            wall_clock_us: Wall clock (epoch time) when collector received frame (microseconds)
+            polar_clock_us: Polar device timestamp (microseconds since Polar boot)
         """
         # Calculate motion magnitude (total acceleration vector length)
         magnitude = math.sqrt(x**2 + y**2 + z**2)
 
+        # Create unique sample ID from device_id and polar_clock_us
+        sample_id = f"{device_id}:{polar_clock_us}"
+
         sample = BufferedAccelerometerSample(
+            id=sample_id,
             device_id=device_id,
             global_time=global_time,
             x=x,
@@ -306,6 +327,7 @@ class AccelerometerDataBuffer(DataBuffer[BufferedAccelerometerSample]):
             z=z,
             magnitude=magnitude,
             confidence=confidence,
+            wall_clock_us=wall_clock_us,
         )
 
         with self._lock:

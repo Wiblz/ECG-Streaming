@@ -3,7 +3,11 @@
 	import type uPlot from 'uplot';
 	import type { AlignedData } from 'uplot';
 	import { browser } from '$app/environment';
-	import { getSessionStartTime, setSessionStartTime } from '$lib/state/session-time.svelte';
+	import {
+		getSessionStartTime,
+		setSessionStartTime,
+		getCurrentPlaybackTime
+	} from '$lib/state/session-time.svelte';
 	import type { ConnectionStateType } from '$lib/state/websocket.svelte';
 	import Card from './Card.svelte';
 
@@ -32,20 +36,47 @@
 	}: Props = $props();
 
 	let plotContainer: HTMLDivElement;
-	let chart: uPlot | null = null;
+	let chart = $state<uPlot | null>(null);
 	let uPlotLib = $state<typeof uPlot | null>(null);
 	let createDeviceSeries: ((deviceIds: string[]) => uPlot.Series[]) | null = null;
 	let createAxes: ((yLabel: string) => uPlot.Axis[]) | null = null;
+	let updateIntervalId: number | null = null;
 
 	import { ConnectionState } from '$lib/state/websocket.svelte';
 
 	const isStreaming = $derived(wsState === ConnectionState.CONNECTED && samples.size > 0);
 
+	// Time window configuration
+	const WINDOW_DURATION = 10; // seconds to display
+	const UPDATE_INTERVAL_MS = 100; // update every 100ms (10fps) instead of 60fps
+
+	// X-axis range controlled by function (prevents setData from resetting scale)
+	let xAxisRange: [number, number] = [0, WINDOW_DURATION];
+
 	// Use shared session start time for synchronization across all waveforms
 	const sessionStartTime = $derived(getSessionStartTime());
 
-	// Prepare data for uPlot from live samples
-	function prepareChartData(sampleMap: Map<string, T[]>): {
+	// Get current time window based on wall-clock progression (shared across all waveforms)
+	function getCurrentTimeWindow(): { minTime: number; maxTime: number } | null {
+		const currentTime = getCurrentPlaybackTime();
+
+		if (currentTime === null) {
+			return null;
+		}
+
+		// Show the last WINDOW_DURATION seconds ending at current playback time
+		const window = {
+			minTime: Math.max(0, currentTime - WINDOW_DURATION),
+			maxTime: currentTime
+		};
+		return window;
+	}
+
+	// Prepare data for uPlot from live samples, filtered by time window
+	function prepareChartData(
+		sampleMap: Map<string, T[]>,
+		timeWindow?: { minTime: number; maxTime: number } | null
+	): {
 		data: AlignedData;
 		devices: string[];
 	} {
@@ -69,15 +100,18 @@
 
 			// Use absolute time (seconds from session start)
 			const currentStartTime = sessionStartTime ?? deviceSamples[0].global_time;
-			const timestamps = deviceSamples.map((s) => s.global_time - currentStartTime);
-			const values = deviceSamples.map((s) => getValue(s));
 
-			// Log buffer state
-			const timeRange =
-				timestamps.length > 0
-					? `${timestamps[0].toFixed(2)}s - ${timestamps[timestamps.length - 1].toFixed(2)}s`
-					: 'empty';
-			// console.log(`[${title}] Buffer: ${deviceSamples.length} samples, time range: ${timeRange}`);
+			// Filter samples by time window if provided
+			let filteredSamples = deviceSamples;
+			if (timeWindow) {
+				filteredSamples = deviceSamples.filter((s) => {
+					const relTime = s.global_time - currentStartTime;
+					return relTime >= timeWindow.minTime && relTime <= timeWindow.maxTime;
+				});
+			}
+
+			const timestamps = filteredSamples.map((s) => s.global_time - currentStartTime);
+			const values = filteredSamples.map((s) => getValue(s));
 
 			return {
 				data: [timestamps, values],
@@ -109,12 +143,55 @@
 
 		// Use absolute time (seconds from session start)
 		const currentStartTime = sessionStartTime ?? baseSamples[0].global_time;
-		const timestamps = baseSamples.map((s) => s.global_time - currentStartTime);
 
-		// Create value arrays for each device
+		// Filter base samples by time window if provided
+		let filteredBaseSamples = baseSamples;
+		if (timeWindow) {
+			filteredBaseSamples = baseSamples.filter((s) => {
+				const relTime = s.global_time - currentStartTime;
+				return relTime >= timeWindow.minTime && relTime <= timeWindow.maxTime;
+			});
+		}
+
+		const timestamps = filteredBaseSamples.map((s) => s.global_time - currentStartTime);
+
+		// Create value arrays for each device, ALIGNED to the base timestamps
 		const seriesData = devices.map((deviceId) => {
 			const deviceSamples = sampleMap.get(deviceId)!;
-			return deviceSamples.map((s) => getValue(s));
+			let filtered = deviceSamples;
+			if (timeWindow) {
+				filtered = deviceSamples.filter((s) => {
+					const relTime = s.global_time - currentStartTime;
+					return relTime >= timeWindow.minTime && relTime <= timeWindow.maxTime;
+				});
+			}
+
+			// Align device samples to base timestamps using nearest neighbor
+			return timestamps.map((baseTimestamp) => {
+				const baseAbsTime = baseTimestamp + currentStartTime;
+
+				// Find the closest sample from this device
+				let closestSample = filtered[0];
+				let minDiff = Math.abs(filtered[0]?.global_time - baseAbsTime);
+
+				for (let i = 1; i < filtered.length; i++) {
+					const diff = Math.abs(filtered[i].global_time - baseAbsTime);
+					if (diff < minDiff) {
+						minDiff = diff;
+						closestSample = filtered[i];
+					} else {
+						// Samples are time-ordered, so we can stop searching
+						break;
+					}
+				}
+
+				// Use null if no sample within reasonable tolerance (0.1s)
+				if (minDiff > 0.1) {
+					return null;
+				}
+
+				return getValue(closestSample);
+			});
 		});
 
 		return {
@@ -141,7 +218,9 @@
 			axes: createAxes(yAxisLabel),
 			scales: {
 				x: {
-					time: false
+					time: false,
+					auto: false,
+					range: () => xAxisRange
 				}
 			},
 			legend: {
@@ -156,22 +235,81 @@
 		chart = new uPlotLib(opts, data, plotContainer);
 	}
 
-	// Update chart when samples change
+	// Debug logging counter
+	let updateCounter = 0;
+
+	// Update function for time-based chart updates
+	function updateChart() {
+		if (!chart || !isStreaming) {
+			return;
+		}
+
+		const timeWindow = getCurrentTimeWindow();
+		if (!timeWindow) {
+			return;
+		}
+
+		const { data } = prepareChartData(samples, timeWindow);
+
+		// Update the range array (chart will use function to read it)
+		xAxisRange[0] = timeWindow.minTime;
+		xAxisRange[1] = timeWindow.maxTime;
+
+		// Periodic logging every 10 updates (~1 second at 100ms interval)
+		updateCounter++;
+		if (updateCounter % 10 === 0) {
+			const wallTime = Date.now() / 1000;
+			const devices = Array.from(samples.keys());
+			const bufferInfo = devices.map((deviceId) => {
+				const deviceSamples = samples.get(deviceId)!;
+				const lastSample = deviceSamples[deviceSamples.length - 1];
+				if (!lastSample) return `${deviceId}: none`;
+				const delta = lastSample.global_time - wallTime;
+				return `${deviceId}: Δ${delta.toFixed(2)}s`;
+			}).join(', ');
+
+			console.log(
+				`[${title}] window.maxTime=${timeWindow.maxTime.toFixed(2)}, wall=${wallTime.toFixed(2)}, buffer: ${bufferInfo}`
+			);
+		}
+
+		// setData will now use the updated range via the function
+		chart.setData(data);
+	}
+
+	// Start/stop update interval based on streaming state
+	$effect(() => {
+		if (isStreaming && chart) {
+			// Start update interval
+			if (updateIntervalId === null) {
+				console.log(`[${title}] Starting update interval`);
+				updateIntervalId = window.setInterval(updateChart, UPDATE_INTERVAL_MS);
+			}
+		} else {
+			// Stop update interval
+			if (updateIntervalId !== null) {
+				console.log(`[${title}] Stopping update interval`);
+				clearInterval(updateIntervalId);
+				updateIntervalId = null;
+			}
+		}
+
+		// Cleanup on effect disposal
+		return () => {
+			if (updateIntervalId !== null) {
+				clearInterval(updateIntervalId);
+				updateIntervalId = null;
+			}
+		};
+	});
+
+	// Create chart when samples first arrive
 	$effect(() => {
 		if (!plotContainer || !uPlotLib) {
-			// console.log(`[${title}] Waiting for plotContainer or uPlotLib`, {
-			// 	plotContainer: !!plotContainer,
-			// 	uPlotLib: !!uPlotLib
-			// });
 			return;
 		}
 
 		const { data, devices } = prepareChartData(samples);
-
-		// console.log(`[${title}] Data prepared`, {
-		// 	deviceCount: devices.length,
-		// 	sampleCount: data[0]?.length || 0
-		// });
 
 		if (devices.length === 0) {
 			// No data yet
@@ -180,12 +318,7 @@
 
 		if (!chart) {
 			// Create chart on first data
-			// console.log(`[${title}] Creating chart for first time`);
 			createChart();
-		} else {
-			// Update existing chart
-			// console.log(`[${title}] Updating chart data`);
-			chart.setData(data);
 		}
 	});
 
@@ -222,6 +355,9 @@
 	onDestroy(() => {
 		if (browser) {
 			window.removeEventListener('resize', handleResize);
+		}
+		if (updateIntervalId !== null) {
+			clearInterval(updateIntervalId);
 		}
 		if (chart) {
 			chart.destroy();

@@ -25,7 +25,7 @@ typedef struct _ecg_streaming_SensorFrame {
     ecg_streaming_SensorType sensor_type; /* Type of sensor data (ECG or ACC) */
     uint64_t polar_clock_us; /* Polar device clock - microseconds since Polar device boot (last sample timestamp) */
     uint64_t receiver_clock_us; /* Receiver device clock - microseconds since receiver boot (ESP32 or collector) */
-    /* NOTE: This is NOT epoch time! Clock resets on device reboot. */
+    /* NOTE: This is NOT always epoch time! */
     int32_t sample_rate; /* Sample rate in Hz */
     pb_callback_t raw_data; /* Raw PMD frame data (unparsed, for collector to process) */
 } ecg_streaming_SensorFrame;

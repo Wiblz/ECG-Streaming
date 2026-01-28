@@ -30,6 +30,26 @@ from ecg_aggregator.sync.time_alignment import TimeAlignmentService
 logger = get_logger(__name__)
 
 
+def group_samples_by_device(samples: list[dict]) -> dict[str, list[dict]]:
+    """Group samples by device_id for bandwidth-efficient transmission.
+
+    Args:
+        samples: List of sample dictionaries, each containing a 'device_id' field
+
+    Returns:
+        Dictionary mapping device_id to list of samples (with device_id removed)
+    """
+    devices_data: dict[str, list[dict]] = {}
+    for sample in samples:
+        device_id = sample["device_id"]
+        if device_id not in devices_data:
+            devices_data[device_id] = []
+        # Remove device_id from sample dict since it's in the key
+        sample_without_device_id = {k: v for k, v in sample.items() if k != "device_id"}
+        devices_data[device_id].append(sample_without_device_id)
+    return devices_data
+
+
 class ECGStreamingServer:
     """FastAPI server for ECG data streaming."""
 
@@ -622,9 +642,10 @@ class ECGStreamingServer:
                 limit=limit,
                 offset=offset,
             )
+
             return {
                 "session_id": session_id,
-                "samples": samples,
+                "devices": group_samples_by_device(samples),
                 "count": len(samples),
             }
 
@@ -655,9 +676,10 @@ class ECGStreamingServer:
                 limit=limit,
                 offset=offset,
             )
+
             return {
                 "session_id": session_id,
-                "samples": samples,
+                "devices": group_samples_by_device(samples),
                 "count": len(samples),
             }
 
@@ -1094,8 +1116,8 @@ class ECGStreamingServer:
                     logger.debug(
                         f"[BROADCAST] Device {device_id}: got {len(samples)} samples since {since:.2f}"
                     )
-                    all_samples.extend(samples)
                     if samples:
+                        all_samples.extend(samples)
                         last_broadcast_time[device_id] = samples[-1]["global_time"]
 
                 if not all_samples:
@@ -1105,15 +1127,18 @@ class ECGStreamingServer:
                     )
                     continue
 
+                # Group samples by device_id for bandwidth efficiency
+                devices_data = group_samples_by_device(all_samples)
+
                 broadcast_count += 1
                 logger.debug(
-                    f"[BROADCAST] Broadcasting {len(all_samples)} samples (broadcast #{broadcast_count})"
+                    f"[BROADCAST] Broadcasting {len(all_samples)} samples from {len(devices_data)} devices (broadcast #{broadcast_count})"
                 )
 
-                # Broadcast to all connections
+                # Broadcast to all connections - grouped by device_id
                 message = {
                     "type": "data",
-                    "samples": all_samples,
+                    "devices": devices_data,
                     "timestamp": current_time,
                     "count": len(all_samples),
                 }
@@ -1154,17 +1179,20 @@ class ECGStreamingServer:
                 for device_id in self.acc_buffer.get_device_list():
                     since = last_broadcast_time.get(device_id, current_time - 1.0)
                     samples = self.acc_buffer.get_recent_samples(since=since, device_id=device_id)
-                    all_samples.extend(samples)
                     if samples:
+                        all_samples.extend(samples)
                         last_broadcast_time[device_id] = samples[-1]["global_time"]
 
                 if not all_samples:
                     continue
 
-                # Broadcast to all connections
+                # Group samples by device_id for bandwidth efficiency
+                devices_data = group_samples_by_device(all_samples)
+
+                # Broadcast to all connections - grouped by device_id
                 message = {
                     "type": "data",
-                    "samples": all_samples,
+                    "devices": devices_data,
                     "timestamp": current_time,
                     "count": len(all_samples),
                 }

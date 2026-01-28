@@ -5,6 +5,7 @@
 	import { browser } from '$app/environment';
 	import { api } from '$lib/api/client';
 	import type { Session, SessionAccelerometerSample } from '$lib/types/api';
+	import { flattenGroupedSamples } from '$lib/utils/samples';
 
 	let uPlotLib = $state<typeof uPlot | null>(null);
 	let createDeviceSeries: ((deviceIds: string[]) => uPlot.Series[]) | null = null;
@@ -63,8 +64,11 @@
 				end_time: endTime
 			});
 
-			console.log(`[Accelerometer] Loaded ${response.samples.length} samples`);
-			loadedSamples = response.samples;
+			// Flatten grouped data back into samples array with device_id
+			const samples = flattenGroupedSamples<SessionAccelerometerSample>(response.devices);
+
+			console.log(`[Accelerometer] Loaded ${samples.length} samples`);
+			loadedSamples = samples;
 			loadedTimeRange = { start: startTime, end: endTime };
 
 			// Update chart with new data

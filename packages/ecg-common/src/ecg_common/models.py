@@ -64,9 +64,11 @@ class BufferedSample:
     and device identification.
     """
 
+    id: str  # Unique sample ID (device_id:polar_clock_us for real-time, db ID for historical)
     device_id: str
     global_time: float  # Synchronized global timestamp (seconds since epoch)
     confidence: float  # Synchronization confidence (0.0 to 1.0)
+    wall_clock_us: int  # Wall clock (epoch time) when collector received frame (microseconds)
 
 
 @dataclass

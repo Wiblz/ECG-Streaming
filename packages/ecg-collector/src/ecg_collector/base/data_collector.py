@@ -49,7 +49,13 @@ class DataCollector(ABC):
         try:
             # Parse raw PMD data into structured samples
             if frame.sensor_type == SensorType.ECG:
-                samples = parse_ecg_frame(frame.raw_data, frame.polar_clock_us, frame.sample_rate)
+                samples = parse_ecg_frame(
+                    frame.raw_data,
+                    frame.polar_clock_us,
+                    frame.sample_rate,
+                    frame.device_id,
+                    frame.wall_clock_us,
+                )
                 batch = collector_aggregator_pb2.ECGBatch(
                     device_id=frame.device_id,
                     wall_clock_us=frame.wall_clock_us,
@@ -61,7 +67,13 @@ class DataCollector(ABC):
                 msg.ecg_batch.CopyFrom(batch)
 
             elif frame.sensor_type == SensorType.ACCELEROMETER:
-                samples = parse_acc_frame(frame.raw_data, frame.polar_clock_us, frame.sample_rate)
+                samples = parse_acc_frame(
+                    frame.raw_data,
+                    frame.polar_clock_us,
+                    frame.sample_rate,
+                    frame.device_id,
+                    frame.wall_clock_us,
+                )
                 batch = collector_aggregator_pb2.AccelerometerBatch(
                     device_id=frame.device_id,
                     wall_clock_us=frame.wall_clock_us,
