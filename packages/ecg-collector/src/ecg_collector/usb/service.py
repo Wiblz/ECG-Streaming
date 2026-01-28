@@ -28,8 +28,10 @@ class MultiUsbCollectorService(DataCollector):
         display_name: str | None = None,
         allowed_device_ids: list[str] | None = None,
         detect_timeout_s: float = 20.0,
-        device_map: dict[str, str] | None = None,
+        device_map: dict[str, str | dict[str, object]] | None = None,
         persist_config: bool = True,
+        ecg_sample_rate: int = 130,
+        acc_sample_rate: int = 100,
     ) -> None:
         """Initialize multi-USB collector service."""
         # Create gRPC client with empty device list (will be updated dynamically)
@@ -55,8 +57,10 @@ class MultiUsbCollectorService(DataCollector):
         self.device_paths = device_paths
         self.allowed_device_ids = set(allowed_device_ids or [])
         self.detect_timeout_s = detect_timeout_s
-        self.device_map = device_map or {}
+        self.device_map: dict[str, str | dict[str, object]] = device_map or {}
         self.persist_config = persist_config
+        self.ecg_sample_rate = ecg_sample_rate
+        self.acc_sample_rate = acc_sample_rate
 
         self.usb_collectors: dict[str, UsbCollector] = {}
         self.running = False
@@ -65,6 +69,7 @@ class MultiUsbCollectorService(DataCollector):
         self._rejected_device_ids: set[str] = set()
         self._configured_esp_ids: set[str] = set()
         self._unmapped_esp_ids: set[str] = set()
+        self._last_usb_config: dict[str, tuple[str, int, int]] = {}
 
     def _esp_message_device_id(self, esp_msg: esp_collector_pb2.EspMessage) -> str | None:
         """Extract device ID from ESP message."""
@@ -87,12 +92,6 @@ class MultiUsbCollectorService(DataCollector):
 
         # Capture wall clock time (epoch time in microseconds)
         wall_clock_us = int(time.time() * 1_000_000)
-
-        logger.debug(
-            f"[ESP_FRAME] device={proto_frame.device_id}, sensor={proto_frame.sensor_type}, "
-            f"polar_clock_us={proto_frame.polar_clock_us}, receiver_clock_us={proto_frame.receiver_clock_us}, "
-            f"wall_clock_us={wall_clock_us}, sample_rate={proto_frame.sample_rate}, data_len={len(proto_frame.raw_data)}"
-        )
 
         return SensorFrame(
             device_id=proto_frame.device_id,
@@ -199,6 +198,39 @@ class MultiUsbCollectorService(DataCollector):
             except Exception as e:
                 logger.error("Failed to forward message to aggregator: %s", e)
 
+    def _resolve_device_config(self, esp_id: str) -> tuple[str | None, int, int]:
+        mapping = self.device_map.get(esp_id)
+        if mapping is None:
+            return None, self.ecg_sample_rate, self.acc_sample_rate
+        if isinstance(mapping, str):
+            return mapping, self.ecg_sample_rate, self.acc_sample_rate
+        device_id = mapping.get("device_id")
+        if not isinstance(device_id, str) or not device_id:
+            return None, self.ecg_sample_rate, self.acc_sample_rate
+
+        ecg_rate_value = mapping.get("ecg_sample_rate", self.ecg_sample_rate)
+        acc_rate_value = mapping.get("acc_sample_rate", self.acc_sample_rate)
+
+        ecg_rate = self.ecg_sample_rate
+        if isinstance(ecg_rate_value, int):
+            ecg_rate = ecg_rate_value
+        elif isinstance(ecg_rate_value, str):
+            try:
+                ecg_rate = int(ecg_rate_value)
+            except ValueError:
+                ecg_rate = self.ecg_sample_rate
+
+        acc_rate = self.acc_sample_rate
+        if isinstance(acc_rate_value, int):
+            acc_rate = acc_rate_value
+        elif isinstance(acc_rate_value, str):
+            try:
+                acc_rate = int(acc_rate_value)
+            except ValueError:
+                acc_rate = self.acc_sample_rate
+
+        return device_id, ecg_rate, acc_rate
+
     async def _handle_usb_device_info(
         self,
         esp_msg: esp_collector_pb2.EspMessage,
@@ -210,18 +242,19 @@ class MultiUsbCollectorService(DataCollector):
         if not esp_id:
             return
 
-        desired_target = self.device_map.get(esp_id)
+        desired_target, ecg_rate, acc_rate = self._resolve_device_config(esp_id)
         if not desired_target:
             if esp_id not in self._unmapped_esp_ids:
                 logger.info("USB device %s has no mapping; add to usb.device_map", esp_id)
                 self._unmapped_esp_ids.add(esp_id)
             return
 
-        if info.current_target == desired_target and not info.config_required:
-            self._configured_esp_ids.add(esp_id)
-            return
-
-        if esp_id in self._configured_esp_ids and info.current_target == desired_target:
+        desired_config = (desired_target, ecg_rate, acc_rate)
+        if (
+            esp_id in self._configured_esp_ids
+            and info.current_target == desired_target
+            and self._last_usb_config.get(esp_id) == desired_config
+        ):
             return
 
         if not usb_collector:
@@ -231,8 +264,8 @@ class MultiUsbCollectorService(DataCollector):
         config_msg = esp_collector_pb2.UsbConfig(
             esp_id=esp_id,
             target_device_id=desired_target,
-            ecg_sample_rate=130,
-            acc_sample_rate=200,
+            ecg_sample_rate=ecg_rate,
+            acc_sample_rate=acc_rate,
             persist=self.persist_config,
         )
         collector_to_esp_msg = esp_collector_pb2.CollectorToEspMessage()
@@ -241,6 +274,7 @@ class MultiUsbCollectorService(DataCollector):
         try:
             await usb_collector.send_collector_to_esp_message(collector_to_esp_msg)
             self._configured_esp_ids.add(esp_id)
+            self._last_usb_config[esp_id] = desired_config
             logger.info("Sent USB config to %s -> %s", esp_id, desired_target)
         except Exception as e:
             logger.error("Failed sending USB config to %s: %s", esp_id, e)

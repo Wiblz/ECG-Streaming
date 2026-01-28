@@ -57,6 +57,8 @@ static void send_usb_config_ack(bool accepted, const char *message, const char *
 
 static void apply_usb_config(const ecg_streaming_UsbConfig *cfg) {
     bool changed = false;
+    int prev_ecg_rate = g_ecg_sample_rate_hz;
+    int prev_acc_rate = g_acc_sample_rate_hz;
 
     if (cfg->target_device_id[0] != '\0' &&
         strcmp(cfg->target_device_id, g_target_device_name) != 0) {
@@ -67,8 +69,12 @@ static void apply_usb_config(const ecg_streaming_UsbConfig *cfg) {
     if (cfg->ecg_sample_rate > 0) {
         g_ecg_sample_rate_hz = cfg->ecg_sample_rate;
     }
-    if (cfg->acc_sample_rate > 0) {
+    if (cfg->acc_sample_rate >= 0) {
         g_acc_sample_rate_hz = cfg->acc_sample_rate;
+    }
+
+    if (g_ecg_sample_rate_hz != prev_ecg_rate || g_acc_sample_rate_hz != prev_acc_rate) {
+        changed = true;
     }
 
     apply_runtime_config();
@@ -79,13 +85,6 @@ static void apply_usb_config(const ecg_streaming_UsbConfig *cfg) {
 
     g_config_required = false;
 
-    if (g_connected && !g_ecg_started && g_ecg_sample_rate_hz > 0) {
-        pmd_start_ecg(g_conn_handle, g_pmd_ctrl_handle);
-    }
-    if (g_connected && !g_acc_started && g_acc_sample_rate_hz > 0) {
-        pmd_start_acc(g_conn_handle, g_pmd_ctrl_handle);
-    }
-
     if (changed) {
         if (g_connected) {
             ble_gap_terminate(g_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
@@ -93,6 +92,14 @@ static void apply_usb_config(const ecg_streaming_UsbConfig *cfg) {
             ble_gap_disc_cancel();
             start_scan();
         }
+        return;
+    }
+
+    if (g_connected && !g_ecg_started && g_ecg_sample_rate_hz > 0) {
+        pmd_start_ecg(g_conn_handle, g_pmd_ctrl_handle);
+    }
+    if (g_connected && !g_acc_started && g_acc_sample_rate_hz > 0) {
+        pmd_start_acc(g_conn_handle, g_pmd_ctrl_handle);
     }
 }
 

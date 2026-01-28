@@ -313,6 +313,8 @@ def usb_run(
             detect_timeout_s=settings.usb.detect_timeout_s,
             device_map=settings.usb.device_map,
             persist_config=settings.usb.persist_config,
+            ecg_sample_rate=settings.usb.ecg_sample_rate,
+            acc_sample_rate=settings.usb.acc_sample_rate,
         )
 
         try:

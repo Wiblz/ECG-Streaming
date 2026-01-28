@@ -76,9 +76,20 @@ class USBConfig(BaseSettings):
         default_factory=list,
         description="Optional allowlist of device IDs (empty allows all)",
     )
-    device_map: dict[str, str] = Field(
+    device_map: dict[str, str | dict[str, object]] = Field(
         default_factory=dict,
-        description="Mapping of esp_id to Polar device ID for USB provisioning",
+        description=(
+            "Mapping of esp_id to Polar device ID (string) or dict with overrides "
+            "(device_id, ecg_sample_rate, acc_sample_rate)"
+        ),
+    )
+    ecg_sample_rate: int = Field(
+        default=130,
+        description="ECG sample rate to configure on USB devices (Hz)",
+    )
+    acc_sample_rate: int = Field(
+        default=100,
+        description="Accelerometer sample rate to configure on USB devices (Hz)",
     )
     persist_config: bool = Field(
         default=True,

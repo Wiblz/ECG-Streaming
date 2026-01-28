@@ -71,6 +71,9 @@ static int normalize_ecg_rate(int rate) {
 }
 
 static int normalize_acc_rate(int rate) {
+    if (rate == 0) {
+        return 0; // special value to disable accelerometer
+    }
     switch (rate) {
         case 25:
         case 50:
