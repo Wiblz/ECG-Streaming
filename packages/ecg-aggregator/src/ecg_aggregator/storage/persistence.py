@@ -988,7 +988,7 @@ class ECGDatabase:
                 cursor = conn.cursor()
 
                 query = """
-                    SELECT id, device_id, global_time, raw_value, confidence, wall_clock_us, receiver_clock_us
+                    SELECT id, device_id, global_time, raw_value, confidence, wall_clock_us, receiver_clock_us, device_timestamp
                     FROM ecg_samples
                     WHERE session_id = ?
                 """
@@ -1025,6 +1025,7 @@ class ECGDatabase:
                             "confidence": row[4],
                             "wall_clock_us": row[5],
                             "receiver_clock_us": row[6],
+                            "polar_clock_us": row[7],
                         }
                     )
 
@@ -1062,7 +1063,7 @@ class ECGDatabase:
                 cursor = conn.cursor()
 
                 query = """
-                    SELECT id, device_id, global_time, x, y, z, magnitude, confidence, wall_clock_us, receiver_clock_us
+                    SELECT id, device_id, global_time, x, y, z, magnitude, confidence, wall_clock_us, receiver_clock_us, device_timestamp
                     FROM accelerometer_samples
                     WHERE session_id = ?
                 """
@@ -1102,6 +1103,7 @@ class ECGDatabase:
                             "confidence": row[7],
                             "wall_clock_us": row[8],
                             "receiver_clock_us": row[9],
+                            "polar_clock_us": row[10],
                         }
                     )
 

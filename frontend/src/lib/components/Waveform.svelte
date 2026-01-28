@@ -1,4 +1,4 @@
-<script lang="ts" generics="T extends { device_id: string; global_time: number; id: string; wall_clock_us: number; receiver_clock_us: number }">
+<script lang="ts" generics="T extends { device_id: string; global_time: number; id: string; wall_clock_us: number; receiver_clock_us: number; polar_clock_us: number }">
 	import { onDestroy, onMount } from 'svelte';
 	import type uPlot from 'uplot';
 	import type { AlignedData } from 'uplot';
@@ -374,8 +374,9 @@
 							<tr><td style="padding: 1px 4px 1px 0;">ID:</td><td style="padding: 1px 0;">${sample.id}</td></tr>
 							<tr><td style="padding: 1px 4px 1px 0;">Value:</td><td style="padding: 1px 0;">${yVal.toFixed(0)}</td></tr>
 							<tr><td style="padding: 1px 4px 1px 0;">Time:</td><td style="padding: 1px 0;">${xVal.toFixed(2)}s</td></tr>
-							<tr><td style="padding: 1px 4px 1px 0;">Wall:</td><td style="padding: 1px 0;">${(sample.wall_clock_us / 1_000_000).toFixed(3)}s</td></tr>
+							<tr><td style="padding: 1px 4px 1px 0;">Polar:</td><td style="padding: 1px 0;">${(sample.polar_clock_us / 1_000_000).toFixed(3)}s</td></tr>
 							<tr><td style="padding: 1px 4px 1px 0;">Receiver:</td><td style="padding: 1px 0;">${(sample.receiver_clock_us / 1_000_000).toFixed(3)}s</td></tr>
+							<tr><td style="padding: 1px 4px 1px 0;">Wall:</td><td style="padding: 1px 0;">${(sample.wall_clock_us / 1_000_000).toFixed(3)}s</td></tr>
 						</table>
 					`;
 				}

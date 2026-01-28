@@ -341,6 +341,7 @@ class ECGDataBuffer(DataBuffer[BufferedECGSample]):
             confidence=confidence,
             wall_clock_us=wall_clock_us,
             receiver_clock_us=receiver_clock_us,
+            polar_clock_us=polar_clock_us,
         )
 
         with self._lock:
@@ -414,6 +415,7 @@ class AccelerometerDataBuffer(DataBuffer[BufferedAccelerometerSample]):
             confidence=confidence,
             wall_clock_us=wall_clock_us,
             receiver_clock_us=receiver_clock_us,
+            polar_clock_us=polar_clock_us,
         )
 
         with self._lock:
