@@ -1,6 +1,8 @@
 from collections.abc import Iterable as _Iterable
 from collections.abc import Mapping as _Mapping
-from typing import ClassVar as _ClassVar
+from typing import (
+    ClassVar as _ClassVar,
+)
 
 import common_pb2 as _common_pb2
 from google.protobuf import descriptor as _descriptor
@@ -178,7 +180,10 @@ class RegistrationAck(_message.Message):
     server_time_ms: int
 
     def __init__(
-        self, accepted: bool = ..., message: str | None = ..., server_time_ms: int | None = ...
+        self,
+        accepted: bool = ...,
+        message: str | None = ...,
+        server_time_ms: int | None = ...,
     ) -> None: ...
 
 class SyncStatusUpdate(_message.Message):

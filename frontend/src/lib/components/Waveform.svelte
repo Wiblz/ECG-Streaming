@@ -1,4 +1,4 @@
-<script lang="ts" generics="T extends { device_id: string; global_time: number }">
+<script lang="ts" generics="T extends { device_id: string; global_time: number; id: string; wall_clock_us: number; receiver_clock_us: number }">
 	import { onDestroy, onMount } from 'svelte';
 	import type uPlot from 'uplot';
 	import type { AlignedData } from 'uplot';
@@ -40,7 +40,12 @@
 	let uPlotLib = $state<typeof uPlot | null>(null);
 	let createDeviceSeries: ((deviceIds: string[]) => uPlot.Series[]) | null = null;
 	let createAxes: ((yLabel: string) => uPlot.Axis[]) | null = null;
+	let tooltipsPlugin: ReturnType<typeof import('$lib/utils/uplot-tooltips').tooltipsPlugin> | null =
+		null;
 	let updateIntervalId: number | null = null;
+
+	// Sample lookup for efficient tooltip access - maps chart data index to original sample
+	let sampleLookup: T[] = [];
 
 	import { ConnectionState } from '$lib/state/websocket.svelte';
 
@@ -48,7 +53,7 @@
 
 	// Time window configuration
 	const WINDOW_DURATION = 10; // seconds to display
-	const UPDATE_INTERVAL_MS = 100; // update every 100ms (10fps) instead of 60fps
+	const UPDATE_INTERVAL_MS = 33; // update every 33ms (~30fps)
 
 	// X-axis range controlled by function (prevents setData from resetting scale)
 	let xAxisRange: [number, number] = [0, WINDOW_DURATION];
@@ -79,18 +84,19 @@
 	): {
 		data: AlignedData;
 		devices: string[];
+		samples: T[];
 	} {
 		const devices = Array.from(sampleMap.keys());
 
 		if (devices.length === 0 || sampleMap.size === 0) {
-			return { data: [[], []], devices: [] };
+			return { data: [[], []], devices: [], samples: [] };
 		}
 
 		// Single device case
 		if (devices.length === 1) {
 			const deviceSamples = sampleMap.get(devices[0])!;
 			if (deviceSamples.length === 0) {
-				return { data: [[], []], devices };
+				return { data: [[], []], devices, samples: [] };
 			}
 
 			// Set session start time from first sample if not set
@@ -115,7 +121,8 @@
 
 			return {
 				data: [timestamps, values],
-				devices
+				devices,
+				samples: filteredSamples
 			};
 		}
 
@@ -133,7 +140,7 @@
 
 		const baseSamples = sampleMap.get(maxDevice)!;
 		if (baseSamples.length === 0) {
-			return { data: [[], []], devices: [] };
+			return { data: [[], []], devices: [], samples: [] };
 		}
 
 		// Set session start time from first sample if not set
@@ -196,7 +203,8 @@
 
 		return {
 			data: [timestamps, ...seriesData],
-			devices
+			devices,
+			samples: filteredBaseSamples
 		};
 	}
 
@@ -204,7 +212,8 @@
 	function createChart() {
 		if (!plotContainer || !uPlotLib || !createDeviceSeries || !createAxes) return;
 
-		const { data, devices } = prepareChartData(samples);
+		const { data, devices, samples: chartSamples } = prepareChartData(samples);
+		sampleLookup = chartSamples;
 
 		if (devices.length === 0) {
 			// No data yet, skip chart creation
@@ -223,6 +232,7 @@
 					range: () => xAxisRange
 				}
 			},
+			plugins: tooltipsPlugin ? [tooltipsPlugin] : [],
 			legend: {
 				show: true
 			}
@@ -249,7 +259,8 @@
 			return;
 		}
 
-		const { data } = prepareChartData(samples, timeWindow);
+		const { data, samples: chartSamples } = prepareChartData(samples, timeWindow);
+		sampleLookup = chartSamples;
 
 		// Update the range array (chart will use function to read it)
 		xAxisRange[0] = timeWindow.minTime;
@@ -309,7 +320,8 @@
 			return;
 		}
 
-		const { data, devices } = prepareChartData(samples);
+		const { data, devices, samples: chartSamples } = prepareChartData(samples);
+		sampleLookup = chartSamples;
 
 		if (devices.length === 0) {
 			// No data yet
@@ -338,14 +350,40 @@
 		// console.log(`[${title}] Loading uPlot...`);
 
 		// Dynamically import uPlot and utilities only in browser
-		const [uPlotModule, utilsModule] = await Promise.all([
+		const [uPlotModule, utilsModule, tooltipsModule] = await Promise.all([
 			import('uplot'),
-			import('$lib/utils/uplot')
+			import('$lib/utils/uplot'),
+			import('$lib/utils/uplot-tooltips')
 		]);
 
 		uPlotLib = uPlotModule.default;
 		createDeviceSeries = utilsModule.createDeviceSeries;
 		createAxes = utilsModule.createAxes;
+		tooltipsPlugin = tooltipsModule.tooltipsPlugin({
+			showSeriesPoints: true,
+			showCursorPosition: false,
+			formatValue: (xVal, yVal, seriesIdx, dataIdx) => {
+				// Use direct lookup - O(1) instead of O(n)
+				const sample = sampleLookup[dataIdx];
+				if (sample) {
+					return `
+						<table style="border-collapse: collapse;">
+							<tr><td style="padding: 1px 4px 1px 0;">ID:</td><td style="padding: 1px 0;">${sample.id}</td></tr>
+							<tr><td style="padding: 1px 4px 1px 0;">Value:</td><td style="padding: 1px 0;">${yVal.toFixed(0)}</td></tr>
+							<tr><td style="padding: 1px 4px 1px 0;">Time:</td><td style="padding: 1px 0;">${xVal.toFixed(2)}s</td></tr>
+							<tr><td style="padding: 1px 4px 1px 0;">Wall:</td><td style="padding: 1px 0;">${(sample.wall_clock_us / 1_000_000).toFixed(3)}s</td></tr>
+							<tr><td style="padding: 1px 4px 1px 0;">Receiver:</td><td style="padding: 1px 0;">${(sample.receiver_clock_us / 1_000_000).toFixed(3)}s</td></tr>
+						</table>
+					`;
+				}
+				return `
+					<table style="border-collapse: collapse;">
+						<tr><td style="padding: 1px 4px 1px 0;">Time:</td><td style="padding: 1px 0;">${xVal.toFixed(2)}s</td></tr>
+						<tr><td style="padding: 1px 4px 1px 0;">Value:</td><td style="padding: 1px 0;">${yVal.toFixed(0)}</td></tr>
+					</table>
+				`;
+			}
+		});
 
 		// console.log(`[${title}] uPlot loaded successfully`);
 

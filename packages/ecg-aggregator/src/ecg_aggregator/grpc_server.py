@@ -402,6 +402,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                     confidence=synced.confidence,
                     wall_clock_us=sample.wall_clock_us,
                     polar_clock_us=sample.polar_clock_us,
+                    receiver_clock_us=sample.receiver_clock_us,
                 )
                 samples_added += 1
             else:
@@ -429,6 +430,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                     confidence=confidence,
                     session_id=session_id,
                     wall_clock_us=sample.wall_clock_us,
+                    receiver_clock_us=sample.receiver_clock_us,
                 )
 
         logger.debug(
@@ -479,6 +481,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                     confidence=synced.confidence,
                     wall_clock_us=sample.wall_clock_us,
                     polar_clock_us=sample.polar_clock_us,
+                    receiver_clock_us=sample.receiver_clock_us,
                 )
                 samples_added += 1
 
@@ -554,6 +557,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                     confidence=confidence,
                     session_id=session_id,
                     wall_clock_us=sample.wall_clock_us,
+                    receiver_clock_us=sample.receiver_clock_us,
                 )
 
         logger.debug(

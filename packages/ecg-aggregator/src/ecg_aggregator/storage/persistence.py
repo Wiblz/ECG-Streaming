@@ -165,6 +165,7 @@ class ECGDatabase:
         confidence: float,
         session_id: int | None = None,
         wall_clock_us: int | None = None,
+        receiver_clock_us: int | None = None,
     ) -> None:
         """Store a single ECG sample.
 
@@ -176,6 +177,7 @@ class ECGDatabase:
             confidence: Time sync confidence (0-1)
             session_id: Session ID to associate with this sample (optional)
             wall_clock_us: Collector-issued wall clock timestamp (epoch time in microseconds, optional)
+            receiver_clock_us: Receiver device clock (microseconds since ESP32/collector boot, optional)
         """
         with self._lock:
             try:
@@ -185,8 +187,8 @@ class ECGDatabase:
                 cursor.execute(
                     """
                     INSERT INTO ecg_samples
-                    (device_id, global_time, device_timestamp, raw_value, confidence, inserted_at, session_id, wall_clock_us)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (device_id, global_time, device_timestamp, raw_value, confidence, inserted_at, session_id, wall_clock_us, receiver_clock_us)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         device_id,
@@ -197,6 +199,7 @@ class ECGDatabase:
                         time.time(),
                         session_id,
                         wall_clock_us,
+                        receiver_clock_us,
                     ),
                 )
 
@@ -229,6 +232,7 @@ class ECGDatabase:
         magnitude: float | None = None,
         session_id: int | None = None,
         wall_clock_us: int | None = None,
+        receiver_clock_us: int | None = None,
     ) -> None:
         """Store a single accelerometer sample.
 
@@ -243,6 +247,7 @@ class ECGDatabase:
             magnitude: Pre-calculated motion magnitude (optional, will be calculated if not provided)
             session_id: Session ID to associate with this sample (optional)
             wall_clock_us: Collector-issued wall clock timestamp (epoch time in microseconds, optional)
+            receiver_clock_us: Receiver device clock (microseconds since ESP32/collector boot, optional)
         """
         # Calculate magnitude if not provided
         if magnitude is None:
@@ -256,8 +261,8 @@ class ECGDatabase:
                 cursor.execute(
                     """
                     INSERT INTO accelerometer_samples
-                    (device_id, global_time, device_timestamp, x, y, z, magnitude, confidence, inserted_at, session_id, wall_clock_us)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (device_id, global_time, device_timestamp, x, y, z, magnitude, confidence, inserted_at, session_id, wall_clock_us, receiver_clock_us)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         device_id,
@@ -271,6 +276,7 @@ class ECGDatabase:
                         time.time(),
                         session_id,
                         wall_clock_us,
+                        receiver_clock_us,
                     ),
                 )
 
@@ -982,7 +988,7 @@ class ECGDatabase:
                 cursor = conn.cursor()
 
                 query = """
-                    SELECT id, device_id, global_time, raw_value, confidence, wall_clock_us
+                    SELECT id, device_id, global_time, raw_value, confidence, wall_clock_us, receiver_clock_us
                     FROM ecg_samples
                     WHERE session_id = ?
                 """
@@ -1018,6 +1024,7 @@ class ECGDatabase:
                             "raw_value": row[3],
                             "confidence": row[4],
                             "wall_clock_us": row[5],
+                            "receiver_clock_us": row[6],
                         }
                     )
 
@@ -1055,7 +1062,7 @@ class ECGDatabase:
                 cursor = conn.cursor()
 
                 query = """
-                    SELECT id, device_id, global_time, x, y, z, magnitude, confidence, wall_clock_us
+                    SELECT id, device_id, global_time, x, y, z, magnitude, confidence, wall_clock_us, receiver_clock_us
                     FROM accelerometer_samples
                     WHERE session_id = ?
                 """
@@ -1094,6 +1101,7 @@ class ECGDatabase:
                             "magnitude": row[6],
                             "confidence": row[7],
                             "wall_clock_us": row[8],
+                            "receiver_clock_us": row[9],
                         }
                     )
 

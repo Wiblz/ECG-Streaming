@@ -55,6 +55,7 @@ class DataCollector(ABC):
                     frame.sample_rate,
                     frame.device_id,
                     frame.wall_clock_us,
+                    frame.receiver_clock_us,
                 )
                 batch = collector_aggregator_pb2.ECGBatch(
                     device_id=frame.device_id,
@@ -73,6 +74,7 @@ class DataCollector(ABC):
                     frame.sample_rate,
                     frame.device_id,
                     frame.wall_clock_us,
+                    frame.receiver_clock_us,
                 )
                 batch = collector_aggregator_pb2.AccelerometerBatch(
                     device_id=frame.device_id,

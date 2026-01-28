@@ -14,6 +14,7 @@ def parse_ecg_frame(
     sample_rate: int,
     device_id: str,
     wall_clock_us: int,
+    receiver_clock_us: int,
 ) -> list[common_pb2.ECGSample]:
     """Parse ECG samples from raw PMD frame data with timestamps.
 
@@ -28,9 +29,10 @@ def parse_ecg_frame(
         sample_rate: Sample rate in Hz
         device_id: Device identifier (e.g., "Polar H10 ABC123")
         wall_clock_us: Wall clock (epoch time) when collector received frame (microseconds)
+        receiver_clock_us: Receiver clock (microseconds since ESP32/collector boot)
 
     Returns:
-        List of ECGSample proto messages with polar_clock_us, device_id, and wall_clock_us
+        List of ECGSample proto messages with all timestamps
     """
     sample_count = len(raw_data) // 3
     interval_us = 1_000_000 // sample_rate  # Interval in microseconds
@@ -49,6 +51,7 @@ def parse_ecg_frame(
                 polar_clock_us=int(polar_clock_us),
                 device_id=device_id,
                 wall_clock_us=wall_clock_us,
+                receiver_clock_us=receiver_clock_us,
             )
         )
 
@@ -61,6 +64,7 @@ def parse_acc_frame(
     sample_rate: int,
     device_id: str,
     wall_clock_us: int,
+    receiver_clock_us: int,
 ) -> list[common_pb2.AccelerometerSample]:
     """Parse accelerometer samples from raw PMD frame data with timestamps.
 
@@ -75,9 +79,10 @@ def parse_acc_frame(
         sample_rate: Sample rate in Hz
         device_id: Device identifier (e.g., "Polar H10 ABC123")
         wall_clock_us: Wall clock (epoch time) when collector received frame (microseconds)
+        receiver_clock_us: Receiver clock (microseconds since ESP32/collector boot)
 
     Returns:
-        List of AccelerometerSample proto messages with polar_clock_us, device_id, and wall_clock_us
+        List of AccelerometerSample proto messages with all timestamps
     """
     sample_count = len(raw_data) // 6
     interval_us = 1_000_000 // sample_rate  # Interval in microseconds
@@ -104,6 +109,7 @@ def parse_acc_frame(
                 polar_clock_us=int(polar_clock_us),
                 device_id=device_id,
                 wall_clock_us=wall_clock_us,
+                receiver_clock_us=receiver_clock_us,
             )
         )
 

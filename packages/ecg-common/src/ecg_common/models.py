@@ -69,6 +69,7 @@ class BufferedSample:
     global_time: float  # Synchronized global timestamp (seconds since epoch)
     confidence: float  # Synchronization confidence (0.0 to 1.0)
     wall_clock_us: int  # Wall clock (epoch time) when collector received frame (microseconds)
+    receiver_clock_us: int  # Receiver device clock (microseconds since ESP32/collector boot)
 
 
 @dataclass

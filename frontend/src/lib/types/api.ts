@@ -5,6 +5,7 @@ export interface BufferedECGSample {
 	raw_value: number
 	confidence: number
 	wall_clock_us: number
+	receiver_clock_us: number
 }
 
 export interface BufferedAccelerometerSample {
@@ -17,6 +18,7 @@ export interface BufferedAccelerometerSample {
 	magnitude: number
 	confidence: number
 	wall_clock_us: number
+	receiver_clock_us: number
 }
 
 export interface InitMessage {
@@ -93,6 +95,7 @@ export interface SessionSample {
 	raw_value: number
 	confidence: number
 	wall_clock_us: number
+	receiver_clock_us: number
 }
 
 export interface SessionAccelerometerSample {
@@ -105,6 +108,7 @@ export interface SessionAccelerometerSample {
 	magnitude: number
 	confidence: number
 	wall_clock_us: number
+	receiver_clock_us: number
 }
 
 export interface SessionsResponse {

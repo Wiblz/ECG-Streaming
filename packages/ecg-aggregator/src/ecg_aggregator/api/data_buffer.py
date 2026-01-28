@@ -232,6 +232,7 @@ class ECGDataBuffer(DataBuffer[BufferedECGSample]):
         confidence: float,
         wall_clock_us: int,
         polar_clock_us: int,
+        receiver_clock_us: int,
     ) -> None:
         """Add a synchronized ECG sample to the buffer.
 
@@ -242,6 +243,7 @@ class ECGDataBuffer(DataBuffer[BufferedECGSample]):
             confidence: Synchronization confidence
             wall_clock_us: Wall clock (epoch time) when collector received frame (microseconds)
             polar_clock_us: Polar device timestamp (microseconds since Polar boot)
+            receiver_clock_us: Receiver device clock (microseconds since ESP32/collector boot)
         """
         import time as time_module
 
@@ -259,6 +261,7 @@ class ECGDataBuffer(DataBuffer[BufferedECGSample]):
             raw_value=raw_value,
             confidence=confidence,
             wall_clock_us=wall_clock_us,
+            receiver_clock_us=receiver_clock_us,
         )
 
         with self._lock:
@@ -297,6 +300,7 @@ class AccelerometerDataBuffer(DataBuffer[BufferedAccelerometerSample]):
         confidence: float,
         wall_clock_us: int,
         polar_clock_us: int,
+        receiver_clock_us: int,
     ) -> None:
         """Add a synchronized accelerometer sample to the buffer.
 
@@ -311,6 +315,7 @@ class AccelerometerDataBuffer(DataBuffer[BufferedAccelerometerSample]):
             confidence: Synchronization confidence
             wall_clock_us: Wall clock (epoch time) when collector received frame (microseconds)
             polar_clock_us: Polar device timestamp (microseconds since Polar boot)
+            receiver_clock_us: Receiver device clock (microseconds since ESP32/collector boot)
         """
         # Calculate motion magnitude (total acceleration vector length)
         magnitude = math.sqrt(x**2 + y**2 + z**2)
@@ -328,6 +333,7 @@ class AccelerometerDataBuffer(DataBuffer[BufferedAccelerometerSample]):
             magnitude=magnitude,
             confidence=confidence,
             wall_clock_us=wall_clock_us,
+            receiver_clock_us=receiver_clock_us,
         )
 
         with self._lock:

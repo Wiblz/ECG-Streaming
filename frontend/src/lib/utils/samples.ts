@@ -10,6 +10,6 @@
  */
 export function flattenGroupedSamples<T>(devices: Record<string, Omit<T, 'device_id'>[]>): T[] {
 	return Object.entries(devices).flatMap(([device_id, deviceSamples]) =>
-		deviceSamples.map((sample) => ({ device_id, ...sample } as T))
+		deviceSamples.map((sample) => ({ device_id, ...sample }) as T)
 	)
 }

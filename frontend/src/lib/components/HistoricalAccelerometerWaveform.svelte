@@ -10,6 +10,8 @@
 	let uPlotLib = $state<typeof uPlot | null>(null);
 	let createDeviceSeries: ((deviceIds: string[]) => uPlot.Series[]) | null = null;
 	let createAxes: (() => uPlot.Axis[]) | null = null;
+	let tooltipsPlugin: ReturnType<typeof import('$lib/utils/uplot-tooltips').tooltipsPlugin> | null =
+		null;
 
 	interface Props {
 		session: Session;
@@ -288,7 +290,7 @@
 					time: false
 				}
 			},
-			plugins: [wheelZoomPlugin()],
+			plugins: tooltipsPlugin ? [wheelZoomPlugin(), tooltipsPlugin] : [wheelZoomPlugin()],
 			hooks: {
 				setScale: [
 					(u) => {
@@ -391,14 +393,44 @@
 		if (!browser) return;
 
 		// Dynamically import uPlot and utilities only in browser
-		const [uPlotModule, utilsModule] = await Promise.all([
+		const [uPlotModule, utilsModule, tooltipsModule] = await Promise.all([
 			import('uplot'),
-			import('$lib/utils/uplot')
+			import('$lib/utils/uplot'),
+			import('$lib/utils/uplot-tooltips')
 		]);
 
 		uPlotLib = uPlotModule.default;
 		createDeviceSeries = utilsModule.createDeviceSeries;
 		createAxes = () => utilsModule.createAxes('Magnitude (g)');
+		tooltipsPlugin = tooltipsModule.tooltipsPlugin({
+			showSeriesPoints: true,
+			showCursorPosition: false,
+			formatValue: (xVal, yVal, seriesIdx, dataIdx) => {
+				const sample = loadedSamples[dataIdx];
+				if (sample) {
+					return `
+						<table style="border-collapse: collapse;">
+							<tr><td style="padding: 1px 4px 1px 0;">ID:</td><td style="padding: 1px 0;">${sample.id}</td></tr>
+							<tr><td style="padding: 1px 4px 1px 0;">X:</td><td style="padding: 1px 0;">${sample.x.toFixed(3)}g</td></tr>
+							<tr><td style="padding: 1px 4px 1px 0;">Y:</td><td style="padding: 1px 0;">${sample.y.toFixed(3)}g</td></tr>
+							<tr><td style="padding: 1px 4px 1px 0;">Z:</td><td style="padding: 1px 0;">${sample.z.toFixed(3)}g</td></tr>
+							<tr><td style="padding: 1px 4px 1px 0;">Mag:</td><td style="padding: 1px 0;">${sample.magnitude.toFixed(3)}g</td></tr>
+							<tr><td style="padding: 1px 4px 1px 0;">Time:</td><td style="padding: 1px 0;">${xVal.toFixed(2)}s</td></tr>
+							<tr><td style="padding: 1px 4px 1px 0;">Global:</td><td style="padding: 1px 0;">${sample.global_time.toFixed(3)}s</td></tr>
+							<tr><td style="padding: 1px 4px 1px 0;">Wall:</td><td style="padding: 1px 0;">${(sample.wall_clock_us / 1_000_000).toFixed(3)}s</td></tr>
+							<tr><td style="padding: 1px 4px 1px 0;">Receiver:</td><td style="padding: 1px 0;">${(sample.receiver_clock_us / 1_000_000).toFixed(3)}s</td></tr>
+							<tr><td style="padding: 1px 4px 1px 0;">Conf:</td><td style="padding: 1px 0;">${(sample.confidence * 100).toFixed(0)}%</td></tr>
+						</table>
+					`;
+				}
+				return `
+					<table style="border-collapse: collapse;">
+						<tr><td style="padding: 1px 4px 1px 0;">Time:</td><td style="padding: 1px 0;">${xVal.toFixed(2)}s</td></tr>
+						<tr><td style="padding: 1px 4px 1px 0;">Magnitude:</td><td style="padding: 1px 0;">${yVal.toFixed(3)}g</td></tr>
+					</table>
+				`;
+			}
+		});
 
 		window.addEventListener('resize', handleResize);
 	});

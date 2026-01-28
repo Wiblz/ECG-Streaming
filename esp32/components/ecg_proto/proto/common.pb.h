@@ -27,6 +27,7 @@ typedef struct _ecg_streaming_ECGSample {
     uint64_t polar_clock_us; /* Polar device clock (microseconds since Polar boot) */
     pb_callback_t device_id; /* Device identifier (e.g., "Polar H10 ABC123") */
     uint64_t wall_clock_us; /* Wall clock (epoch time) when collector received frame (microseconds) */
+    uint64_t receiver_clock_us; /* Receiver device clock (microseconds since ESP32/collector boot) */
 } ecg_streaming_ECGSample;
 
 /* Individual accelerometer sample with precise timestamp */
@@ -37,6 +38,7 @@ typedef struct _ecg_streaming_AccelerometerSample {
     uint64_t polar_clock_us; /* Polar device clock (microseconds since Polar boot) */
     pb_callback_t device_id; /* Device identifier (e.g., "Polar H10 ABC123") */
     uint64_t wall_clock_us; /* Wall clock (epoch time) when collector received frame (microseconds) */
+    uint64_t receiver_clock_us; /* Receiver device clock (microseconds since ESP32/collector boot) */
 } ecg_streaming_AccelerometerSample;
 
 
@@ -53,29 +55,32 @@ extern "C" {
 
 
 /* Initializer values for message structs */
-#define ecg_streaming_ECGSample_init_default     {0, 0, {{NULL}, NULL}, 0}
-#define ecg_streaming_AccelerometerSample_init_default {0, 0, 0, 0, {{NULL}, NULL}, 0}
-#define ecg_streaming_ECGSample_init_zero        {0, 0, {{NULL}, NULL}, 0}
-#define ecg_streaming_AccelerometerSample_init_zero {0, 0, 0, 0, {{NULL}, NULL}, 0}
+#define ecg_streaming_ECGSample_init_default     {0, 0, {{NULL}, NULL}, 0, 0}
+#define ecg_streaming_AccelerometerSample_init_default {0, 0, 0, 0, {{NULL}, NULL}, 0, 0}
+#define ecg_streaming_ECGSample_init_zero        {0, 0, {{NULL}, NULL}, 0, 0}
+#define ecg_streaming_AccelerometerSample_init_zero {0, 0, 0, 0, {{NULL}, NULL}, 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define ecg_streaming_ECGSample_value_tag        1
 #define ecg_streaming_ECGSample_polar_clock_us_tag 2
 #define ecg_streaming_ECGSample_device_id_tag    3
 #define ecg_streaming_ECGSample_wall_clock_us_tag 4
+#define ecg_streaming_ECGSample_receiver_clock_us_tag 5
 #define ecg_streaming_AccelerometerSample_x_tag  1
 #define ecg_streaming_AccelerometerSample_y_tag  2
 #define ecg_streaming_AccelerometerSample_z_tag  3
 #define ecg_streaming_AccelerometerSample_polar_clock_us_tag 4
 #define ecg_streaming_AccelerometerSample_device_id_tag 5
 #define ecg_streaming_AccelerometerSample_wall_clock_us_tag 6
+#define ecg_streaming_AccelerometerSample_receiver_clock_us_tag 7
 
 /* Struct field encoding specification for nanopb */
 #define ecg_streaming_ECGSample_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, INT32,    value,             1) \
 X(a, STATIC,   SINGULAR, UINT64,   polar_clock_us,    2) \
 X(a, CALLBACK, SINGULAR, STRING,   device_id,         3) \
-X(a, STATIC,   SINGULAR, UINT64,   wall_clock_us,     4)
+X(a, STATIC,   SINGULAR, UINT64,   wall_clock_us,     4) \
+X(a, STATIC,   SINGULAR, UINT64,   receiver_clock_us,   5)
 #define ecg_streaming_ECGSample_CALLBACK pb_default_field_callback
 #define ecg_streaming_ECGSample_DEFAULT NULL
 
@@ -85,7 +90,8 @@ X(a, STATIC,   SINGULAR, FLOAT,    y,                 2) \
 X(a, STATIC,   SINGULAR, FLOAT,    z,                 3) \
 X(a, STATIC,   SINGULAR, UINT64,   polar_clock_us,    4) \
 X(a, CALLBACK, SINGULAR, STRING,   device_id,         5) \
-X(a, STATIC,   SINGULAR, UINT64,   wall_clock_us,     6)
+X(a, STATIC,   SINGULAR, UINT64,   wall_clock_us,     6) \
+X(a, STATIC,   SINGULAR, UINT64,   receiver_clock_us,   7)
 #define ecg_streaming_AccelerometerSample_CALLBACK pb_default_field_callback
 #define ecg_streaming_AccelerometerSample_DEFAULT NULL
 
