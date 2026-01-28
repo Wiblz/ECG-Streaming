@@ -5,76 +5,81 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 
-#include "ecg_streaming.pb.h"
+#include "pb.h"
+#include "pb_encode.h"
+#include "common.pb.h"
+#include "esp_collector.pb.h"
 #include "state.h"
 #include "usb_transport.h"
 
 static const char *TAG = "H10_COMBINED";
 
 #if BINARY_OUTPUT_MODE
-static ecg_streaming_ECGSampleBatch g_ecg_batch;
-static ecg_streaming_AccelerometerSampleBatch g_acc_batch;
-static ecg_streaming_CollectorMessage g_collector_msg;
-#endif
+static ecg_streaming_SensorFrame g_sensor_frame;
+static ecg_streaming_EspMessage g_esp_msg;
+static uint8_t g_sensor_data_buf[512];
 
-void output_ecg_binary(void) {
-    if (g_ecg_count == 0) return;
+typedef struct {
+    const uint8_t *data;
+    size_t len;
+} bytes_view_t;
 
-#if BINARY_OUTPUT_MODE
-    g_ecg_batch = (ecg_streaming_ECGSampleBatch)ecg_streaming_ECGSampleBatch_init_zero;
-    g_collector_msg = (ecg_streaming_CollectorMessage)ecg_streaming_CollectorMessage_init_zero;
-
-    strlcpy(g_ecg_batch.device_id, g_device_id, sizeof(g_ecg_batch.device_id));
-    g_ecg_batch.batch_timestamp_ms = (int64_t)(esp_timer_get_time() / 1000);
-    g_ecg_batch.samples_count = (pb_size_t)g_ecg_count;
-
-    for (int i = 0; i < g_ecg_count; i++) {
-        ecg_streaming_ECGSample *sample = &g_ecg_batch.samples[i];
-        sample->device_timestamp_us = (double)(g_ecg_buffer[i].timestamp_ns / 1000);
-        sample->host_receive_time_s = 0.0;
-        sample->raw_value = g_ecg_buffer[i].value_uv;
-        sample->sample_rate = g_ecg_sample_rate_hz;
+static bool encode_bytes_cb(pb_ostream_t *stream, const pb_field_t *field, void *const *arg) {
+    const bytes_view_t *view = (const bytes_view_t *)(*arg);
+    if (!pb_encode_tag_for_field(stream, field)) {
+        return false;
     }
-
-    g_collector_msg.which_message = ecg_streaming_CollectorMessage_ecg_batch_tag;
-    g_collector_msg.message.ecg_batch = g_ecg_batch;
-
-    if (!usb_send_collector_message(&g_collector_msg)) {
-        ESP_LOGE(TAG, "Failed to send ECG batch");
-    }
-#endif
-
-    g_ecg_count = 0;
+    return pb_encode_string(stream, view->data, view->len);
 }
-
-void output_acc_binary(void) {
-    if (g_acc_count == 0) return;
-
-#if BINARY_OUTPUT_MODE
-    g_acc_batch = (ecg_streaming_AccelerometerSampleBatch)ecg_streaming_AccelerometerSampleBatch_init_zero;
-    g_collector_msg = (ecg_streaming_CollectorMessage)ecg_streaming_CollectorMessage_init_zero;
-
-    strlcpy(g_acc_batch.device_id, g_device_id, sizeof(g_acc_batch.device_id));
-    g_acc_batch.batch_timestamp_ms = (int64_t)(esp_timer_get_time() / 1000);
-    g_acc_batch.samples_count = (pb_size_t)g_acc_count;
-
-    for (int i = 0; i < g_acc_count; i++) {
-        ecg_streaming_AccelerometerSample *sample = &g_acc_batch.samples[i];
-        sample->device_timestamp_us = (double)(g_acc_buffer[i].timestamp_ns / 1000);
-        sample->host_receive_time_s = 0.0;
-        sample->x = (float)g_acc_buffer[i].x_mg / 1000.0f;
-        sample->y = (float)g_acc_buffer[i].y_mg / 1000.0f;
-        sample->z = (float)g_acc_buffer[i].z_mg / 1000.0f;
-        sample->sample_rate = g_acc_sample_rate_hz;
-    }
-
-    g_collector_msg.which_message = ecg_streaming_CollectorMessage_acc_batch_tag;
-    g_collector_msg.message.acc_batch = g_acc_batch;
-
-    if (!usb_send_collector_message(&g_collector_msg)) {
-        ESP_LOGE(TAG, "Failed to send ACC batch");
-    }
 #endif
 
-    g_acc_count = 0;
+void output_sensor_frame(
+    ecg_streaming_SensorType sensor_type,
+    int32_t sample_rate,
+    uint64_t polar_clock_us,
+    const uint8_t *data,
+    size_t len
+) {
+#if BINARY_OUTPUT_MODE
+    if (len > sizeof(g_sensor_data_buf)) {
+        ESP_LOGE(TAG, "Sensor frame too large: %zu bytes", len);
+        return;
+    }
+
+    // Copy data to our buffer
+    memcpy(g_sensor_data_buf, data, len);
+
+    bytes_view_t view = {
+        .data = g_sensor_data_buf,
+        .len = len,
+    };
+
+    g_sensor_frame = (ecg_streaming_SensorFrame)ecg_streaming_SensorFrame_init_zero;
+    g_esp_msg = (ecg_streaming_EspMessage)ecg_streaming_EspMessage_init_zero;
+
+    strlcpy(g_sensor_frame.device_id, g_device_id, sizeof(g_sensor_frame.device_id));
+
+    // Sensor type
+    g_sensor_frame.sensor_type = sensor_type;
+
+    // Polar device clock (microseconds since Polar boot)
+    g_sensor_frame.polar_clock_us = polar_clock_us;
+
+    // Receiver device clock (microseconds since ESP32 boot)
+    g_sensor_frame.receiver_clock_us = (uint64_t)esp_timer_get_time();
+
+    // Sample rate
+    g_sensor_frame.sample_rate = sample_rate;
+
+    // Set up callback for raw data
+    g_sensor_frame.raw_data.funcs.encode = encode_bytes_cb;
+    g_sensor_frame.raw_data.arg = (void *)&view;
+
+    g_esp_msg.which_message = ecg_streaming_EspMessage_sensor_frame_tag;
+    g_esp_msg.message.sensor_frame = g_sensor_frame;
+
+    if (!usb_send_esp_message(&g_esp_msg)) {
+        ESP_LOGE(TAG, "Failed to send sensor frame (type=%d)", sensor_type);
+    }
+#endif
 }

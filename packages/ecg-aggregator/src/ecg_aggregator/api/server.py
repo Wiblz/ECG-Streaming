@@ -13,22 +13,21 @@ from ecg_common.logging import get_logger
 from fastapi import FastAPI, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from ecg_aggregator.api.data_buffer import AccelerometerDataBuffer, ECGDataBuffer
+from ecg_aggregator.api.models import (
+    CollectorInfo,
+    CollectorsResponse,
+    DeviceNicknameUpdate,
+)
 from ecg_aggregator.api.sse_broadcaster import SSEBroadcaster
 from ecg_aggregator.grpc_server import ECGStreamingServicer
 from ecg_aggregator.storage.persistence import ECGDatabase
+from ecg_aggregator.sync.calibration_manager import CalibrationManager
 from ecg_aggregator.sync.time_alignment import TimeAlignmentService
 
 logger = get_logger(__name__)
-
-
-class DeviceNicknameUpdate(BaseModel):
-    """Request model for updating device nickname."""
-
-    nickname: str | None
 
 
 class ECGStreamingServer:
@@ -41,6 +40,7 @@ class ECGStreamingServer:
         acc_buffer: AccelerometerDataBuffer,
         database: ECGDatabase,
         grpc_servicer: ECGStreamingServicer | None = None,
+        calibration_manager: CalibrationManager | None = None,
         sse_broadcaster: SSEBroadcaster | None = None,
         websocket_fps: int = 30,
         cors_origins: list[str] | None = None,
@@ -53,6 +53,7 @@ class ECGStreamingServer:
             acc_buffer: Accelerometer data buffer instance
             database: Database instance
             grpc_servicer: Optional gRPC servicer for accessing device status
+            calibration_manager: Optional calibration manager for device alignment
             sse_broadcaster: Optional SSE broadcaster (creates new one if not provided)
             websocket_fps: WebSocket broadcast rate in FPS
             cors_origins: CORS allowed origins
@@ -62,12 +63,14 @@ class ECGStreamingServer:
         self.acc_buffer = acc_buffer
         self.database = database
         self.grpc_servicer = grpc_servicer
+        self.calibration_manager = calibration_manager
         self.websocket_fps = websocket_fps
         self.broadcast_interval = 1.0 / websocket_fps
 
         # WebSocket connections
         self.ecg_connections: list[WebSocket] = []
         self.acc_connections: list[WebSocket] = []
+        self.calibration_connections: list[WebSocket] = []
 
         # SSE broadcaster for status updates
         self.sse_broadcaster = sse_broadcaster or SSEBroadcaster()
@@ -215,8 +218,8 @@ class ECGStreamingServer:
 
             return EventSourceResponse(event_generator())
 
-        @self.app.get("/collectors")
-        async def get_collectors() -> dict[str, Any]:
+        @self.app.get("/collectors", response_model=CollectorsResponse)
+        async def get_collectors() -> CollectorsResponse:
             """Get all collectors (both connected and known from database).
 
             Merges current connection status with persistent collector metadata.
@@ -234,14 +237,20 @@ class ECGStreamingServer:
             # Merge all collector IDs
             all_collector_ids = set(db_collectors.keys()) | set(connected_collectors.keys())
 
-            collectors_list = []
+            collectors_data: list[CollectorInfo] = []
             for collector_id in all_collector_ids:
-                collector_info: dict[str, Any] = {"collector_id": collector_id}
+                # Build base data
+                base_data: dict[str, Any] = {
+                    "collector_id": collector_id,
+                    "display_name": collector_id,
+                    "health": "disconnected",
+                    "connected": False,
+                }
 
                 # Add database metadata if available
                 if collector_id in db_collectors:
                     db_info = db_collectors[collector_id]
-                    collector_info.update(
+                    base_data.update(
                         {
                             "display_name": db_info["display_name"] or collector_id,
                             "version": db_info["version"],
@@ -255,7 +264,7 @@ class ECGStreamingServer:
                 # Override with current connection info if connected
                 if collector_id in connected_collectors:
                     conn_info = connected_collectors[collector_id]
-                    collector_info.update(
+                    base_data.update(
                         {
                             "display_name": conn_info.get("display_name", collector_id),
                             "device_ids": conn_info.get("device_ids", []),
@@ -269,10 +278,10 @@ class ECGStreamingServer:
                     )
 
                 # Calculate connection health
-                last_heartbeat = collector_info.get("last_heartbeat", 0)
+                last_heartbeat = base_data.get("last_heartbeat", 0)
                 if last_heartbeat:
                     time_since_heartbeat = current_time - last_heartbeat
-                    collector_info["time_since_heartbeat"] = time_since_heartbeat
+                    base_data["time_since_heartbeat"] = time_since_heartbeat
 
                     # Healthy: < 15s, Warning: 15-30s, Disconnected: > 30s
                     if time_since_heartbeat < 15:
@@ -283,23 +292,23 @@ class ECGStreamingServer:
                         health = "disconnected"
                 else:
                     health = "disconnected"
-                    collector_info["time_since_heartbeat"] = None
+                    base_data["time_since_heartbeat"] = None
 
-                collector_info["health"] = health
-                collector_info["connected"] = collector_id in connected_collectors
+                base_data["health"] = health
+                base_data["connected"] = collector_id in connected_collectors
 
-                collectors_list.append(collector_info)
+                collectors_data.append(CollectorInfo(**base_data))
 
             # Sort by health (healthy first), then by last_heartbeat
             health_order = {"healthy": 0, "warning": 1, "disconnected": 2}
-            collectors_list.sort(
+            collectors_data.sort(
                 key=lambda c: (
-                    health_order.get(c["health"], 3),
-                    -(c.get("last_heartbeat", 0)),
+                    health_order.get(c.health, 3),
+                    -(c.last_heartbeat or 0),
                 )
             )
 
-            return {"collectors": collectors_list, "count": len(collectors_list)}
+            return CollectorsResponse(collectors=collectors_data, count=len(collectors_data))
 
         @self.app.get("/devices/status")
         async def get_device_status() -> dict[str, Any]:
@@ -768,6 +777,11 @@ class ECGStreamingServer:
             """WebSocket endpoint for real-time accelerometer streaming."""
             await self._handle_acc_websocket(websocket)
 
+        @self.app.websocket("/ws/calibration")
+        async def websocket_calibration_endpoint(websocket: WebSocket) -> None:
+            """WebSocket endpoint for calibration session management."""
+            await self._handle_calibration_websocket(websocket)
+
     async def _handle_websocket(self, websocket: WebSocket) -> None:
         """Handle an ECG WebSocket connection.
 
@@ -854,30 +868,247 @@ class ECGStreamingServer:
                 f"Accelerometer WebSocket closed. Active connections: {len(self.acc_connections)}"
             )
 
+    async def _handle_calibration_websocket(self, websocket: WebSocket) -> None:
+        """Handle calibration WebSocket connection.
+
+        Args:
+            websocket: WebSocket connection
+        """
+        await websocket.accept()
+        self.calibration_connections.append(websocket)
+        logger.info(
+            f"Calibration WebSocket connected. Active connections: {len(self.calibration_connections)}"
+        )
+
+        try:
+            # Send initial state
+            active_session = (
+                self.calibration_manager.get_active_session() if self.calibration_manager else None
+            )
+
+            if active_session:
+                await websocket.send_json(
+                    {
+                        "type": "session_active",
+                        "session_id": active_session.session_id,
+                        "devices": active_session.get_all_device_status(),
+                        "stats": active_session.get_stats(),
+                    }
+                )
+            else:
+                await websocket.send_json(
+                    {
+                        "type": "no_active_session",
+                        "timestamp": time.time(),
+                    }
+                )
+
+            # Listen for messages from client
+            while True:
+                try:
+                    data = await asyncio.wait_for(websocket.receive_text(), timeout=1.0)
+                    message = json.loads(data)
+
+                    # Handle client messages
+                    response = await self._handle_calibration_message(message)
+
+                    if response:
+                        await websocket.send_json(response)
+
+                        # Broadcast to other calibration clients
+                        if response.get("broadcast", False):
+                            await self._broadcast_calibration_message(response, exclude=websocket)
+
+                except TimeoutError:
+                    # No message received, continue
+                    pass
+                except json.JSONDecodeError as e:
+                    logger.error(f"Invalid JSON from calibration client: {e}")
+                    await websocket.send_json({"type": "error", "message": "Invalid JSON format"})
+
+        except WebSocketDisconnect:
+            logger.info("Calibration WebSocket disconnected")
+        except Exception as e:
+            logger.error(f"Calibration WebSocket error: {e}")
+        finally:
+            if websocket in self.calibration_connections:
+                self.calibration_connections.remove(websocket)
+            logger.info(
+                f"Calibration WebSocket closed. Active connections: {len(self.calibration_connections)}"
+            )
+
+    async def _handle_calibration_message(self, message: dict[str, Any]) -> dict[str, Any] | None:
+        """Handle incoming calibration WebSocket message.
+
+        Args:
+            message: Message from client
+
+        Returns:
+            Response to send back (or None)
+        """
+        if not self.calibration_manager:
+            return {"type": "error", "message": "Calibration manager not available"}
+
+        msg_type = message.get("type")
+
+        if msg_type == "start_session":
+            # Start new calibration session
+            target_devices = message.get("target_devices", [])
+            name = message.get("name")
+            notes = message.get("notes")
+
+            try:
+                session = self.calibration_manager.start_session(
+                    target_devices=target_devices,
+                    name=name,
+                    notes=notes,
+                )
+
+                return {
+                    "type": "session_started",
+                    "session_id": session.session_id,
+                    "target_devices": list(session.target_devices),
+                    "start_time": session.start_time,
+                    "broadcast": True,
+                }
+
+            except RuntimeError as e:
+                return {"type": "error", "message": str(e)}
+
+        elif msg_type == "stop_session":
+            # Stop active session
+            # Get offset versions from TimeAlignmentService
+            offset_versions = {}
+            if self.grpc_servicer:
+                for device_id in self.grpc_servicer.device_statuses:
+                    model = self.time_alignment._device_models.get(device_id)
+                    if model:
+                        offset_versions[device_id] = model.offset_version
+
+            session_id = self.calibration_manager.stop_session(offset_versions=offset_versions)
+
+            if session_id is None:
+                return {"type": "error", "message": "No active session to stop"}
+
+            return {
+                "type": "session_stopped",
+                "session_id": session_id,
+                "broadcast": True,
+            }
+
+        elif msg_type == "flash_event":
+            # Record flash event
+            flash_timestamp = message.get("timestamp", time.time())
+            event_type = message.get("event_type", "visual")
+            pattern_id = message.get("pattern_id")
+
+            flash_event = self.calibration_manager.add_flash_event(
+                flash_timestamp=flash_timestamp,
+                event_type=event_type,
+                pattern_id=pattern_id,
+            )
+
+            if flash_event is None:
+                return {"type": "error", "message": "No active calibration session"}
+
+            active_session = self.calibration_manager.active_session
+            flash_count = len(active_session.flash_events) if active_session else 0
+
+            return {
+                "type": "flash_recorded",
+                "flash_id": flash_event.flash_id,
+                "timestamp": flash_event.flash_timestamp,
+                "flash_count": flash_count,
+                "broadcast": True,
+            }
+
+        elif msg_type == "get_status":
+            # Get current session status
+            active_session = self.calibration_manager.get_active_session()
+
+            if active_session is None:
+                return {
+                    "type": "no_active_session",
+                    "timestamp": time.time(),
+                }
+
+            return {
+                "type": "devices_status",
+                "devices": active_session.get_all_device_status(),
+                "stats": active_session.get_stats(),
+            }
+
+        return None
+
+    async def _broadcast_calibration_message(
+        self, message: dict[str, Any], exclude: WebSocket | None = None
+    ) -> None:
+        """Broadcast message to all calibration WebSocket clients.
+
+        Args:
+            message: Message to broadcast
+            exclude: WebSocket to exclude from broadcast
+        """
+        # Remove broadcast flag before sending
+        broadcast_msg = {k: v for k, v in message.items() if k != "broadcast"}
+
+        disconnected = []
+        for connection in self.calibration_connections:
+            if connection == exclude:
+                continue
+
+            try:
+                await connection.send_json(broadcast_msg)
+            except Exception as e:
+                logger.error(f"Error broadcasting to calibration WebSocket: {e}")
+                disconnected.append(connection)
+
+        # Remove disconnected clients
+        for connection in disconnected:
+            if connection in self.calibration_connections:
+                self.calibration_connections.remove(connection)
+
     async def broadcast_data(self) -> None:
         """Broadcast ECG data to all connected WebSocket clients."""
         last_broadcast_time: dict[str, float] = {}
+        broadcast_count = 0
 
         while True:
             try:
                 await asyncio.sleep(self.broadcast_interval)
 
                 if not self.ecg_connections:
+                    logger.debug("[BROADCAST] No WebSocket connections, skipping")
                     continue
 
                 current_time = time.time()
 
                 # Get new samples since last broadcast for each device
                 all_samples = []
-                for device_id in self.ecg_buffer.get_device_list():
+                devices = self.ecg_buffer.get_device_list()
+                logger.debug(f"[BROADCAST] Checking {len(devices)} devices for new samples")
+
+                for device_id in devices:
                     since = last_broadcast_time.get(device_id, current_time - 1.0)
                     samples = self.ecg_buffer.get_recent_samples(since=since, device_id=device_id)
+                    logger.debug(
+                        f"[BROADCAST] Device {device_id}: got {len(samples)} samples since {since:.2f}"
+                    )
                     all_samples.extend(samples)
                     if samples:
                         last_broadcast_time[device_id] = samples[-1]["global_time"]
 
                 if not all_samples:
+                    buffer_stats = self.ecg_buffer.get_stats()
+                    logger.debug(
+                        f"[BROADCAST] No samples to broadcast. Buffer stats: {buffer_stats}"
+                    )
                     continue
+
+                broadcast_count += 1
+                logger.debug(
+                    f"[BROADCAST] Broadcasting {len(all_samples)} samples (broadcast #{broadcast_count})"
+                )
 
                 # Broadcast to all connections
                 message = {
@@ -1036,7 +1267,44 @@ class ECGStreamingServer:
                 logger.error(f"Error closing accelerometer WebSocket: {e}")
 
         self.acc_connections.clear()
+
+        # Close all calibration WebSocket connections
+        for connection in self.calibration_connections.copy():
+            try:
+                await connection.close()
+            except Exception as e:
+                logger.error(f"Error closing calibration WebSocket: {e}")
+
+        self.calibration_connections.clear()
         logger.info("Server shutdown complete")
+
+    async def broadcast_calibration_event(self, event_type: str, data: dict[str, Any]) -> None:
+        """Broadcast calibration event to all calibration WebSocket clients.
+
+        Args:
+            event_type: Event type
+            data: Event data
+        """
+        if not self.calibration_connections:
+            return
+
+        message = {
+            "type": event_type,
+            **data,
+        }
+
+        disconnected = []
+        for connection in self.calibration_connections:
+            try:
+                await connection.send_json(message)
+            except Exception as e:
+                logger.error(f"Error broadcasting calibration event: {e}")
+                disconnected.append(connection)
+
+        # Remove disconnected clients
+        for connection in disconnected:
+            if connection in self.calibration_connections:
+                self.calibration_connections.remove(connection)
 
 
 def create_app(
@@ -1045,6 +1313,7 @@ def create_app(
     acc_buffer: AccelerometerDataBuffer,
     database: ECGDatabase,
     grpc_servicer: ECGStreamingServicer | None = None,
+    calibration_manager: CalibrationManager | None = None,
     websocket_fps: int = 30,
     cors_origins: list[str] | None = None,
 ) -> tuple[FastAPI, ECGStreamingServer]:
@@ -1056,6 +1325,7 @@ def create_app(
         acc_buffer: Accelerometer data buffer
         database: Database instance
         grpc_servicer: Optional gRPC servicer for device status
+        calibration_manager: Optional calibration manager for device alignment
         websocket_fps: WebSocket broadcast rate
         cors_origins: CORS allowed origins
 
@@ -1067,6 +1337,7 @@ def create_app(
         ecg_buffer=ecg_buffer,
         acc_buffer=acc_buffer,
         database=database,
+        calibration_manager=calibration_manager,
         grpc_servicer=grpc_servicer,
         websocket_fps=websocket_fps,
         cors_origins=cors_origins,

@@ -1,0 +1,36 @@
+# Nanopb options for Collector-Aggregator communication
+# Note: Aggregator is Python-only, but these options ensure compatibility if needed
+
+# CollectorRegistration
+ecg_streaming.CollectorRegistration.collector_id max_length:64
+ecg_streaming.CollectorRegistration.device_ids max_count:20
+ecg_streaming.CollectorRegistration.device_ids max_length:64
+ecg_streaming.CollectorRegistration.version max_length:32
+ecg_streaming.CollectorRegistration.metadata max_count:16
+ecg_streaming.CollectorRegistration.MetadataEntry.key max_length:32
+ecg_streaming.CollectorRegistration.MetadataEntry.value max_length:64
+ecg_streaming.CollectorRegistration.display_name max_length:64
+
+# ECGBatch
+ecg_streaming.ECGBatch.device_id max_length:64
+ecg_streaming.ECGBatch.raw_values max_count:200
+
+# AccelerometerBatch
+ecg_streaming.AccelerometerBatch.device_id max_length:64
+ecg_streaming.AccelerometerBatch.acc_values max_count:600
+
+# DeviceStatusUpdate
+ecg_streaming.DeviceStatusUpdate.device_id max_length:64
+ecg_streaming.DeviceStatusUpdate.error_message max_length:256
+ecg_streaming.DeviceStatusUpdate.device_info max_count:16
+ecg_streaming.DeviceStatusUpdate.DeviceInfoEntry.key max_length:32
+ecg_streaming.DeviceStatusUpdate.DeviceInfoEntry.value max_length:64
+
+# SyncStatusUpdate
+ecg_streaming.SyncStatusUpdate.device_id max_length:64
+
+# ControlCommand
+ecg_streaming.ControlCommand.device_id max_length:64
+ecg_streaming.ControlCommand.parameters max_count:16
+ecg_streaming.ControlCommand.ParametersEntry.key max_length:32
+ecg_streaming.ControlCommand.ParametersEntry.value max_length:64

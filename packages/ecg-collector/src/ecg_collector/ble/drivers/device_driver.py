@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 
-from ecg_common.models import AccelerometerSample, DeviceStatus, ECGSample
+from ecg_common.models import DeviceStatus, SensorFrame
 
 
 class DeviceDriver(ABC):
@@ -52,20 +52,11 @@ class DeviceDriver(ABC):
         pass
 
     @abstractmethod
-    async def read_ecg_sample(self) -> ECGSample | None:
-        """Read a single ECG sample from the device.
+    async def read_frame(self) -> SensorFrame | None:
+        """Read a single sensor frame from the device (ECG or ACC).
 
         Returns:
-            ECGSample if data available, None otherwise
-        """
-        pass
-
-    @abstractmethod
-    async def read_accelerometer_sample(self) -> AccelerometerSample | None:
-        """Read a single accelerometer sample from the device.
-
-        Returns:
-            AccelerometerSample if data available, None otherwise
+            SensorFrame if data available, None otherwise
         """
         pass
 

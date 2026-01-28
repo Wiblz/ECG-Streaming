@@ -1,13 +1,13 @@
 """ECG-Common: Shared models, protocols, and utilities for ECG-Streaming."""
 
 from ecg_common.logging import get_logger
-from ecg_common.models import AccelerometerSample, DeviceStatus, ECGSample
+from ecg_common.models import DeviceStatus, SensorFrame, SensorType
 from ecg_common.version import __version__
 
 __all__ = [
     "__version__",
     "get_logger",
-    "ECGSample",
-    "AccelerometerSample",
     "DeviceStatus",
+    "SensorFrame",
+    "SensorType",
 ]

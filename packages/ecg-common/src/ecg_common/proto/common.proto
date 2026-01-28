@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package ecg_streaming;
+
+// Shared types used across ESP-Collector and Collector-Aggregator communication
+
+// Device connection and streaming status
+enum DeviceStatus {
+  DEVICE_STATUS_UNKNOWN = 0;
+  DEVICE_STATUS_DISCONNECTED = 1;
+  DEVICE_STATUS_CONNECTING = 2;
+  DEVICE_STATUS_CONNECTED = 3;
+  DEVICE_STATUS_STREAMING = 4;
+  DEVICE_STATUS_ERROR = 5;
+}
+
+// Individual ECG sample with precise timestamp
+message ECGSample {
+  int32 value = 1;                    // Raw ECG value (μV or device units)
+  uint64 polar_clock_us = 2;          // Polar device clock (microseconds since Polar boot)
+}
+
+// Individual accelerometer sample with precise timestamp
+message AccelerometerSample {
+  float x = 1;                        // X-axis acceleration (g)
+  float y = 2;                        // Y-axis acceleration (g)
+  float z = 3;                        // Z-axis acceleration (g)
+  uint64 polar_clock_us = 4;          // Polar device clock (microseconds since Polar boot)
+}

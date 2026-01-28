@@ -9,7 +9,7 @@ from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
 from bleak.backends.scanner import AdvertisementData
 from ecg_common.logging import get_logger
-from ecg_common.models import AccelerometerSample, DeviceStatus, ECGSample
+from ecg_common.models import DeviceStatus, SensorFrame, SensorType
 
 from ecg_collector.ble.drivers.device_driver import DeviceDriver
 
@@ -57,8 +57,7 @@ class PolarH10Driver(DeviceDriver):
         super().__init__(device_id, adapter_id)
         self.address = address
         self._client: BleakClient | None = None
-        self._ecg_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
-        self._acc_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+        self._frame_queue: asyncio.Queue[SensorFrame] = asyncio.Queue(maxsize=1000)
         self._disconnection_event = asyncio.Event()
 
     async def _find_device(self, timeout: float = 10.0) -> BLEDevice | None:
@@ -238,101 +237,67 @@ class PolarH10Driver(DeviceDriver):
     def _parse_ecg_data(
         self, data: bytearray, device_timestamp: float, host_receive_time: float
     ) -> None:
-        """Parse ECG sample data.
-
-        ECG samples are 3 bytes each (24-bit signed integers).
-        Sample rate is typically 130 Hz for Polar H10.
+        """Store raw ECG frame data without parsing.
 
         Note: device_timestamp represents the timestamp of the LAST sample in the frame.
         """
         try:
-            sample_count = len(data) // 3
-            sample_rate = 130  # Hz
+            # Store raw PMD data - parsing happens in collector service
+            frame = SensorFrame(
+                device_id=self.device_id,
+                sensor_type=SensorType.ECG,
+                polar_clock_us=int(device_timestamp),  # Polar clock timestamp of last sample (μs)
+                receiver_clock_us=int(
+                    host_receive_time * 1_000_000
+                ),  # Collector boot time (same as wall clock for BLE)
+                wall_clock_us=int(host_receive_time * 1_000_000),  # Wall clock (epoch time) in μs
+                sample_rate=130,  # Hz
+                raw_data=bytes(data),  # Raw PMD frame data (unparsed)
+            )
 
-            for i in range(sample_count):
-                # Extract 3-byte signed integer
-                sample_bytes = data[i * 3 : (i + 1) * 3]
-                raw_value = int.from_bytes(sample_bytes, byteorder="little", signed=True)
-
-                # Calculate timestamp for this sample
-                # Timestamp is for the last sample, so work backwards
-                sample_offset_us = ((i - sample_count + 1) / sample_rate) * 1_000_000
-                sample_timestamp = device_timestamp + sample_offset_us
-
-                sample = ECGSample(
-                    device_id=self.device_id,
-                    device_timestamp=sample_timestamp,
-                    host_receive_time=host_receive_time,
-                    raw_value=raw_value,
-                    sample_rate=sample_rate,
-                )
-
-                # Add to queue (non-blocking)
-                try:
-                    self._ecg_queue.put_nowait(sample)
-                except asyncio.QueueFull:
-                    logger.warning(f"ECG queue full for {self.device_id}, dropping sample")
+            # Add to queue (non-blocking)
+            try:
+                self._frame_queue.put_nowait(frame)
+            except asyncio.QueueFull:
+                logger.warning(f"Frame queue full for {self.device_id}, dropping ECG frame")
 
         except Exception as e:
-            logger.error(f"Error parsing ECG data from {self.device_id}: {e}")
+            logger.error(f"Error storing ECG data from {self.device_id}: {e}")
 
     def _parse_acc_data(
         self, data: bytearray, device_timestamp: float, host_receive_time: float
     ) -> None:
-        """Parse accelerometer sample data.
-
-        ACC samples are 6 bytes each (3x int16 for x, y, z).
-        Sample rate is 50 Hz for this implementation.
-        Values are in milligravity (mG) units.
+        """Store raw accelerometer frame data without parsing.
 
         Note: device_timestamp represents the timestamp of the LAST sample in the frame.
         """
         try:
-            sample_count = len(data) // 6
-            sample_rate = 50  # Hz (configured in ACC_WRITE command)
+            # Store raw PMD data - parsing happens in collector service
+            frame = SensorFrame(
+                device_id=self.device_id,
+                sensor_type=SensorType.ACCELEROMETER,
+                polar_clock_us=int(device_timestamp),  # Polar clock timestamp of last sample (μs)
+                receiver_clock_us=int(
+                    host_receive_time * 1_000_000
+                ),  # Collector boot time (same as wall clock for BLE)
+                wall_clock_us=int(host_receive_time * 1_000_000),  # Wall clock (epoch time) in μs
+                sample_rate=50,  # Hz (configured in ACC_WRITE command)
+                raw_data=bytes(data),  # Raw PMD frame data (unparsed)
+            )
 
-            for i in range(sample_count):
-                # Extract 3x int16 values
-                offset = i * 6
-                x, y, z = struct.unpack("<hhh", data[offset : offset + 6])
-
-                # Calculate timestamp for this sample
-                # Timestamp is for the last sample, so work backwards
-                sample_offset_us = ((i - sample_count + 1) / sample_rate) * 1_000_000
-                sample_timestamp = device_timestamp + sample_offset_us
-
-                # Polar H10 sends accelerometer data in milligravity (mG) units
-                # Convert to g (gravity units) by dividing by 1000
-                sample = AccelerometerSample(
-                    device_id=self.device_id,
-                    device_timestamp=sample_timestamp,
-                    host_receive_time=host_receive_time,
-                    x=x / 1000.0,
-                    y=y / 1000.0,
-                    z=z / 1000.0,
-                )
-
-                try:
-                    self._acc_queue.put_nowait(sample)
-                except asyncio.QueueFull:
-                    logger.warning(f"ACC queue full for {self.device_id}, dropping sample")
+            try:
+                self._frame_queue.put_nowait(frame)
+            except asyncio.QueueFull:
+                logger.warning(f"Frame queue full for {self.device_id}, dropping ACC frame")
 
         except Exception as e:
-            logger.error(f"Error parsing ACC data from {self.device_id}: {e}")
+            logger.error(f"Error storing ACC data from {self.device_id}: {e}")
 
-    async def read_ecg_sample(self) -> ECGSample | None:
-        """Read a single ECG sample from the queue."""
+    async def read_frame(self) -> SensorFrame | None:
+        """Read a single sensor frame from the queue (ECG or ACC)."""
         try:
-            sample: ECGSample = self._ecg_queue.get_nowait()
-            return sample
-        except asyncio.QueueEmpty:
-            return None
-
-    async def read_accelerometer_sample(self) -> AccelerometerSample | None:
-        """Read a single accelerometer sample from the queue."""
-        try:
-            sample: AccelerometerSample = self._acc_queue.get_nowait()
-            return sample
+            frame: SensorFrame = self._frame_queue.get_nowait()
+            return frame
         except asyncio.QueueEmpty:
             return None
 

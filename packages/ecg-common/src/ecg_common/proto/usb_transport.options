@@ -1,0 +1,4 @@
+# Nanopb options for USB transport framing
+
+# UsbFrame
+ecg_streaming.UsbFrame.payload max_length:2048

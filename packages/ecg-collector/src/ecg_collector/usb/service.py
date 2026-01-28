@@ -5,8 +5,10 @@ import contextlib
 import time
 
 from ecg_common.logging import get_logger
-from ecg_common.proto import ecg_streaming_pb2
+from ecg_common.models import SensorFrame, SensorType
+from ecg_common.proto import esp_collector_pb2
 
+from ecg_collector.base import DataCollector
 from ecg_collector.grpc_client import CollectorGrpcClient
 from ecg_collector.usb.collector import UsbCollector, discover_usb_devices
 
@@ -14,7 +16,7 @@ logger = get_logger(__name__)
 ble_debug_logger = get_logger("ecg_collector.ble_debug")
 
 
-class MultiUsbCollectorService:
+class MultiUsbCollectorService(DataCollector):
     """Service that forwards multiple USB collectors to a single gRPC client."""
 
     def __init__(
@@ -30,18 +32,33 @@ class MultiUsbCollectorService:
         persist_config: bool = True,
     ) -> None:
         """Initialize multi-USB collector service."""
-        self.device_paths = device_paths
-        self.aggregator_host = aggregator_host
-        self.aggregator_port = aggregator_port
+        # Create gRPC client with empty device list (will be updated dynamically)
         self.collector_id = collector_id or "usb-collector"
         self.display_name = display_name or "USB Collector"
+
+        grpc_client = CollectorGrpcClient(
+            collector_id=self.collector_id,
+            aggregator_host=aggregator_host,
+            aggregator_port=aggregator_port,
+            device_ids=[],  # Empty initially, updated as devices are discovered
+            display_name=self.display_name,
+            metadata={
+                "type": "usb",
+                "device_paths": ",".join(device_paths),
+            },
+        )
+
+        # Initialize base class
+        super().__init__(grpc_client)
+
+        # USB-specific configuration
+        self.device_paths = device_paths
         self.allowed_device_ids = set(allowed_device_ids or [])
         self.detect_timeout_s = detect_timeout_s
         self.device_map = device_map or {}
         self.persist_config = persist_config
 
         self.usb_collectors: dict[str, UsbCollector] = {}
-        self.grpc_client: CollectorGrpcClient | None = None
         self.running = False
         self.device_ids: set[str] = set()
         self._usb_tasks: dict[str, asyncio.Task[None]] = {}
@@ -49,15 +66,43 @@ class MultiUsbCollectorService:
         self._configured_esp_ids: set[str] = set()
         self._unmapped_esp_ids: set[str] = set()
 
-    def _message_device_id(self, collector_msg: ecg_streaming_pb2.CollectorMessage) -> str | None:
-        msg_type = collector_msg.WhichOneof("message")
-        if msg_type == "ecg_batch":
-            return collector_msg.ecg_batch.device_id
-        if msg_type == "acc_batch":
-            return collector_msg.acc_batch.device_id
-        if msg_type == "status_update":
-            return collector_msg.status_update.device_id
+    def _esp_message_device_id(self, esp_msg: esp_collector_pb2.EspMessage) -> str | None:
+        """Extract device ID from ESP message."""
+        msg_type = esp_msg.WhichOneof("message")
+        if msg_type == "sensor_frame":
+            return esp_msg.sensor_frame.device_id
         return None
+
+    def _proto_to_dataclass(self, proto_frame: esp_collector_pb2.SensorFrame) -> SensorFrame:
+        """Convert proto SensorFrame to Python SensorFrame dataclass.
+
+        This is the deserialization boundary - proto types should not leak beyond this point.
+        Captures the actual collector receive time (wall clock epoch time) for time alignment.
+        Preserves all three timestamps: polar_clock_us, receiver_clock_us, and wall_clock_us.
+        """
+        sensor_type_map = {
+            esp_collector_pb2.SENSOR_TYPE_ECG: SensorType.ECG,
+            esp_collector_pb2.SENSOR_TYPE_ACCELEROMETER: SensorType.ACCELEROMETER,
+        }
+
+        # Capture wall clock time (epoch time in microseconds)
+        wall_clock_us = int(time.time() * 1_000_000)
+
+        logger.debug(
+            f"[ESP_FRAME] device={proto_frame.device_id}, sensor={proto_frame.sensor_type}, "
+            f"polar_clock_us={proto_frame.polar_clock_us}, receiver_clock_us={proto_frame.receiver_clock_us}, "
+            f"wall_clock_us={wall_clock_us}, sample_rate={proto_frame.sample_rate}, data_len={len(proto_frame.raw_data)}"
+        )
+
+        return SensorFrame(
+            device_id=proto_frame.device_id,
+            sensor_type=sensor_type_map[proto_frame.sensor_type],
+            polar_clock_us=proto_frame.polar_clock_us,
+            receiver_clock_us=proto_frame.receiver_clock_us,  # Keep ESP32 boot time
+            wall_clock_us=wall_clock_us,  # Add collector wall clock time
+            sample_rate=proto_frame.sample_rate,
+            raw_data=proto_frame.raw_data,
+        )
 
     def _device_id_allowed(self, device_id: str | None) -> bool:
         if not self.allowed_device_ids:
@@ -66,20 +111,24 @@ class MultiUsbCollectorService:
 
     async def _handle_message(
         self,
-        collector_msg: ecg_streaming_pb2.CollectorMessage,
+        esp_msg: esp_collector_pb2.EspMessage,
         usb_collector: UsbCollector | None = None,
     ) -> None:
+        """Handle ESP message from USB device."""
         if not self.grpc_client:
             logger.warning("gRPC client not initialized, dropping message")
             return
 
-        msg_type = collector_msg.WhichOneof("message")
-        if msg_type == "usb_device_info":
-            await self._handle_usb_device_info(collector_msg, usb_collector)
+        msg_type = esp_msg.WhichOneof("message")
+
+        # Handle device info
+        if msg_type == "device_info":
+            await self._handle_usb_device_info(esp_msg, usb_collector)
             return
 
+        # Handle BLE debug
         if msg_type == "ble_debug":
-            dbg = collector_msg.ble_debug
+            dbg = esp_msg.ble_debug
             ble_debug_logger.info(
                 "ble_debug",
                 extra={
@@ -89,16 +138,17 @@ class MultiUsbCollectorService:
                         "pmd_type_hex": f"0x{dbg.pmd_type:02X}",
                         "notif_len": dbg.notif_len,
                         "sample_count": dbg.sample_count,
-                        "pmd_timestamp_ns": dbg.pmd_timestamp_ns,
-                        "interval_ms": dbg.interval_ms,
+                        "polar_clock_us": dbg.polar_clock_us,
+                        "interval_us": dbg.interval_us,
                         "notification_index": dbg.notification_index,
                     }
                 },
             )
             return
 
-        if msg_type == "usb_config_ack":
-            ack = collector_msg.usb_config_ack
+        # Handle config ack
+        if msg_type == "config_ack":
+            ack = esp_msg.config_ack
             logger.info(
                 "USB config ack from %s: %s (accepted=%s)",
                 ack.esp_id,
@@ -107,7 +157,8 @@ class MultiUsbCollectorService:
             )
             return
 
-        device_id = self._message_device_id(collector_msg)
+        # Handle ECG/ACC frames - convert to batches and forward
+        device_id = self._esp_message_device_id(esp_msg)
         if device_id and not self._device_id_allowed(device_id):
             if device_id not in self._rejected_device_ids:
                 logger.warning("Ignoring USB device ID not in allowlist: %s", device_id)
@@ -119,40 +170,42 @@ class MultiUsbCollectorService:
                 logger.info("USB device discovered from stream: %s", device_id)
             self.device_ids.add(device_id)
 
-        if msg_type == "ecg_batch":
-            now_s = time.time()
-            for sample in collector_msg.ecg_batch.samples:
-                sample.host_receive_time_s = now_s
-        elif msg_type == "acc_batch":
-            now_s = time.time()
-            for sample in collector_msg.acc_batch.samples:
-                sample.host_receive_time_s = now_s
+        # Convert sensor frame: proto → Python dataclass → batch message
+        if msg_type == "sensor_frame":
+            # Convert proto to Python dataclass at the wire boundary
+            python_frame = self._proto_to_dataclass(esp_msg.sensor_frame)
 
-        try:
-            if self.device_ids:
-                sorted_ids = sorted(self.device_ids)
-                if sorted_ids != self.grpc_client.device_ids:
-                    self.grpc_client.device_ids = sorted_ids
-                    logger.info("Sending updated registration with devices: %s", sorted_ids)
-                    registration = ecg_streaming_pb2.CollectorRegistration(
-                        collector_id=self.grpc_client.collector_id,
-                        device_ids=sorted_ids,
-                        display_name=self.grpc_client.display_name,
-                        metadata=self.grpc_client.metadata,
-                    )
-                    reg_msg = ecg_streaming_pb2.CollectorMessage()
-                    reg_msg.registration.CopyFrom(registration)
-                    await self.grpc_client.send_message(reg_msg)
-            await self.grpc_client.send_message(collector_msg)
-        except Exception as e:
-            logger.error("Failed to forward message to aggregator: %s", e)
+            try:
+                # Update registration if device list changed
+                if self.device_ids:
+                    sorted_ids = sorted(self.device_ids)
+                    if sorted_ids != self.grpc_client.device_ids:
+                        from ecg_common.proto import collector_aggregator_pb2
+
+                        self.grpc_client.device_ids = sorted_ids
+                        logger.info("Sending updated registration with devices: %s", sorted_ids)
+                        registration = collector_aggregator_pb2.CollectorRegistration(
+                            collector_id=self.grpc_client.collector_id,
+                            device_ids=sorted_ids,
+                            display_name=self.grpc_client.display_name,
+                            metadata=self.grpc_client.metadata,
+                        )
+                        reg_msg = collector_aggregator_pb2.CollectorMessage()
+                        reg_msg.registration.CopyFrom(registration)
+                        await self.grpc_client.send_message(reg_msg)
+
+                # Send frame using base class method (handles conversion + sending)
+                await self.send_frame_batch(python_frame)
+            except Exception as e:
+                logger.error("Failed to forward message to aggregator: %s", e)
 
     async def _handle_usb_device_info(
         self,
-        collector_msg: ecg_streaming_pb2.CollectorMessage,
+        esp_msg: esp_collector_pb2.EspMessage,
         usb_collector: UsbCollector | None,
     ) -> None:
-        info = collector_msg.usb_device_info
+        """Handle USB device info message from ESP32."""
+        info = esp_msg.device_info
         esp_id = info.esp_id
         if not esp_id:
             return
@@ -175,16 +228,18 @@ class MultiUsbCollectorService:
             logger.warning("No USB collector available to configure %s", esp_id)
             return
 
-        config_msg = ecg_streaming_pb2.UsbConfig(
+        config_msg = esp_collector_pb2.UsbConfig(
             esp_id=esp_id,
             target_device_id=desired_target,
+            ecg_sample_rate=130,
+            acc_sample_rate=200,
             persist=self.persist_config,
         )
-        agg_msg = ecg_streaming_pb2.AggregatorMessage()
-        agg_msg.usb_config.CopyFrom(config_msg)
+        collector_to_esp_msg = esp_collector_pb2.CollectorToEspMessage()
+        collector_to_esp_msg.config.CopyFrom(config_msg)
 
         try:
-            await usb_collector.send_aggregator_message(agg_msg)
+            await usb_collector.send_collector_to_esp_message(collector_to_esp_msg)
             self._configured_esp_ids.add(esp_id)
             logger.info("Sent USB config to %s -> %s", esp_id, desired_target)
         except Exception as e:
@@ -193,13 +248,13 @@ class MultiUsbCollectorService:
     async def _run_usb_device(self, device_path: str) -> None:
         first_message = asyncio.Event()
 
-        async def _callback(msg: ecg_streaming_pb2.CollectorMessage) -> None:
+        async def _callback(msg: esp_collector_pb2.EspMessage) -> None:
             if not first_message.is_set():
                 msg_type = msg.WhichOneof("message")
-                if msg_type == "usb_device_info":
+                if msg_type == "device_info":
                     first_message.set()
                 else:
-                    device_id = self._message_device_id(msg)
+                    device_id = self._esp_message_device_id(msg)
                     if self._device_id_allowed(device_id):
                         first_message.set()
             await self._handle_message(msg, usb_collector)
@@ -237,18 +292,7 @@ class MultiUsbCollectorService:
                 logger.error("No USB device paths provided")
                 return
 
-            self.grpc_client = CollectorGrpcClient(
-                collector_id=self.collector_id,
-                aggregator_host=self.aggregator_host,
-                aggregator_port=self.aggregator_port,
-                device_ids=[],
-                display_name=self.display_name,
-                metadata={
-                    "type": "usb",
-                    "device_paths": ",".join(device_paths),
-                },
-            )
-
+            # Start gRPC client
             grpc_task = asyncio.create_task(self.grpc_client.run())
 
             for device_path in device_paths:

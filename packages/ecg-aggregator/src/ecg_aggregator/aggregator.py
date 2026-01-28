@@ -12,11 +12,12 @@ from ecg_aggregator.api.sse_broadcaster import SSEBroadcaster
 from ecg_aggregator.config import AggregatorSettings
 from ecg_aggregator.grpc_server import ECGStreamingServicer
 from ecg_aggregator.storage.persistence import ECGDatabase
+from ecg_aggregator.sync.calibration_manager import CalibrationManager
 from ecg_aggregator.sync.time_alignment import TimeAlignmentService
 
 try:
     import grpc
-    from ecg_common.proto import ecg_streaming_pb2_grpc
+    from ecg_common.proto import collector_aggregator_pb2_grpc
 except ImportError:
     grpc = None
 
@@ -51,6 +52,9 @@ class ECGAggregator:
         )
 
         self.database = ECGDatabase(db_path=config.storage.database_path)
+
+        # Calibration manager for device alignment
+        self.calibration_manager = CalibrationManager(database=self.database)
 
         # SSE broadcaster (shared between gRPC and HTTP servers)
         self.sse_broadcaster = SSEBroadcaster()
@@ -119,10 +123,12 @@ class ECGAggregator:
             ecg_buffer=self.ecg_buffer,
             acc_buffer=self.acc_buffer,
             database=self.database,
+            calibration_manager=self.calibration_manager,
             sse_broadcaster=self.sse_broadcaster,
+            http_server=None,  # Will be set after HTTP server is created
         )
 
-        ecg_streaming_pb2_grpc.add_ECGStreamingServiceServicer_to_server(
+        collector_aggregator_pb2_grpc.add_ECGStreamingServiceServicer_to_server(
             self.grpc_servicer, self.grpc_server
         )
 
@@ -141,10 +147,15 @@ class ECGAggregator:
             acc_buffer=self.acc_buffer,
             database=self.database,
             grpc_servicer=self.grpc_servicer,
+            calibration_manager=self.calibration_manager,
             sse_broadcaster=self.sse_broadcaster,
             websocket_fps=self.config.api.websocket_fps,
             cors_origins=self.config.api.cors_origins,
         )
+
+        # Set HTTP server reference in gRPC servicer for calibration broadcasts
+        if self.grpc_servicer:
+            self.grpc_servicer.http_server = self.http_server
 
         # Start the WebSocket broadcast task
         await self.http_server.start_broadcast()

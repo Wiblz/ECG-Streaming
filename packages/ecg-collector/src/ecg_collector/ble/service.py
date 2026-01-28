@@ -7,8 +7,8 @@ import signal
 from ecg_common.logging import get_logger
 from ecg_common.models import DeviceStatus
 
+from ecg_collector.base import DataCollector
 from ecg_collector.ble.adapter_manager import BLEAdapterManager
-from ecg_collector.ble.batcher import SampleBatcher
 from ecg_collector.ble.device_state_manager import DeviceStateManager
 from ecg_collector.config import CollectorSettings
 from ecg_collector.grpc_client import CollectorGrpcClient
@@ -16,7 +16,7 @@ from ecg_collector.grpc_client import CollectorGrpcClient
 logger = get_logger(__name__)
 
 
-class BleCollectorService:
+class BleCollectorService(DataCollector):
     """Service that connects BLE devices to gRPC aggregator."""
 
     def __init__(self, settings: CollectorSettings) -> None:
@@ -25,17 +25,8 @@ class BleCollectorService:
         Args:
             settings: Collector configuration settings
         """
-        self.settings = settings
-        self.running = False
-
-        # Initialize components
-        self.adapter_manager = BLEAdapterManager(
-            max_devices_per_adapter=settings.ble.max_devices_per_adapter
-        )
-        self.device_manager = DeviceStateManager(monitor_interval=5.0)
-
         # Initialize gRPC client
-        self.grpc_client = CollectorGrpcClient(
+        grpc_client = CollectorGrpcClient(
             collector_id=settings.collector_id,
             aggregator_host=settings.aggregator.host,
             aggregator_port=settings.aggregator.port,
@@ -44,13 +35,17 @@ class BleCollectorService:
             metadata={"type": "polar_h10_collector"},
         )
 
-        # Initialize sample batcher
-        self.batcher = SampleBatcher(
-            device_ids=settings.device_ids,
-            batch_size=settings.aggregator.batch_size,
-            batch_interval=settings.aggregator.batch_interval,
-            message_callback=self.grpc_client.send_message,
+        # Initialize base class
+        super().__init__(grpc_client)
+
+        self.settings = settings
+        self.running = False
+
+        # Initialize BLE-specific components
+        self.adapter_manager = BLEAdapterManager(
+            max_devices_per_adapter=settings.ble.max_devices_per_adapter
         )
+        self.device_manager = DeviceStateManager(monitor_interval=5.0)
 
         self._collection_tasks: dict[str, asyncio.Task] = {}
         self._monitor_task: asyncio.Task | None = None
@@ -63,9 +58,6 @@ class BleCollectorService:
         logger.info(f"Aggregator: {self.settings.aggregator.host}:{self.settings.aggregator.port}")
 
         self.running = True
-
-        # Start batcher
-        await self.batcher.start()
 
         # Start gRPC client
         asyncio.create_task(self.grpc_client.run())
@@ -85,7 +77,7 @@ class BleCollectorService:
                     address=None,  # Let driver discover MAC address by device name
                 )
                 self.device_manager.add_device(driver)
-                await self.batcher.update_device_status(device_id, DeviceStatus.DISCONNECTED)
+                await self.send_status_update(device_id, DeviceStatus.DISCONNECTED)
             except Exception as e:
                 logger.error(f"Failed to add device {device_id}: {e}")
 
@@ -124,9 +116,6 @@ class BleCollectorService:
         await self.adapter_manager.stop_streaming_all()
         await self.adapter_manager.disconnect_all()
 
-        # Stop batcher
-        await self.batcher.stop()
-
         # Disconnect from aggregator
         await self.grpc_client.disconnect()
 
@@ -150,7 +139,7 @@ class BleCollectorService:
                         logger.info(f"Starting data collection for {device_id}")
                         task = asyncio.create_task(self._data_collection_loop(device_id))
                         self._collection_tasks[device_id] = task
-                        await self.batcher.update_device_status(device_id, DeviceStatus.STREAMING)
+                        await self.send_status_update(device_id, DeviceStatus.STREAMING)
 
                     # Stop sampling task if device not streaming
                     elif (
@@ -166,13 +155,9 @@ class BleCollectorService:
 
                         # Update status
                         if managed_device.driver._status == DeviceStatus.DISCONNECTED:
-                            await self.batcher.update_device_status(
-                                device_id, DeviceStatus.DISCONNECTED
-                            )
+                            await self.send_status_update(device_id, DeviceStatus.DISCONNECTED)
                         elif managed_device.driver._status == DeviceStatus.CONNECTED:
-                            await self.batcher.update_device_status(
-                                device_id, DeviceStatus.CONNECTED
-                            )
+                            await self.send_status_update(device_id, DeviceStatus.CONNECTED)
 
                 # Clean up completed tasks
                 completed = [
@@ -193,7 +178,7 @@ class BleCollectorService:
         logger.info("Device monitor loop stopped")
 
     async def _data_collection_loop(self, device_id: str) -> None:
-        """Collect ECG and accelerometer samples from a device.
+        """Collect raw sensor frames from a device and send to aggregator.
 
         Args:
             device_id: Device to collect from
@@ -205,38 +190,31 @@ class BleCollectorService:
             logger.error(f"Device {device_id} not found")
             return
 
-        ecg_count = 0
-        acc_count = 0
+        frame_count = 0
 
         try:
             while self.running:
-                # Read ECG sample
-                ecg_sample = await driver.read_ecg_sample()
-                if ecg_sample:
-                    await self.batcher.send_sample(ecg_sample)
-                    ecg_count += 1
+                # Read raw frame (ECG or ACC)
+                raw_frame = await driver.read_frame()
+                if raw_frame:
+                    # Send frame using base class method (handles conversion + sending)
+                    try:
+                        await self.send_frame_batch(raw_frame)
+                        frame_count += 1
 
-                    if ecg_count % 1000 == 0:
-                        logger.debug(f"Collected {ecg_count} ECG samples from {device_id}")
-
-                # Read accelerometer sample
-                acc_sample = await driver.read_accelerometer_sample()
-                if acc_sample:
-                    await self.batcher.send_acc_sample(acc_sample)
-                    acc_count += 1
-
-                    if acc_count % 1000 == 0:
-                        logger.debug(f"Collected {acc_count} ACC samples from {device_id}")
-
-                # Sleep if no samples
-                if not ecg_sample and not acc_sample:
+                        if frame_count % 100 == 0:
+                            logger.debug(
+                                f"Sent {frame_count} frames from {device_id} "
+                                f"(type: {raw_frame.sensor_type.value})"
+                            )
+                    except Exception as e:
+                        logger.error(f"Error converting/sending frame from {device_id}: {e}")
+                else:
+                    # Sleep if no frames available
                     await asyncio.sleep(0.001)
 
         except asyncio.CancelledError:
-            logger.info(
-                f"Data collection stopped for {device_id} "
-                f"({ecg_count} ECG, {acc_count} ACC samples)"
-            )
+            logger.info(f"Data collection stopped for {device_id} ({frame_count} frames)")
             raise
         except Exception as e:
             logger.error(f"Error in data collection loop for {device_id}: {e}")

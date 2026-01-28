@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+package ecg_streaming;
+
+import "common.proto";
+
+// ESP32 ↔ Collector Communication
+//
+// This file defines messages exchanged between ESP32 firmware and the Collector
+// service over USB. Messages are wrapped in UsbFrame (see usb_transport.proto).
+
+// ============================================================================
+// ESP32 → Collector Messages
+// ============================================================================
+
+message EspMessage {
+  oneof message {
+    SensorFrame sensor_frame = 1;
+    UsbDeviceInfo device_info = 2;
+    UsbConfigAck config_ack = 3;
+    BleNotificationDebug ble_debug = 4;
+  }
+}
+
+// Sensor type enumeration
+enum SensorType {
+  SENSOR_TYPE_ECG = 0;
+  SENSOR_TYPE_ACCELEROMETER = 1;
+}
+
+// Unified sensor frame from Polar device (ECG or Accelerometer)
+// ESP32 receives PMD frame from Polar H10, timestamps it with local time, and forwards
+message SensorFrame {
+  string device_id = 1;               // Polar device ID (e.g., "Polar H10 ABC123")
+  SensorType sensor_type = 2;         // Type of sensor data (ECG or ACC)
+  uint64 polar_clock_us = 3;          // Polar device clock - microseconds since Polar device boot (last sample timestamp)
+  uint64 receiver_clock_us = 4;       // Receiver device clock - microseconds since receiver boot (ESP32 or collector)
+                                      // NOTE: This is NOT always epoch time!
+  int32 sample_rate = 5;              // Sample rate in Hz
+  bytes raw_data = 6;                 // Raw PMD frame data (unparsed, for collector to process)
+}
+
+// USB device identity and status information
+// Sent by ESP32 on connection or when status changes
+message UsbDeviceInfo {
+  string esp_id = 1;                  // Unique ESP32 identifier (e.g., MAC address)
+  string firmware_version = 2;        // ESP32 firmware version
+  string current_target = 3;          // Currently configured Polar device ID (empty if none)
+  bool config_required = 4;           // True if ESP needs configuration before starting
+  bool polar_connected = 5;           // True if currently connected to Polar device
+  DeviceStatus polar_status = 6;      // Status of Polar device connection
+}
+
+// Configuration acknowledgment from ESP32
+// Response to UsbConfig command
+message UsbConfigAck {
+  string esp_id = 1;                  // ESP32 identifier
+  bool accepted = 2;                  // True if configuration was accepted
+  string message = 3;                 // Human-readable status/error message
+  string target_device_id = 4;        // Configured target device ID (if accepted)
+}
+
+// Debug telemetry for BLE PMD notifications
+// Used for debugging ESP32-Polar communication issues
+message BleNotificationDebug {
+  string device_id = 1;               // Polar device ID
+  uint32 frame_type = 2;              // PMD frame type
+  uint32 pmd_type = 3;                // PMD measurement type
+  uint32 notif_len = 4;               // Notification length in bytes
+  uint32 sample_count = 5;            // Number of samples in notification
+  uint64 polar_clock_us = 6;          // Polar device clock (microseconds since Polar boot)
+  uint32 interval_us = 7;             // Time since last notification (microseconds)
+  uint64 notification_index = 8;      // Sequential notification counter
+}
+
+// ============================================================================
+// Collector → ESP32 Messages
+// ============================================================================
+
+message CollectorToEspMessage {
+  oneof message {
+    UsbConfig config = 1;
+  }
+}
+
+// Configuration command for ESP32
+// Tells ESP32 which Polar device to connect to and streaming parameters
+message UsbConfig {
+  string esp_id = 1;                  // Target ESP32 identifier
+  string target_device_id = 2;        // Polar device ID to connect to
+  int32 ecg_sample_rate = 3;          // Requested ECG sample rate (Hz)
+  int32 acc_sample_rate = 4;          // Requested accelerometer sample rate (Hz)
+  bool persist = 5;                   // If true, save config to ESP32 flash
+}

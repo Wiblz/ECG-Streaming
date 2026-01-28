@@ -6,6 +6,9 @@
 #include "pb_decode.h"
 #include "pb_encode.h"
 
+#include "common.pb.h"
+#include "esp_collector.pb.h"
+#include "usb_transport.pb.h"
 #include "state.h"
 
 static uint8_t g_frame_buf[4096];
@@ -96,18 +99,18 @@ void usb_transport_init(void) {
     g_usb_frame = (ecg_streaming_UsbFrame)ecg_streaming_UsbFrame_init_zero;
 }
 
-bool usb_send_collector_message(const ecg_streaming_CollectorMessage *msg) {
+bool usb_send_esp_message(const ecg_streaming_EspMessage *msg) {
     pb_ostream_t stream = pb_ostream_from_buffer(g_payload_buf, sizeof(g_payload_buf));
 
-    if (!pb_encode(&stream, ecg_streaming_CollectorMessage_fields, msg)) {
+    if (!pb_encode(&stream, ecg_streaming_EspMessage_fields, msg)) {
         return false;
     }
 
-    return send_usb_frame(ecg_streaming_UsbPayloadType_USB_PAYLOAD_TYPE_COLLECTOR_MESSAGE,
+    return send_usb_frame(ecg_streaming_UsbPayloadType_USB_PAYLOAD_TYPE_ESP_MESSAGE,
                           g_payload_buf, stream.bytes_written);
 }
 
-bool usb_receive_aggregator_message(ecg_streaming_AggregatorMessage *out_msg) {
+bool usb_receive_collector_to_esp_message(ecg_streaming_CollectorToEspMessage *out_msg) {
     uint8_t len_le[4];
     if (fread(len_le, 1, sizeof(len_le), stdin) != sizeof(len_le)) {
         return false;
@@ -149,12 +152,12 @@ bool usb_receive_aggregator_message(ecg_streaming_AggregatorMessage *out_msg) {
         return false;
     }
 
-    if (frame.payload_type != ecg_streaming_UsbPayloadType_USB_PAYLOAD_TYPE_AGGREGATOR_MESSAGE) {
+    if (frame.payload_type != ecg_streaming_UsbPayloadType_USB_PAYLOAD_TYPE_COLLECTOR_TO_ESP) {
         return false;
     }
 
     pb_istream_t payload_stream = pb_istream_from_buffer(sink.data, sink.len);
-    if (!pb_decode(&payload_stream, ecg_streaming_AggregatorMessage_fields, out_msg)) {
+    if (!pb_decode(&payload_stream, ecg_streaming_CollectorToEspMessage_fields, out_msg)) {
         return false;
     }
 

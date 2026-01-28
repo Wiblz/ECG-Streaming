@@ -1,0 +1,23 @@
+# Nanopb options for ESP32-Collector communication
+# These bounds keep memory usage predictable on-device
+
+# SensorFrame (unified for ECG and ACC)
+ecg_streaming.SensorFrame.device_id max_length:64
+ecg_streaming.SensorFrame.raw_data max_length:512
+
+# UsbDeviceInfo
+ecg_streaming.UsbDeviceInfo.esp_id max_length:64
+ecg_streaming.UsbDeviceInfo.firmware_version max_length:32
+ecg_streaming.UsbDeviceInfo.current_target max_length:64
+
+# UsbConfig
+ecg_streaming.UsbConfig.esp_id max_length:64
+ecg_streaming.UsbConfig.target_device_id max_length:64
+
+# UsbConfigAck
+ecg_streaming.UsbConfigAck.esp_id max_length:64
+ecg_streaming.UsbConfigAck.message max_length:128
+ecg_streaming.UsbConfigAck.target_device_id max_length:64
+
+# BleNotificationDebug
+ecg_streaming.BleNotificationDebug.device_id max_length:64

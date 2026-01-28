@@ -21,7 +21,8 @@
 #include "services/gatt/ble_svc_gatt.h"
 
 #include "config_store.h"
-#include "ecg_streaming.pb.h"
+#include "common.pb.h"
+#include "esp_collector.pb.h"
 #include "state.h"
 #include "usb_output.h"
 #include "usb_transport.h"
@@ -96,109 +97,44 @@ static void parse_pmd_response(uint8_t *data, int len) {
     switch (frame_type) {
         case 0xF0: // Settings Response
             ESP_LOGI(TAG, "Settings response for type 0x%02X", pmd_type);
-
-            vTaskDelay(pdMS_TO_TICKS(300));
-            if (pmd_type == PMD_TYPE_ECG && !g_ecg_started) {
-                ESP_LOGI(TAG, "Starting ECG...");
-                pmd_start_ecg(g_conn_handle, g_pmd_ctrl_handle);
-            } else if (pmd_type == PMD_TYPE_ACC && !g_acc_started) {
-                ESP_LOGI(TAG, "Starting ACC...");
-                pmd_start_acc(g_conn_handle, g_pmd_ctrl_handle);
-            }
             break;
 
         case 0x02: // ACC Measurement data
             if (len < 10) break;
 
-            uint64_t acc_timestamp = 0;
-            memcpy(&acc_timestamp, data + 1, 8);
-            timestamp_ns = acc_timestamp;
+            uint64_t acc_timestamp_ns = 0;
+            memcpy(&acc_timestamp_ns, data + 1, 8);
+            timestamp_ns = acc_timestamp_ns;
 
             int acc_data_start = 10;
             int acc_data_len = len - acc_data_start;
-            int num_acc_samples = acc_data_len / 6;
-            sample_count = (uint32_t)num_acc_samples;
-
-            g_acc_packet_count++;
-            g_total_acc_samples += num_acc_samples;
-
-            if (g_first_sample_time == 0) {
-                g_first_sample_time = xTaskGetTickCount();
-            }
-
-            if (g_acc_count + num_acc_samples > MAX_ACC_SAMPLES) {
-                output_acc_binary();
-            }
-
-            for (int i = 0; i < num_acc_samples && g_acc_count < MAX_ACC_SAMPLES; i++) {
-                int offset = acc_data_start + i * 6;
-
-                int16_t x = (int16_t)((data[offset+1] << 8) | data[offset+0]);
-                int16_t y = (int16_t)((data[offset+3] << 8) | data[offset+2]);
-                int16_t z = (int16_t)((data[offset+5] << 8) | data[offset+4]);
-
-                int64_t sample_offset_ns =
-                    ((int64_t)i - (int64_t)num_acc_samples + 1) * 1000000000LL / g_acc_sample_rate_hz;
-                int64_t sample_timestamp_ns = (int64_t)acc_timestamp + sample_offset_ns;
-
-                g_acc_buffer[g_acc_count].timestamp_ns = (uint64_t)sample_timestamp_ns;
-                g_acc_buffer[g_acc_count].x_mg = x;
-                g_acc_buffer[g_acc_count].y_mg = y;
-                g_acc_buffer[g_acc_count].z_mg = z;
-                g_acc_count++;
-            }
-
-            if (g_acc_count >= g_acc_batch_size) {
-                output_acc_binary();
-            }
+            // Send raw frame data with PMD timestamp (convert ns to us) and ESP timestamp
+            output_sensor_frame(
+                ecg_streaming_SensorType_SENSOR_TYPE_ACCELEROMETER,
+                g_acc_sample_rate_hz,
+                acc_timestamp_ns / 1000,
+                data + acc_data_start,
+                acc_data_len
+            );
             break;
 
         case 0x00: // ECG Measurement data
             if (len < 10) break;
 
-            uint64_t timestamp = 0;
-            memcpy(&timestamp, data + 1, 8);
-            timestamp_ns = timestamp;
+            uint64_t ecg_timestamp_ns = 0;
+            memcpy(&ecg_timestamp_ns, data + 1, 8);
+            timestamp_ns = ecg_timestamp_ns;
 
             int data_start = 10;
             int data_len = len - data_start;
-            int num_samples = data_len / 3;
-            sample_count = (uint32_t)num_samples;
-
-            g_ecg_packet_count++;
-            g_total_ecg_samples += num_samples;
-
-            if (g_first_sample_time == 0) {
-                g_first_sample_time = xTaskGetTickCount();
-            }
-
-            if (g_ecg_count + num_samples > MAX_ECG_SAMPLES) {
-                output_ecg_binary();
-            }
-
-            for (int i = 0; i < num_samples && g_ecg_count < MAX_ECG_SAMPLES; i++) {
-                int offset = data_start + i * 3;
-
-                int32_t sample = (int32_t)(data[offset] |
-                                           (data[offset+1] << 8) |
-                                           (data[offset+2] << 16));
-
-                if (sample & 0x800000) {
-                    sample |= 0xFF000000;
-                }
-
-                int64_t sample_offset_ns =
-                    ((int64_t)i - (int64_t)num_samples + 1) * 1000000000LL / g_ecg_sample_rate_hz;
-                int64_t sample_timestamp_ns = (int64_t)timestamp + sample_offset_ns;
-
-                g_ecg_buffer[g_ecg_count].timestamp_ns = (uint64_t)sample_timestamp_ns;
-                g_ecg_buffer[g_ecg_count].value_uv = sample;
-                g_ecg_count++;
-            }
-
-            if (g_ecg_count >= g_ecg_batch_size) {
-                output_ecg_binary();
-            }
+            // Send raw frame data with PMD timestamp (convert ns to us) and ESP timestamp
+            output_sensor_frame(
+                ecg_streaming_SensorType_SENSOR_TYPE_ECG,
+                130,  // ECG sample rate
+                ecg_timestamp_ns / 1000,
+                data + data_start,
+                data_len
+            );
             break;
 
         case 0x80: // Error
@@ -215,21 +151,21 @@ static void parse_pmd_response(uint8_t *data, int len) {
     if (notif_index % CONFIG_DEBUG_PMD_PROTO_EVERY_N == 0) {
         ecg_streaming_BleNotificationDebug dbg =
             (ecg_streaming_BleNotificationDebug)ecg_streaming_BleNotificationDebug_init_zero;
-        ecg_streaming_CollectorMessage msg =
-            (ecg_streaming_CollectorMessage)ecg_streaming_CollectorMessage_init_zero;
+        ecg_streaming_EspMessage msg =
+            (ecg_streaming_EspMessage)ecg_streaming_EspMessage_init_zero;
 
         strlcpy(dbg.device_id, g_device_id, sizeof(dbg.device_id));
         dbg.frame_type = frame_type;
         dbg.pmd_type = debug_pmd_type;
         dbg.notif_len = (uint32_t)len;
         dbg.sample_count = sample_count;
-        dbg.pmd_timestamp_ns = timestamp_ns;
-        dbg.interval_ms = last_notif_us == 0 ? 0 : (uint32_t)((now_us - last_notif_us) / 1000);
+        dbg.pmd_timestamp_us = timestamp_ns / 1000;  // Convert ns to us
+        dbg.interval_us = last_notif_us == 0 ? 0 : (uint32_t)(now_us - last_notif_us);
         dbg.notification_index = notif_index;
 
-        msg.which_message = ecg_streaming_CollectorMessage_ble_debug_tag;
+        msg.which_message = ecg_streaming_EspMessage_ble_debug_tag;
         msg.message.ble_debug = dbg;
-        usb_send_collector_message(&msg);
+        usb_send_esp_message(&msg);
     }
 #endif
 
@@ -253,6 +189,13 @@ static int write_cb(uint16_t conn_handle, const struct ble_gatt_error *error,
 
         ESP_LOGI(TAG, "Starting ECG...");
         pmd_start_ecg(conn_handle, g_pmd_ctrl_handle);
+
+        // Start ACC streaming if sample rate is configured
+        if (g_acc_sample_rate_hz > 0) {
+            vTaskDelay(pdMS_TO_TICKS(1000));  // Wait for ECG to start
+            ESP_LOGI(TAG, "Starting ACC...");
+            pmd_start_acc(conn_handle, g_pmd_ctrl_handle);
+        }
     }
 
     return 0;
@@ -391,7 +334,8 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
 
         if (h == g_pmd_data_handle) {
             uint8_t buf[512];
-            int n = om->om_len < (int)sizeof(buf) ? om->om_len : (int)sizeof(buf);
+            int pkt_len = OS_MBUF_PKTLEN(om);
+            int n = pkt_len < (int)sizeof(buf) ? pkt_len : (int)sizeof(buf);
             os_mbuf_copydata(om, 0, n, buf);
 
             parse_pmd_response(buf, n);
@@ -511,27 +455,15 @@ void ble_init(void) {
 void pmd_start_ecg(uint16_t conn_handle, uint16_t ctrl_handle) {
     uint16_t ecg_rate = (uint16_t)g_ecg_sample_rate_hz;
 
-    uint8_t cmd_simple[2] = {0x02, PMD_TYPE_ECG};
-
-    int rc = ble_gattc_write_flat(conn_handle, ctrl_handle,
-                                  cmd_simple, sizeof(cmd_simple),
-                                  write_cb, "START_ECG_SIMPLE");
-    if (rc != 0) {
-        ESP_LOGE(TAG, "START_ECG_SIMPLE failed: %d", rc);
-        return;
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(1000));
-
     uint8_t cmd_full[10] = {
         0x02, 0x00,
         0x00, 0x01, (uint8_t)(ecg_rate & 0xFF), (uint8_t)((ecg_rate >> 8) & 0xFF),
         0x01, 0x01, 0x0E, 0x00
     };
 
-    rc = ble_gattc_write_flat(conn_handle, ctrl_handle,
-                              cmd_full, sizeof(cmd_full),
-                              write_cb, "START_ECG_FULL");
+    int rc = ble_gattc_write_flat(conn_handle, ctrl_handle,
+                                  cmd_full, sizeof(cmd_full),
+                                  write_cb, "START_ECG_FULL");
     if (rc != 0) {
         ESP_LOGE(TAG, "START_ECG_FULL failed: %d", rc);
         return;
@@ -543,18 +475,6 @@ void pmd_start_ecg(uint16_t conn_handle, uint16_t ctrl_handle) {
 void pmd_start_acc(uint16_t conn_handle, uint16_t ctrl_handle) {
     uint16_t acc_rate = (uint16_t)g_acc_sample_rate_hz;
 
-    uint8_t cmd_simple[2] = {0x02, PMD_TYPE_ACC};
-
-    int rc = ble_gattc_write_flat(conn_handle, ctrl_handle,
-                                  cmd_simple, sizeof(cmd_simple),
-                                  write_cb, "START_ACC_SIMPLE");
-    if (rc != 0) {
-        ESP_LOGE(TAG, "START_ACC_SIMPLE failed: %d", rc);
-        return;
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(1000));
-
     uint8_t cmd_full[14] = {
         0x02, 0x02,
         0x00, 0x01, (uint8_t)(acc_rate & 0xFF), (uint8_t)((acc_rate >> 8) & 0xFF),
@@ -562,9 +482,9 @@ void pmd_start_acc(uint16_t conn_handle, uint16_t ctrl_handle) {
         0x02, 0x01, 0x02, 0x00
     };
 
-    rc = ble_gattc_write_flat(conn_handle, ctrl_handle,
-                              cmd_full, sizeof(cmd_full),
-                              write_cb, "START_ACC_FULL");
+    int rc = ble_gattc_write_flat(conn_handle, ctrl_handle,
+                                  cmd_full, sizeof(cmd_full),
+                                  write_cb, "START_ACC_FULL");
     if (rc != 0) {
         ESP_LOGE(TAG, "START_ACC_FULL failed: %d", rc);
         return;

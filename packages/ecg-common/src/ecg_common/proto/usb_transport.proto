@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package ecg_streaming;
+
+// USB Transport Layer
+//
+// This file defines the framing wrapper for USB communication between ESP32 and Collector.
+// Transport framing: length-prefix each UsbFrame with a 32-bit little-endian size,
+// or use COBS/SLIP with UsbFrame as the payload.
+//
+// The CRC32 is computed over the payload bytes only.
+
+message UsbFrame {
+  uint32 version = 1;                 // Protocol version
+  UsbPayloadType payload_type = 2;    // Type of message in payload
+  fixed32 seq = 3;                    // Sequence number for ordering/deduplication
+  fixed32 crc32 = 4;                  // CRC32 checksum of payload
+  bytes payload = 5;                  // Serialized EspMessage or CollectorToEspMessage
+}
+
+enum UsbPayloadType {
+  USB_PAYLOAD_TYPE_UNKNOWN = 0;
+  USB_PAYLOAD_TYPE_ESP_MESSAGE = 1;           // ESP32 -> Collector
+  USB_PAYLOAD_TYPE_COLLECTOR_TO_ESP = 2;      // Collector -> ESP32
+}

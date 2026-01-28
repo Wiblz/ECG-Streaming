@@ -14,7 +14,7 @@ from pathlib import Path
 import serial
 import serial_asyncio
 from ecg_common.logging import get_logger
-from ecg_common.proto import ecg_streaming_pb2
+from ecg_common.proto import esp_collector_pb2, usb_transport_pb2
 
 logger = get_logger(__name__)
 
@@ -26,9 +26,7 @@ class UsbCollector:
         self,
         device_path: str,
         baudrate: int = 115200,
-        message_callback: Callable[
-            [ecg_streaming_pb2.CollectorMessage], Coroutine[None, None, None]
-        ]
+        message_callback: Callable[[esp_collector_pb2.EspMessage], Coroutine[None, None, None]]
         | None = None,
         stats_interval_s: float = 5.0,
     ) -> None:
@@ -37,7 +35,7 @@ class UsbCollector:
         Args:
             device_path: Path to USB serial device (e.g., /dev/ttyACM0)
             baudrate: Serial baud rate (default 115200)
-            message_callback: Async callback function for received CollectorMessages
+            message_callback: Async callback function for received EspMessages from ESP32
         """
         self.device_path = device_path
         self.baudrate = baudrate
@@ -89,15 +87,17 @@ class UsbCollector:
         """
         return zlib.crc32(data) & 0xFFFFFFFF
 
-    async def send_aggregator_message(self, message: ecg_streaming_pb2.AggregatorMessage) -> None:
-        """Send an AggregatorMessage to the USB device."""
+    async def send_collector_to_esp_message(
+        self, message: esp_collector_pb2.CollectorToEspMessage
+    ) -> None:
+        """Send a CollectorToEspMessage to the USB device."""
         if not self.writer:
             raise RuntimeError("USB writer not initialized")
 
         payload = message.SerializeToString()
-        usb_frame = ecg_streaming_pb2.UsbFrame(
+        usb_frame = usb_transport_pb2.UsbFrame(
             version=1,
-            payload_type=ecg_streaming_pb2.USB_PAYLOAD_TYPE_AGGREGATOR_MESSAGE,
+            payload_type=usb_transport_pb2.USB_PAYLOAD_TYPE_COLLECTOR_TO_ESP,
             seq=self._tx_seq,
             crc32=self._crc32_ieee(payload),
             payload=payload,
@@ -117,7 +117,7 @@ class UsbCollector:
         """
         try:
             # Parse UsbFrame
-            usb_frame = ecg_streaming_pb2.UsbFrame()
+            usb_frame = usb_transport_pb2.UsbFrame()
             usb_frame.ParseFromString(frame_bytes)
 
             # Verify CRC
@@ -132,14 +132,14 @@ class UsbCollector:
             self.stats["frames_received"] += 1
 
             # Parse payload based on type
-            if usb_frame.payload_type == ecg_streaming_pb2.USB_PAYLOAD_TYPE_COLLECTOR_MESSAGE:
-                collector_msg = ecg_streaming_pb2.CollectorMessage()
-                collector_msg.ParseFromString(usb_frame.payload)
+            if usb_frame.payload_type == usb_transport_pb2.USB_PAYLOAD_TYPE_ESP_MESSAGE:
+                esp_msg = esp_collector_pb2.EspMessage()
+                esp_msg.ParseFromString(usb_frame.payload)
                 self.stats["messages_received"] += 1
 
                 # Invoke callback
                 if self.message_callback:
-                    await self.message_callback(collector_msg)
+                    await self.message_callback(esp_msg)
 
             else:
                 logger.warning(f"Unknown payload type: {usb_frame.payload_type}")
@@ -291,21 +291,21 @@ async def probe_usb_device(device_path: str, timeout_s: float = 2.0) -> dict | N
                 frame_bytes = bytes(buffer[4 : 4 + frame_length])
                 del buffer[: 4 + frame_length]
 
-                usb_frame = ecg_streaming_pb2.UsbFrame()
+                usb_frame = usb_transport_pb2.UsbFrame()
                 usb_frame.ParseFromString(frame_bytes)
                 computed_crc = zlib.crc32(usb_frame.payload) & 0xFFFFFFFF
                 if computed_crc != usb_frame.crc32:
                     continue
 
-                if usb_frame.payload_type != ecg_streaming_pb2.USB_PAYLOAD_TYPE_COLLECTOR_MESSAGE:
+                if usb_frame.payload_type != usb_transport_pb2.USB_PAYLOAD_TYPE_ESP_MESSAGE:
                     continue
 
-                collector_msg = ecg_streaming_pb2.CollectorMessage()
-                collector_msg.ParseFromString(usb_frame.payload)
-                msg_type = collector_msg.WhichOneof("message")
+                esp_msg = esp_collector_pb2.EspMessage()
+                esp_msg.ParseFromString(usb_frame.payload)
+                msg_type = esp_msg.WhichOneof("message")
 
-                if msg_type == "usb_device_info":
-                    info = collector_msg.usb_device_info
+                if msg_type == "device_info":
+                    info = esp_msg.device_info
                     return {
                         "type": "usb_device_info",
                         "esp_id": info.esp_id,
@@ -316,12 +316,10 @@ async def probe_usb_device(device_path: str, timeout_s: float = 2.0) -> dict | N
                     }
 
                 device_id = None
-                if msg_type == "ecg_batch":
-                    device_id = collector_msg.ecg_batch.device_id
-                elif msg_type == "acc_batch":
-                    device_id = collector_msg.acc_batch.device_id
-                elif msg_type == "status_update":
-                    device_id = collector_msg.status_update.device_id
+                if msg_type == "ecg_frame":
+                    device_id = esp_msg.ecg_frame.device_id
+                elif msg_type == "acc_frame":
+                    device_id = esp_msg.acc_frame.device_id
 
                 last_message = {
                     "type": msg_type or "unknown",

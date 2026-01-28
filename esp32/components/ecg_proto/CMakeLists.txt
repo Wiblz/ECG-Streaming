@@ -1,1 +1,10 @@
-idf_component_register(SRCS "proto/ecg_streaming.pb.c" INCLUDE_DIRS "proto" REQUIRES nanopb)
+idf_component_register(
+    SRCS
+        "proto/common.pb.c"
+        "proto/usb_transport.pb.c"
+        "proto/esp_collector.pb.c"
+    INCLUDE_DIRS
+        "proto"
+    REQUIRES
+        nanopb
+)

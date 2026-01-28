@@ -70,6 +70,12 @@ class DeviceTimeModel:
             device_timestamp: Device timestamp in microseconds
             host_receive_time: Host receive time in seconds since epoch
         """
+        # Convert from microseconds to seconds
+        device_time_s = device_timestamp / 1_000_000.0
+        logger.debug(
+            f"[TIME_ALIGN] {self.device_id} add_sample: device_ts_us={device_timestamp:.0f}, device_ts_s={device_time_s:.2f}, host_time={host_receive_time:.2f}"
+        )
+
         # Detect potential dropout/reconnection
         if self._last_device_time is not None:
             time_jump = device_timestamp - self._last_device_time
@@ -89,7 +95,6 @@ class DeviceTimeModel:
 
         # Add to list if offset not yet calculated
         if self._offset is None:
-            device_time_s = device_timestamp / 1_000_000.0
             self._device_times.append(device_time_s)
             self._host_times.append(host_receive_time)
 
@@ -119,8 +124,11 @@ class DeviceTimeModel:
             self._offset_version += 1
 
             logger.info(
-                f"Device {self.device_id} time offset calculated: {self._offset:.3f}s "
+                f"[TIME_ALIGN] Device {self.device_id} time offset calculated: {self._offset:.3f}s "
                 f"(from {len(offsets)} samples, version {self._offset_version})"
+            )
+            logger.debug(
+                f"[TIME_ALIGN] Offset details: device_times_s={self._device_times[:3]}, host_times={self._host_times[:3]}, offsets={offsets[:3]}"
             )
 
             # Clear the lists to free memory
@@ -143,11 +151,15 @@ class DeviceTimeModel:
         if self._offset is None:
             return None
 
-        # Convert device timestamp to seconds
+        # Convert device timestamp from microseconds to seconds
         device_time_s = device_timestamp / 1_000_000.0
 
         # Apply offset: global_time = device_time + offset
         global_time = device_time_s + self._offset
+
+        logger.debug(
+            f"[TIME_ALIGN] {self.device_id} sync: device_ts_us={device_timestamp:.0f}, device_ts_s={device_time_s:.2f}, offset={self._offset:.2f}, global_time={global_time:.2f}"
+        )
 
         return SyncedTimestamp(
             device_id=self.device_id,

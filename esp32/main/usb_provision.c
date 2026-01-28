@@ -9,31 +9,35 @@
 
 #include "ble_polar.h"
 #include "config_store.h"
-#include "ecg_streaming.pb.h"
+#include "common.pb.h"
+#include "esp_collector.pb.h"
 #include "state.h"
 #include "usb_transport.h"
 
 static void send_usb_device_info(void) {
 #if BINARY_OUTPUT_MODE
     ecg_streaming_UsbDeviceInfo info = ecg_streaming_UsbDeviceInfo_init_zero;
-    ecg_streaming_CollectorMessage msg = ecg_streaming_CollectorMessage_init_zero;
+    ecg_streaming_EspMessage msg = ecg_streaming_EspMessage_init_zero;
 
     strlcpy(info.esp_id, g_esp_id, sizeof(info.esp_id));
     strlcpy(info.firmware_version, esp_get_idf_version(), sizeof(info.firmware_version));
     strlcpy(info.current_target, g_target_device_name, sizeof(info.current_target));
     info.config_required = g_config_required;
+    info.polar_connected = g_connected;
+    info.polar_status = g_connected ? ecg_streaming_DeviceStatus_DEVICE_STATUS_STREAMING :
+                                      ecg_streaming_DeviceStatus_DEVICE_STATUS_DISCONNECTED;
 
-    msg.which_message = ecg_streaming_CollectorMessage_usb_device_info_tag;
-    msg.message.usb_device_info = info;
+    msg.which_message = ecg_streaming_EspMessage_device_info_tag;
+    msg.message.device_info = info;
 
-    usb_send_collector_message(&msg);
+    usb_send_esp_message(&msg);
 #endif
 }
 
 static void send_usb_config_ack(bool accepted, const char *message, const char *target) {
 #if BINARY_OUTPUT_MODE
     ecg_streaming_UsbConfigAck ack = ecg_streaming_UsbConfigAck_init_zero;
-    ecg_streaming_CollectorMessage msg = ecg_streaming_CollectorMessage_init_zero;
+    ecg_streaming_EspMessage msg = ecg_streaming_EspMessage_init_zero;
 
     strlcpy(ack.esp_id, g_esp_id, sizeof(ack.esp_id));
     ack.accepted = accepted;
@@ -44,10 +48,10 @@ static void send_usb_config_ack(bool accepted, const char *message, const char *
         strlcpy(ack.target_device_id, target, sizeof(ack.target_device_id));
     }
 
-    msg.which_message = ecg_streaming_CollectorMessage_usb_config_ack_tag;
-    msg.message.usb_config_ack = ack;
+    msg.which_message = ecg_streaming_EspMessage_config_ack_tag;
+    msg.message.config_ack = ack;
 
-    usb_send_collector_message(&msg);
+    usb_send_esp_message(&msg);
 #endif
 }
 
@@ -66,12 +70,6 @@ static void apply_usb_config(const ecg_streaming_UsbConfig *cfg) {
     if (cfg->acc_sample_rate > 0) {
         g_acc_sample_rate_hz = cfg->acc_sample_rate;
     }
-    if (cfg->ecg_batch_size > 0) {
-        g_ecg_batch_size = cfg->ecg_batch_size;
-    }
-    if (cfg->acc_batch_size > 0) {
-        g_acc_batch_size = cfg->acc_batch_size;
-    }
 
     apply_runtime_config();
 
@@ -80,6 +78,13 @@ static void apply_usb_config(const ecg_streaming_UsbConfig *cfg) {
     }
 
     g_config_required = false;
+
+    if (g_connected && !g_ecg_started && g_ecg_sample_rate_hz > 0) {
+        pmd_start_ecg(g_conn_handle, g_pmd_ctrl_handle);
+    }
+    if (g_connected && !g_acc_started && g_acc_sample_rate_hz > 0) {
+        pmd_start_acc(g_conn_handle, g_pmd_ctrl_handle);
+    }
 
     if (changed) {
         if (g_connected) {
@@ -107,15 +112,15 @@ void usb_identity_task(void *param) {
 
 void usb_rx_task(void *param) {
 #if BINARY_OUTPUT_MODE
-    ecg_streaming_AggregatorMessage msg = ecg_streaming_AggregatorMessage_init_zero;
+    ecg_streaming_CollectorToEspMessage msg = ecg_streaming_CollectorToEspMessage_init_zero;
     while (1) {
-        if (!usb_receive_aggregator_message(&msg)) {
+        if (!usb_receive_collector_to_esp_message(&msg)) {
             vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
 
-        if (msg.which_message == ecg_streaming_AggregatorMessage_usb_config_tag) {
-            ecg_streaming_UsbConfig *cfg = &msg.message.usb_config;
+        if (msg.which_message == ecg_streaming_CollectorToEspMessage_config_tag) {
+            ecg_streaming_UsbConfig *cfg = &msg.message.config;
             if (cfg->esp_id[0] != '\0' && strcmp(cfg->esp_id, g_esp_id) != 0) {
                 continue;
             }

@@ -1677,6 +1677,234 @@ class ECGDatabase:
                 logger.error(f"Error retrieving device collectors: {e}")
                 return []
 
+    # Device alignment methods (calibration)
+
+    def save_device_alignment(
+        self,
+        device_id: str,
+        time_offset: float,
+        confidence: float,
+        tap_count: int,
+        drift: float = 1.0,
+        mean_error: float | None = None,
+        std_error: float | None = None,
+        offset_version: int | None = None,
+    ) -> bool:
+        """Save or update device alignment from calibration.
+
+        Args:
+            device_id: Device identifier
+            time_offset: Computed time offset in seconds
+            confidence: Alignment confidence (0-1)
+            tap_count: Number of taps used for calibration
+            drift: Clock drift multiplier (default 1.0)
+            mean_error: Mean alignment error in seconds
+            std_error: Standard deviation of alignment error
+            offset_version: TimeAlignmentService offset version
+
+        Returns:
+            True if successful, False otherwise
+        """
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                calibrated_at = time.time()
+
+                cursor.execute(
+                    """
+                    INSERT INTO device_alignments (
+                        device_id, time_offset, drift, confidence, tap_count,
+                        mean_error, std_error, calibrated_at, is_valid, offset_version
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+                    ON CONFLICT(device_id) DO UPDATE SET
+                        time_offset = excluded.time_offset,
+                        drift = excluded.drift,
+                        confidence = excluded.confidence,
+                        tap_count = excluded.tap_count,
+                        mean_error = excluded.mean_error,
+                        std_error = excluded.std_error,
+                        calibrated_at = excluded.calibrated_at,
+                        is_valid = 1,
+                        offset_version = excluded.offset_version
+                    """,
+                    (
+                        device_id,
+                        time_offset,
+                        drift,
+                        confidence,
+                        tap_count,
+                        mean_error,
+                        std_error,
+                        calibrated_at,
+                        offset_version,
+                    ),
+                )
+
+                conn.commit()
+                logger.info(f"Saved alignment for device {device_id}")
+                return True
+
+            except Exception as e:
+                logger.error(f"Error saving device alignment: {e}")
+                return False
+
+    def get_device_alignment(self, device_id: str) -> dict[str, object] | None:
+        """Get device alignment.
+
+        Args:
+            device_id: Device identifier
+
+        Returns:
+            Alignment data or None if not found
+        """
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                cursor.execute(
+                    """
+                    SELECT device_id, time_offset, drift, confidence, tap_count,
+                           mean_error, std_error, calibrated_at, is_valid, offset_version
+                    FROM device_alignments
+                    WHERE device_id = ?
+                    """,
+                    (device_id,),
+                )
+
+                row = cursor.fetchone()
+                if not row:
+                    return None
+
+                return {
+                    "device_id": row[0],
+                    "time_offset": row[1],
+                    "drift": row[2],
+                    "confidence": row[3],
+                    "tap_count": row[4],
+                    "mean_error": row[5],
+                    "std_error": row[6],
+                    "calibrated_at": row[7],
+                    "is_valid": bool(row[8]),
+                    "offset_version": row[9],
+                }
+
+            except Exception as e:
+                logger.error(f"Error getting device alignment: {e}")
+                return None
+
+    def get_all_alignments(self, valid_only: bool = False) -> list[dict[str, object]]:
+        """Get all device alignments.
+
+        Args:
+            valid_only: If True, only return valid alignments
+
+        Returns:
+            List of alignment data
+        """
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                query = """
+                    SELECT device_id, time_offset, drift, confidence, tap_count,
+                           mean_error, std_error, calibrated_at, is_valid, offset_version
+                    FROM device_alignments
+                """
+
+                if valid_only:
+                    query += " WHERE is_valid = 1"
+
+                query += " ORDER BY calibrated_at DESC"
+
+                cursor.execute(query)
+
+                results = []
+                for row in cursor.fetchall():
+                    results.append(
+                        {
+                            "device_id": row[0],
+                            "time_offset": row[1],
+                            "drift": row[2],
+                            "confidence": row[3],
+                            "tap_count": row[4],
+                            "mean_error": row[5],
+                            "std_error": row[6],
+                            "calibrated_at": row[7],
+                            "is_valid": bool(row[8]),
+                            "offset_version": row[9],
+                        }
+                    )
+
+                return results
+
+            except Exception as e:
+                logger.error(f"Error getting alignments: {e}")
+                return []
+
+    def invalidate_device_alignment(self, device_id: str) -> bool:
+        """Mark device alignment as invalid (e.g., after device reconnect).
+
+        Args:
+            device_id: Device identifier
+
+        Returns:
+            True if successful, False otherwise
+        """
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                cursor.execute(
+                    "UPDATE device_alignments SET is_valid = 0 WHERE device_id = ?",
+                    (device_id,),
+                )
+
+                conn.commit()
+
+                if cursor.rowcount > 0:
+                    logger.info(f"Invalidated alignment for device {device_id}")
+                    return True
+
+                return False
+
+            except Exception as e:
+                logger.error(f"Error invalidating device alignment: {e}")
+                return False
+
+    def delete_device_alignment(self, device_id: str) -> bool:
+        """Delete device alignment.
+
+        Args:
+            device_id: Device identifier
+
+        Returns:
+            True if successful, False otherwise
+        """
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                cursor.execute("DELETE FROM device_alignments WHERE device_id = ?", (device_id,))
+
+                conn.commit()
+
+                if cursor.rowcount > 0:
+                    logger.info(f"Deleted alignment for device {device_id}")
+                    return True
+
+                return False
+
+            except Exception as e:
+                logger.error(f"Error deleting device alignment: {e}")
+                return False
+
     def close(self) -> None:
         """Close database connection."""
         with self._lock:

@@ -1,0 +1,111 @@
+syntax = "proto3";
+
+package ecg_streaming;
+
+import "common.proto";
+
+// Collector ↔ Aggregator Communication (gRPC)
+//
+// This file defines the gRPC service and messages for communication between
+// Collector services and the central Aggregator.
+
+// ============================================================================
+// gRPC Service Definition
+// ============================================================================
+
+service ECGStreamingService {
+  // Bidirectional streaming between Collector and Aggregator
+  // Client (collector) sends samples and status updates
+  // Server (aggregator) sends sync status and control commands
+  rpc StreamECG(stream CollectorMessage) returns (stream AggregatorMessage);
+}
+
+// ============================================================================
+// Collector → Aggregator Messages
+// ============================================================================
+
+message CollectorMessage {
+  oneof message {
+    CollectorRegistration registration = 1;
+    ECGBatch ecg_batch = 2;
+    AccelerometerBatch acc_batch = 3;
+    DeviceStatusUpdate status_update = 4;
+    CollectorHeartbeat heartbeat = 5;
+  }
+}
+
+// Collector registration message (sent on gRPC connection)
+message CollectorRegistration {
+  string collector_id = 1;            // Unique collector identifier
+  repeated string device_ids = 2;     // List of device IDs this collector manages
+  string version = 3;                 // Collector software version
+  map<string, string> metadata = 4;   // Optional metadata (location, hardware, etc.)
+  string display_name = 5;            // Human-readable name for the collector
+}
+
+// Batch of ECG samples from a single device
+// Each sample has its own value and precise timestamp
+message ECGBatch {
+  string device_id = 1;               // Polar device ID
+  uint64 wall_clock_us = 2;           // Wall clock (epoch time) when collector received frame (microseconds since epoch)
+                                      // Used by aggregator for time alignment between Polar clock and wall clock
+  uint64 batch_timestamp_us = 3;      // When this batch was created/sent (microseconds)
+  int32 sample_rate = 4;              // Sample rate in Hz
+  repeated ECGSample samples = 5;     // Individual ECG samples with polar_clock_us timestamps
+}
+
+// Batch of accelerometer samples from a single device
+// Each sample has its own x,y,z values and precise timestamp
+message AccelerometerBatch {
+  string device_id = 1;               // Polar device ID
+  uint64 wall_clock_us = 2;           // Wall clock (epoch time) when collector received frame (microseconds since epoch)
+                                      // Used by aggregator for time alignment between Polar clock and wall clock
+  uint64 batch_timestamp_us = 3;      // When this batch was created/sent (microseconds)
+  int32 sample_rate = 4;              // Sample rate in Hz
+  repeated AccelerometerSample samples = 5; // Individual accelerometer samples with polar_clock_us timestamps
+}
+
+// Device status update
+message DeviceStatusUpdate {
+  string device_id = 1;               // Device identifier
+  DeviceStatus status = 2;            // Current device status
+  optional int32 battery_level = 3;   // Battery percentage (0-100)
+  optional string error_message = 4;  // Error description (if status is ERROR)
+  map<string, string> device_info = 5; // Additional device information
+}
+
+// Periodic heartbeat from collector
+message CollectorHeartbeat {
+  int64 timestamp_ms = 1;             // Collector timestamp (milliseconds)
+  int32 samples_sent = 2;             // Total samples sent since connection
+  int32 active_devices = 3;           // Number of currently streaming devices
+}
+
+// ============================================================================
+// Aggregator → Collector Messages
+// ============================================================================
+
+message AggregatorMessage {
+  oneof message {
+    RegistrationAck registration_ack = 1;
+    SyncStatusUpdate sync_status = 2;
+  }
+}
+
+// Registration acknowledgment
+message RegistrationAck {
+  bool accepted = 1;                  // True if registration was accepted
+  string message = 2;                 // Human-readable status/error message
+  int64 server_time_ms = 3;           // Server timestamp for initial time sync
+}
+
+// Sync status update for a device
+// Sent when aggregator calculates time offset for a device
+message SyncStatusUpdate {
+  string device_id = 1;               // Device identifier
+  bool sync_ready = 2;                // True if sync offset is calculated and reliable
+  double offset_s = 3;                // Calculated time offset (seconds)
+  int32 offset_version = 4;           // Offset calculation version (increments on recalc)
+  double confidence = 5;              // Sync confidence score (0.0 to 1.0)
+}
+

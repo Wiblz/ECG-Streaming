@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator
 
 import grpc
 from ecg_common.logging import get_logger
-from ecg_common.proto import ecg_streaming_pb2, ecg_streaming_pb2_grpc
+from ecg_common.proto import collector_aggregator_pb2, collector_aggregator_pb2_grpc
 
 logger = get_logger(__name__)
 
@@ -47,8 +47,10 @@ class CollectorGrpcClient:
         self.metadata = metadata or {}
 
         self._channel: grpc.aio.Channel | None = None
-        self._stub: ecg_streaming_pb2_grpc.ECGStreamingServiceStub | None = None
-        self._message_queue: asyncio.Queue[ecg_streaming_pb2.CollectorMessage] = asyncio.Queue()
+        self._stub: collector_aggregator_pb2_grpc.ECGStreamingServiceStub | None = None
+        self._message_queue: asyncio.Queue[collector_aggregator_pb2.CollectorMessage] = (
+            asyncio.Queue()
+        )
         self._running = False
         self._connected = False
         self._last_heartbeat = time.time()
@@ -64,7 +66,7 @@ class CollectorGrpcClient:
             self._channel = grpc.aio.insecure_channel(target)
             await self._channel.channel_ready()
 
-            self._stub = ecg_streaming_pb2_grpc.ECGStreamingServiceStub(self._channel)
+            self._stub = collector_aggregator_pb2_grpc.ECGStreamingServiceStub(self._channel)
             self._connected = True
 
             logger.info(f"Connected to aggregator: {target}")
@@ -87,7 +89,7 @@ class CollectorGrpcClient:
 
         logger.info("Disconnected from aggregator")
 
-    async def send_message(self, message: ecg_streaming_pb2.CollectorMessage) -> None:
+    async def send_message(self, message: collector_aggregator_pb2.CollectorMessage) -> None:
         """Queue a message to send to aggregator.
 
         Args:
@@ -97,7 +99,7 @@ class CollectorGrpcClient:
 
     async def _message_generator(
         self,
-    ) -> AsyncIterator[ecg_streaming_pb2.CollectorMessage]:
+    ) -> AsyncIterator[collector_aggregator_pb2.CollectorMessage]:
         """Generate messages to send to aggregator.
 
         Yields:
@@ -105,14 +107,14 @@ class CollectorGrpcClient:
         """
         try:
             # Send registration first
-            registration = ecg_streaming_pb2.CollectorRegistration(
+            registration = collector_aggregator_pb2.CollectorRegistration(
                 collector_id=self.collector_id,
                 device_ids=self.device_ids,
                 display_name=self.display_name,
                 metadata=self.metadata,
             )
 
-            reg_msg = ecg_streaming_pb2.CollectorMessage()
+            reg_msg = collector_aggregator_pb2.CollectorMessage()
             reg_msg.registration.CopyFrom(registration)
             yield reg_msg
 
@@ -128,13 +130,13 @@ class CollectorGrpcClient:
                 except TimeoutError:
                     # Send heartbeat if no messages for 10 seconds
                     if time.time() - self._last_heartbeat > 10.0:
-                        heartbeat = ecg_streaming_pb2.CollectorHeartbeat(
+                        heartbeat = collector_aggregator_pb2.CollectorHeartbeat(
                             timestamp_ms=int(time.time() * 1000),
                             samples_sent=0,  # Could be tracked by caller
                             active_devices=len(self.device_ids),
                         )
 
-                        hb_msg = ecg_streaming_pb2.CollectorMessage()
+                        hb_msg = collector_aggregator_pb2.CollectorMessage()
                         hb_msg.heartbeat.CopyFrom(heartbeat)
                         yield hb_msg
 

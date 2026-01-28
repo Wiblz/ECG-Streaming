@@ -56,11 +56,26 @@ class DataBuffer[T: BufferedSample](ABC):
         if not self._buffer:
             return
 
+        from ecg_common.logging import get_logger
+
+        logger = get_logger(__name__)
+
         cutoff_time = time.time() - self.duration_seconds
+        removed_count = 0
 
         # Remove old samples from the left
         while self._buffer and self._buffer[0].global_time < cutoff_time:
-            self._buffer.popleft()
+            old_sample = self._buffer.popleft()
+            removed_count += 1
+            if removed_count <= 3:  # Log first few removals
+                logger.debug(
+                    f"[BUFFER] Removed old sample: global_time={old_sample.global_time:.2f}, cutoff={cutoff_time:.2f}, age={time.time() - old_sample.global_time:.2f}s"
+                )
+
+        if removed_count > 0:
+            logger.debug(
+                f"[BUFFER] Cleanup removed {removed_count} samples, {len(self._buffer)} remaining"
+            )
 
     def get_recent_samples(
         self,
@@ -220,6 +235,12 @@ class ECGDataBuffer(DataBuffer[BufferedECGSample]):
             raw_value: Raw ECG value
             confidence: Synchronization confidence
         """
+        import time as time_module
+
+        from ecg_common.logging import get_logger
+
+        logger = get_logger(__name__)
+
         sample = BufferedECGSample(
             device_id=device_id,
             global_time=global_time,
@@ -228,11 +249,22 @@ class ECGDataBuffer(DataBuffer[BufferedECGSample]):
         )
 
         with self._lock:
+            buffer_size_before = len(self._buffer)
             self._buffer.append(sample)
             self._total_samples += 1
 
+            logger.debug(
+                f"[BUFFER] Added sample: device={device_id}, global_time={global_time:.2f}, now={time_module.time():.2f}, diff={time_module.time() - global_time:.2f}s, buffer_size={buffer_size_before + 1}"
+            )
+
             # Clean old samples
             self._cleanup_old_samples()
+
+            buffer_size_after = len(self._buffer)
+            if buffer_size_after < buffer_size_before + 1:
+                logger.debug(
+                    f"[BUFFER] Sample was cleaned immediately! Buffer size: {buffer_size_before + 1} -> {buffer_size_after}"
+                )
 
 
 class AccelerometerDataBuffer(DataBuffer[BufferedAccelerometerSample]):

@@ -15,27 +15,36 @@ class DeviceStatus(Enum):
     ERROR = 5
 
 
-@dataclass
-class ECGSample:
-    """A single ECG sample with metadata."""
+class SensorType(Enum):
+    """Type of sensor data.
 
-    device_id: str
-    device_timestamp: float  # Device's internal timestamp (microseconds)
-    host_receive_time: float  # Host system time when received (seconds since epoch)
-    raw_value: int  # Raw ECG value from device
+    Values match the proto enum for easy conversion.
+    """
+
+    ECG = 0
+    ACCELEROMETER = 1
+
+
+@dataclass
+class SensorFrame:
+    """Raw sensor frame from Polar device (unparsed).
+
+    This is the unified transport model used by both BLE and USB collectors.
+    The frame contains raw PMD (Polar Measurement Data) bytes that will be
+    parsed by the collector service.
+
+    Structure matches esp_collector_pb2.SensorFrame exactly.
+    """
+
+    device_id: str  # Polar device ID
+    sensor_type: SensorType  # Type of data (ECG or ACC)
+    polar_clock_us: int  # Polar device clock - microseconds since Polar boot (last sample)
+    receiver_clock_us: (
+        int  # Receiver device clock - microseconds since receiver boot (ESP32 or collector)
+    )
+    wall_clock_us: int  # Wall clock (epoch time) when received by collector (microseconds)
     sample_rate: int  # Sample rate in Hz
-
-
-@dataclass
-class AccelerometerSample:
-    """A single accelerometer sample with metadata."""
-
-    device_id: str
-    device_timestamp: float
-    host_receive_time: float
-    x: float
-    y: float
-    z: float
+    raw_data: bytes  # Raw PMD frame data (unparsed)
 
 
 @dataclass
@@ -62,14 +71,14 @@ class BufferedSample:
 
 @dataclass
 class BufferedECGSample(BufferedSample):
-    """ECG sample with synchronized timestamp for buffering."""
+    """Individual ECG sample with synchronized timestamp for buffering."""
 
-    raw_value: int  # Raw ECG value from device
+    raw_value: int  # Raw ECG sample value from device
 
 
 @dataclass
 class BufferedAccelerometerSample(BufferedSample):
-    """Accelerometer sample with synchronized timestamp for buffering."""
+    """Individual accelerometer sample with synchronized timestamp for buffering."""
 
     x: float  # X-axis acceleration (g)
     y: float  # Y-axis acceleration (g)
