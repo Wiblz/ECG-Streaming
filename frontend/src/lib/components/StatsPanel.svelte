@@ -18,6 +18,12 @@
 				</dd>
 			</div>
 			<div class="bg-gray-50 rounded-lg p-4">
+				<dt class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Throughput</dt>
+				<dd class="text-xl font-bold text-gray-900">
+					{stats.samples_per_second.toFixed(1)} Hz
+				</dd>
+			</div>
+			<div class="bg-gray-50 rounded-lg p-4">
 				<dt class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Devices</dt>
 				<dd class="text-xl font-bold text-gray-900">{stats.device_count}</dd>
 			</div>

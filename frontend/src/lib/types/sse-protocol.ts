@@ -64,6 +64,8 @@ export interface BufferStatsData {
 	duration_seconds: number
 	device_count: number
 	samples_per_device: Record<string, number>
+	samples_per_second: number
+	samples_per_second_per_device: Record<string, number>
 	oldest_timestamp: number
 	newest_timestamp: number
 	total_processed: number

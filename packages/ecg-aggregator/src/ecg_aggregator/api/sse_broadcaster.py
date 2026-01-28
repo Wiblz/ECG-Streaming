@@ -53,6 +53,8 @@ class BufferStatsData(TypedDict):
     duration_seconds: float
     device_count: int
     samples_per_device: dict[str, int]
+    samples_per_second: float
+    samples_per_second_per_device: dict[str, float]
     oldest_timestamp: float
     newest_timestamp: float
     total_processed: int

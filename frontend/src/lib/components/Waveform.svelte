@@ -8,6 +8,7 @@
 		setSessionStartTime,
 		getCurrentPlaybackTime
 	} from '$lib/state/session-time.svelte';
+	import { isPaused } from '$lib/state/pause.svelte';
 	import type { ConnectionStateType } from '$lib/state/websocket.svelte';
 	import Card from './Card.svelte';
 
@@ -49,10 +50,12 @@
 
 	import { ConnectionState } from '$lib/state/websocket.svelte';
 
-	const isStreaming = $derived(wsState === ConnectionState.CONNECTED && samples.size > 0);
+	const isStreaming = $derived(
+		wsState === ConnectionState.CONNECTED && samples.size > 0 && !isPaused()
+	);
 
 	// Time window configuration
-	const WINDOW_DURATION = 10; // seconds to display
+	const WINDOW_DURATION = 7.5; // seconds to display
 	const UPDATE_INTERVAL_MS = 33; // update every 33ms (~30fps)
 
 	// X-axis range controlled by function (prevents setData from resetting scale)
@@ -69,9 +72,9 @@
 			return null;
 		}
 
-		// Show the last WINDOW_DURATION seconds ending at current playback time
+		// Always show a fixed WINDOW_DURATION window, even if it starts in the past
 		const window = {
-			minTime: Math.max(0, currentTime - WINDOW_DURATION),
+			minTime: currentTime - WINDOW_DURATION,
 			maxTime: currentTime
 		};
 		return window;

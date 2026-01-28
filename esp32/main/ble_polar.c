@@ -159,7 +159,7 @@ static void parse_pmd_response(uint8_t *data, int len) {
         dbg.pmd_type = debug_pmd_type;
         dbg.notif_len = (uint32_t)len;
         dbg.sample_count = sample_count;
-        dbg.pmd_timestamp_us = timestamp_ns / 1000;  // Convert ns to us
+        dbg.polar_clock_us = timestamp_ns / 1000;  // Convert ns to us
         dbg.interval_us = last_notif_us == 0 ? 0 : (uint32_t)(now_us - last_notif_us);
         dbg.notification_index = notif_index;
 

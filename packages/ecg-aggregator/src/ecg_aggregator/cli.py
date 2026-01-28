@@ -168,6 +168,24 @@ def generate_status_table(aggregator: ECGAggregator) -> Table:
         f"{acc_stats['device_count']} devices",
     )
 
+    def format_rates(stats: dict) -> str:
+        rates: dict[str, float] = stats.get("samples_per_second_per_device", {})
+        if not rates:
+            return "None"
+        parts = [f"{device_id}:{rate:.1f}/s" for device_id, rate in sorted(rates.items())]
+        return ", ".join(parts)
+
+    table.add_row(
+        "ECG Rate",
+        f"{ecg_stats.get('samples_per_second', 0.0):.1f}/s total",
+        format_rates(ecg_stats),
+    )
+    table.add_row(
+        "ACC Rate",
+        f"{acc_stats.get('samples_per_second', 0.0):.1f}/s total",
+        format_rates(acc_stats),
+    )
+
     return table
 
 
