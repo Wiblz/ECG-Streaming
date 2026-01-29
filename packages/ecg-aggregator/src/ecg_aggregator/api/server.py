@@ -1228,8 +1228,8 @@ class ECGStreamingServer:
                     continue  # No clients, skip
 
                 stats = {
-                    "ecg_buffer": self.ecg_buffer.get_stats(),
-                    "acc_buffer": self.acc_buffer.get_stats(),
+                    "ecg_buffer": self.ecg_buffer.get_stats(consume_rate=True),
+                    "acc_buffer": self.acc_buffer.get_stats(consume_rate=True),
                 }
 
                 await self.sse_broadcaster.broadcast("buffer_stats", stats)  # type: ignore[arg-type]

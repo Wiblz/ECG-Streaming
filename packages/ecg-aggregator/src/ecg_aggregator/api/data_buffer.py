@@ -4,7 +4,7 @@ import math
 import time
 from abc import ABC, abstractmethod
 from collections import deque
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from threading import RLock
 from typing import Any
 
@@ -14,14 +14,7 @@ from ecg_common.models import (
     BufferedSample,
 )
 
-RATE_WINDOW_SECONDS = 3.0
-RATE_BUCKET_SECONDS = 1.0
-
-
-@dataclass
-class _RateBuckets:
-    buckets: deque[tuple[int, int]]
-    total: int
+RATE_WINDOW_SECONDS = 1.0
 
 
 class DataBuffer[T: BufferedSample](ABC):
@@ -50,9 +43,8 @@ class DataBuffer[T: BufferedSample](ABC):
 
         # Statistics
         self._total_samples = 0
-        self._rate_bucket_count = int(RATE_WINDOW_SECONDS / RATE_BUCKET_SECONDS)
-        self._rate_buckets: dict[str, _RateBuckets] = {}
-        self._rate_total = 0
+        self._rate_counts: dict[str, int] = {}
+        self._rate_total_count = 0
 
     @abstractmethod
     def add_sample(self, *args: Any, **kwargs: Any) -> None:
@@ -63,57 +55,9 @@ class DataBuffer[T: BufferedSample](ABC):
         """
         pass
 
-    def _advance_rate_buckets(self, rate: _RateBuckets, current_bucket: int) -> None:
-        if not rate.buckets:
-            rate.buckets.append((current_bucket, 0))
-            return
-
-        last_bucket = rate.buckets[-1][0]
-        if current_bucket <= last_bucket:
-            return
-
-        gap = current_bucket - last_bucket
-        if gap >= self._rate_bucket_count:
-            self._rate_total -= rate.total
-            rate.total = 0
-            rate.buckets.clear()
-            rate.buckets.append((current_bucket, 0))
-            return
-
-        for bucket in range(last_bucket + 1, current_bucket + 1):
-            rate.buckets.append((bucket, 0))
-
-        while rate.buckets and current_bucket - rate.buckets[0][0] >= self._rate_bucket_count:
-            _, old_count = rate.buckets.popleft()
-            rate.total -= old_count
-            self._rate_total -= old_count
-
-    def _record_rate_sample(self, device_id: str, timestamp_s: float) -> None:
-        current_bucket = int(timestamp_s // RATE_BUCKET_SECONDS)
-        rate = self._rate_buckets.get(device_id)
-        if rate is None:
-            rate = _RateBuckets(buckets=deque(), total=0)
-            self._rate_buckets[device_id] = rate
-
-        self._advance_rate_buckets(rate, current_bucket)
-
-        if not rate.buckets or rate.buckets[-1][0] != current_bucket:
-            rate.buckets.append((current_bucket, 0))
-
-        bucket_start, bucket_count = rate.buckets[-1]
-        rate.buckets[-1] = (bucket_start, bucket_count + 1)
-        rate.total += 1
-        self._rate_total += 1
-
-    def _prune_rate_buckets(self, now_s: float) -> None:
-        current_bucket = int(now_s // RATE_BUCKET_SECONDS)
-        to_delete = []
-        for device_id, rate in self._rate_buckets.items():
-            self._advance_rate_buckets(rate, current_bucket)
-            if rate.total == 0:
-                to_delete.append(device_id)
-        for device_id in to_delete:
-            del self._rate_buckets[device_id]
+    def _record_rate_sample(self, device_id: str) -> None:
+        self._rate_counts[device_id] = self._rate_counts.get(device_id, 0) + 1
+        self._rate_total_count += 1
 
     def _cleanup_old_samples(self) -> None:
         """Remove samples older than the buffer duration."""
@@ -225,15 +169,13 @@ class DataBuffer[T: BufferedSample](ABC):
         with self._lock:
             return list({s.device_id for s in self._buffer})
 
-    def get_stats(self) -> dict:
+    def get_stats(self, consume_rate: bool = False) -> dict:
         """Get buffer statistics.
 
         Returns:
             Dictionary with buffer statistics
         """
         with self._lock:
-            now = time.time()
-            self._prune_rate_buckets(now)
             if self._buffer:
                 oldest = self._buffer[0].global_time
                 newest = self._buffer[-1].global_time
@@ -248,10 +190,16 @@ class DataBuffer[T: BufferedSample](ABC):
                 device_counts[sample.device_id] = device_counts.get(sample.device_id, 0) + 1
 
             device_rates: dict[str, float] = {}
+            total_rate_count = 0
             for device_id in device_counts:
-                rate = self._rate_buckets.get(device_id)
-                device_rates[device_id] = rate.total / RATE_WINDOW_SECONDS if rate else 0.0
-            total_rate = self._rate_total / RATE_WINDOW_SECONDS
+                count = self._rate_counts.get(device_id, 0)
+                device_rates[device_id] = count / RATE_WINDOW_SECONDS
+                total_rate_count += count
+            total_rate = total_rate_count / RATE_WINDOW_SECONDS
+
+            if consume_rate:
+                self._rate_counts = {}
+                self._rate_total_count = 0
 
             return {
                 "total_samples": len(self._buffer),
@@ -271,8 +219,8 @@ class DataBuffer[T: BufferedSample](ABC):
         with self._lock:
             self._buffer.clear()
             self._total_samples = 0
-            self._rate_buckets.clear()
-            self._rate_total = 0
+            self._rate_counts = {}
+            self._rate_total_count = 0
 
     def clear_device(self, device_id: str) -> int:
         """Clear samples for a specific device.
@@ -290,9 +238,9 @@ class DataBuffer[T: BufferedSample](ABC):
                 maxlen=self.max_samples,
             )
             removed = original_len - len(self._buffer)
-            rate = self._rate_buckets.pop(device_id, None)
-            if rate:
-                self._rate_total -= rate.total
+            if device_id in self._rate_counts:
+                self._rate_total_count -= self._rate_counts.get(device_id, 0)
+                del self._rate_counts[device_id]
             return removed
 
 
@@ -351,7 +299,7 @@ class ECGDataBuffer(DataBuffer[BufferedECGSample]):
             buffer_size_before = len(self._buffer)
             self._buffer.append(sample)
             self._total_samples += 1
-            self._record_rate_sample(device_id, wall_clock_us / 1_000_000.0)
+            self._record_rate_sample(device_id)
 
             logger.debug(
                 f"[BUFFER] Added sample: device={device_id}, global_time={global_time:.2f}, now={time_module.time():.2f}, diff={time_module.time() - global_time:.2f}s, buffer_size={buffer_size_before + 1}"
@@ -427,7 +375,7 @@ class AccelerometerDataBuffer(DataBuffer[BufferedAccelerometerSample]):
         with self._lock:
             self._buffer.append(sample)
             self._total_samples += 1
-            self._record_rate_sample(device_id, wall_clock_us / 1_000_000.0)
+            self._record_rate_sample(device_id)
 
             # Clean old samples
             self._cleanup_old_samples()
