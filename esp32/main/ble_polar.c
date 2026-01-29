@@ -162,6 +162,8 @@ static void parse_pmd_response(uint8_t *data, int len) {
         dbg.polar_clock_us = timestamp_ns / 1000;  // Convert ns to us
         dbg.interval_us = last_notif_us == 0 ? 0 : (uint32_t)(now_us - last_notif_us);
         dbg.notification_index = notif_index;
+        dbg.conn_interval_ms = g_conn_interval_ms;
+        dbg.mtu = g_current_mtu;
 
         msg.which_message = ecg_streaming_EspMessage_ble_debug_tag;
         msg.message.ble_debug = dbg;
@@ -310,8 +312,8 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         memset(&cp, 0, sizeof(cp));
         cp.scan_itvl = 0x0010;
         cp.scan_window = 0x0010;
-        cp.itvl_min = 0x000C;
-        cp.itvl_max = 0x0018;
+        cp.itvl_min = 0x0006;
+        cp.itvl_max = 0x000C;
         cp.latency = 0;
         cp.supervision_timeout = 0x0100;
         cp.min_ce_len = 0;
@@ -344,7 +346,7 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
     }
 
     case BLE_GAP_EVENT_MTU: {
-        ESP_LOGI(TAG, "MTU: %d", event->mtu.value);
+        g_current_mtu = event->mtu.value;
         return 0;
     }
 
@@ -360,6 +362,10 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
             int rc = ble_gattc_exchange_mtu(g_conn_handle, NULL, NULL);
             if (rc != 0) {
                 ESP_LOGW(TAG, "MTU exchange failed: %d", rc);
+            }
+            struct ble_gap_conn_desc desc;
+            if (ble_gap_conn_find(g_conn_handle, &desc) == 0) {
+                g_conn_interval_ms = (uint32_t)(desc.conn_itvl * 1.25f);
             }
 
             g_pmd_start = g_pmd_end = 0;
@@ -403,6 +409,12 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         return 0;
 
     case BLE_GAP_EVENT_CONN_UPDATE:
+        {
+            struct ble_gap_conn_desc desc;
+            if (ble_gap_conn_find(g_conn_handle, &desc) == 0) {
+                g_conn_interval_ms = (uint32_t)(desc.conn_itvl * 1.25f);
+            }
+        }
         return 0;
 
     default:

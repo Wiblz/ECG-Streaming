@@ -65,3 +65,6 @@ extern TickType_t g_first_sample_time;
 
 extern bool g_ecg_started;
 extern bool g_acc_started;
+
+extern uint32_t g_conn_interval_ms;
+extern uint32_t g_current_mtu;

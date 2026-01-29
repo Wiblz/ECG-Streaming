@@ -70,6 +70,7 @@ class MultiUsbCollectorService(DataCollector):
         self._configured_esp_ids: set[str] = set()
         self._unmapped_esp_ids: set[str] = set()
         self._last_usb_config: dict[str, tuple[str, int, int]] = {}
+        self._last_frame_ts: dict[tuple[str, SensorType], int] = {}
 
     def _esp_message_device_id(self, esp_msg: esp_collector_pb2.EspMessage) -> str | None:
         """Extract device ID from ESP message."""
@@ -140,6 +141,8 @@ class MultiUsbCollectorService(DataCollector):
                         "polar_clock_us": dbg.polar_clock_us,
                         "interval_us": dbg.interval_us,
                         "notification_index": dbg.notification_index,
+                        "conn_interval_ms": dbg.conn_interval_ms,
+                        "mtu": dbg.mtu,
                     }
                 },
             )
@@ -173,6 +176,31 @@ class MultiUsbCollectorService(DataCollector):
         if msg_type == "sensor_frame":
             # Convert proto to Python dataclass at the wire boundary
             python_frame = self._proto_to_dataclass(esp_msg.sensor_frame)
+            last_key = (python_frame.device_id, python_frame.sensor_type)
+            last_ts = self._last_frame_ts.get(last_key)
+            if last_ts is not None:
+                if python_frame.sensor_type == SensorType.ECG:
+                    sample_size = 3
+                else:
+                    sample_size = 6
+                sample_count = len(python_frame.raw_data) // sample_size
+                expected_span_us = (
+                    int((sample_count - 1) * 1_000_000 / python_frame.sample_rate)
+                    if sample_count > 1 and python_frame.sample_rate > 0
+                    else 0
+                )
+                delta_us = python_frame.polar_clock_us - last_ts
+                gap_threshold_us = max(500_000, expected_span_us * 2)
+                if delta_us > gap_threshold_us:
+                    logger.warning(
+                        "USB gap detected %s %s: delta_us=%d expected_span_us=%d samples=%d",
+                        python_frame.device_id,
+                        python_frame.sensor_type.name,
+                        delta_us,
+                        expected_span_us,
+                        sample_count,
+                    )
+            self._last_frame_ts[last_key] = python_frame.polar_clock_us
 
             try:
                 # Update registration if device list changed

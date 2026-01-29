@@ -71,6 +71,8 @@ message BleNotificationDebug {
   uint64 polar_clock_us = 6;          // Polar device clock (microseconds since Polar boot)
   uint32 interval_us = 7;             // Time since last notification (microseconds)
   uint64 notification_index = 8;      // Sequential notification counter
+  uint32 conn_interval_ms = 9;        // BLE connection interval (ms)
+  uint32 mtu = 10;                    // Negotiated MTU
 }
 
 // ============================================================================

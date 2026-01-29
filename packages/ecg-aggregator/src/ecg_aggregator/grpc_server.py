@@ -69,6 +69,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
         # Statistics
         self._samples_received = 0
         self._acc_samples_received = 0
+        self._last_frame_ts: dict[tuple[str, str], int] = {}
 
     async def StreamECG(  # noqa: N802
         self,
@@ -369,6 +370,26 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
         # Add timestamp pair using last sample's polar clock and wall clock
         # NOTE: batch.wall_clock_us contains collector's epoch timestamp (wall clock time)
         last_sample = batch.samples[-1]
+        last_key = (device_id, "ecg")
+        prev_ts = self._last_frame_ts.get(last_key)
+        if prev_ts is not None:
+            sample_count = len(batch.samples)
+            expected_span_us = (
+                int((sample_count - 1) * 1_000_000 / batch.sample_rate)
+                if sample_count > 1 and batch.sample_rate > 0
+                else 0
+            )
+            delta_us = last_sample.polar_clock_us - prev_ts
+            gap_threshold_us = max(500_000, expected_span_us * 2)
+            if delta_us > gap_threshold_us:
+                logger.warning(
+                    "Aggregator gap detected %s ECG: delta_us=%d expected_span_us=%d samples=%d",
+                    device_id,
+                    delta_us,
+                    expected_span_us,
+                    sample_count,
+                )
+        self._last_frame_ts[last_key] = last_sample.polar_clock_us
         wall_clock_s = batch.wall_clock_us / 1_000_000.0
 
         self.time_alignment.add_timestamp_pair(
@@ -456,6 +477,26 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
         # Add timestamp pair using last sample's polar clock and wall clock
         # NOTE: batch.wall_clock_us contains collector's epoch timestamp (wall clock time)
         last_sample = batch.samples[-1]
+        last_key = (device_id, "acc")
+        prev_ts = self._last_frame_ts.get(last_key)
+        if prev_ts is not None:
+            sample_count = len(batch.samples)
+            expected_span_us = (
+                int((sample_count - 1) * 1_000_000 / batch.sample_rate)
+                if sample_count > 1 and batch.sample_rate > 0
+                else 0
+            )
+            delta_us = last_sample.polar_clock_us - prev_ts
+            gap_threshold_us = max(500_000, expected_span_us * 2)
+            if delta_us > gap_threshold_us:
+                logger.warning(
+                    "Aggregator gap detected %s ACC: delta_us=%d expected_span_us=%d samples=%d",
+                    device_id,
+                    delta_us,
+                    expected_span_us,
+                    sample_count,
+                )
+        self._last_frame_ts[last_key] = last_sample.polar_clock_us
         wall_clock_s = batch.wall_clock_us / 1_000_000.0
 
         self.time_alignment.add_timestamp_pair(

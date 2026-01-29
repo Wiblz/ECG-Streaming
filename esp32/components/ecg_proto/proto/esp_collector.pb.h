@@ -61,6 +61,8 @@ typedef struct _ecg_streaming_BleNotificationDebug {
     uint64_t polar_clock_us; /* Polar device clock (microseconds since Polar boot) */
     uint32_t interval_us; /* Time since last notification (microseconds) */
     uint64_t notification_index; /* Sequential notification counter */
+    uint32_t conn_interval_ms; /* BLE connection interval (ms) */
+    uint32_t mtu; /* Negotiated MTU */
 } ecg_streaming_BleNotificationDebug;
 
 typedef struct _ecg_streaming_EspMessage {
@@ -115,14 +117,14 @@ extern "C" {
 #define ecg_streaming_SensorFrame_init_default   {"", _ecg_streaming_SensorType_MIN, 0, 0, 0, {{NULL}, NULL}}
 #define ecg_streaming_UsbDeviceInfo_init_default {"", "", "", 0, 0, _ecg_streaming_DeviceStatus_MIN}
 #define ecg_streaming_UsbConfigAck_init_default  {"", 0, "", ""}
-#define ecg_streaming_BleNotificationDebug_init_default {"", 0, 0, 0, 0, 0, 0, 0}
+#define ecg_streaming_BleNotificationDebug_init_default {"", 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define ecg_streaming_CollectorToEspMessage_init_default {0, {ecg_streaming_UsbConfig_init_default}}
 #define ecg_streaming_UsbConfig_init_default     {"", "", 0, 0, 0}
 #define ecg_streaming_EspMessage_init_zero       {0, {ecg_streaming_SensorFrame_init_zero}}
 #define ecg_streaming_SensorFrame_init_zero      {"", _ecg_streaming_SensorType_MIN, 0, 0, 0, {{NULL}, NULL}}
 #define ecg_streaming_UsbDeviceInfo_init_zero    {"", "", "", 0, 0, _ecg_streaming_DeviceStatus_MIN}
 #define ecg_streaming_UsbConfigAck_init_zero     {"", 0, "", ""}
-#define ecg_streaming_BleNotificationDebug_init_zero {"", 0, 0, 0, 0, 0, 0, 0}
+#define ecg_streaming_BleNotificationDebug_init_zero {"", 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define ecg_streaming_CollectorToEspMessage_init_zero {0, {ecg_streaming_UsbConfig_init_zero}}
 #define ecg_streaming_UsbConfig_init_zero        {"", "", 0, 0, 0}
 
@@ -151,6 +153,8 @@ extern "C" {
 #define ecg_streaming_BleNotificationDebug_polar_clock_us_tag 6
 #define ecg_streaming_BleNotificationDebug_interval_us_tag 7
 #define ecg_streaming_BleNotificationDebug_notification_index_tag 8
+#define ecg_streaming_BleNotificationDebug_conn_interval_ms_tag 9
+#define ecg_streaming_BleNotificationDebug_mtu_tag 10
 #define ecg_streaming_EspMessage_sensor_frame_tag 1
 #define ecg_streaming_EspMessage_device_info_tag 2
 #define ecg_streaming_EspMessage_config_ack_tag  3
@@ -211,7 +215,9 @@ X(a, STATIC,   SINGULAR, UINT32,   notif_len,         4) \
 X(a, STATIC,   SINGULAR, UINT32,   sample_count,      5) \
 X(a, STATIC,   SINGULAR, UINT64,   polar_clock_us,    6) \
 X(a, STATIC,   SINGULAR, UINT32,   interval_us,       7) \
-X(a, STATIC,   SINGULAR, UINT64,   notification_index,   8)
+X(a, STATIC,   SINGULAR, UINT64,   notification_index,   8) \
+X(a, STATIC,   SINGULAR, UINT32,   conn_interval_ms,   9) \
+X(a, STATIC,   SINGULAR, UINT32,   mtu,              10)
 #define ecg_streaming_BleNotificationDebug_CALLBACK NULL
 #define ecg_streaming_BleNotificationDebug_DEFAULT NULL
 
@@ -251,7 +257,7 @@ extern const pb_msgdesc_t ecg_streaming_UsbConfig_msg;
 /* ecg_streaming_EspMessage_size depends on runtime parameters */
 /* ecg_streaming_SensorFrame_size depends on runtime parameters */
 #define ECG_STREAMING_ESP_COLLECTOR_PB_H_MAX_SIZE ecg_streaming_UsbConfigAck_size
-#define ecg_streaming_BleNotificationDebug_size  118
+#define ecg_streaming_BleNotificationDebug_size  130
 #define ecg_streaming_CollectorToEspMessage_size 159
 #define ecg_streaming_UsbConfigAck_size          265
 #define ecg_streaming_UsbConfig_size             156

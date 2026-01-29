@@ -42,3 +42,6 @@ TickType_t g_first_sample_time = 0;
 
 bool g_ecg_started = false;
 bool g_acc_started = false;
+
+uint32_t g_conn_interval_ms = 0;
+uint32_t g_current_mtu = 0;
