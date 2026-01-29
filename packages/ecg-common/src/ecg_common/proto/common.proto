@@ -21,6 +21,7 @@ message ECGSample {
   string device_id = 3;               // Device identifier (e.g., "Polar H10 ABC123")
   uint64 wall_clock_us = 4;           // Wall clock (epoch time) when collector received frame (microseconds)
   uint64 receiver_clock_us = 5;       // Receiver device clock (microseconds since ESP32/collector boot)
+  bool time_verified = 6;             // True if polar_clock_us came directly from PMD frame (not interpolated)
 }
 
 // Individual accelerometer sample with precise timestamp
@@ -32,4 +33,5 @@ message AccelerometerSample {
   string device_id = 5;               // Device identifier (e.g., "Polar H10 ABC123")
   uint64 wall_clock_us = 6;           // Wall clock (epoch time) when collector received frame (microseconds)
   uint64 receiver_clock_us = 7;       // Receiver device clock (microseconds since ESP32/collector boot)
+  bool time_verified = 8;             // True if polar_clock_us came directly from PMD frame (not interpolated)
 }

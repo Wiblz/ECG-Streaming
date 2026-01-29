@@ -7,6 +7,7 @@ export interface BufferedECGSample {
 	wall_clock_us: number
 	receiver_clock_us: number
 	polar_clock_us: number
+	time_verified: boolean
 }
 
 export interface BufferedAccelerometerSample {
@@ -21,6 +22,7 @@ export interface BufferedAccelerometerSample {
 	wall_clock_us: number
 	receiver_clock_us: number
 	polar_clock_us: number
+	time_verified: boolean
 }
 
 export interface InitMessage {
@@ -101,6 +103,7 @@ export interface SessionSample {
 	wall_clock_us: number
 	receiver_clock_us: number
 	polar_clock_us: number
+	time_verified: boolean
 }
 
 export interface SessionAccelerometerSample {
@@ -115,6 +118,7 @@ export interface SessionAccelerometerSample {
 	wall_clock_us: number
 	receiver_clock_us: number
 	polar_clock_us: number
+	time_verified: boolean
 }
 
 export interface SessionsResponse {

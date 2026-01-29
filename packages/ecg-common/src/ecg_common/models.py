@@ -71,6 +71,7 @@ class BufferedSample:
     wall_clock_us: int  # Wall clock (epoch time) when collector received frame (microseconds)
     receiver_clock_us: int  # Receiver device clock (microseconds since ESP32/collector boot)
     polar_clock_us: int  # Polar device clock (microseconds since Polar boot)
+    time_verified: bool  # True if polar timestamp came directly from PMD frame (not interpolated)
 
 
 @dataclass

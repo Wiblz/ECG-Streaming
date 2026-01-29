@@ -23,17 +23,26 @@ DEVICE_STATUS_STREAMING: DeviceStatus
 DEVICE_STATUS_ERROR: DeviceStatus
 
 class ECGSample(_message.Message):
-    __slots__ = ("value", "polar_clock_us", "device_id", "wall_clock_us", "receiver_clock_us")
+    __slots__ = (
+        "value",
+        "polar_clock_us",
+        "device_id",
+        "wall_clock_us",
+        "receiver_clock_us",
+        "time_verified",
+    )
     VALUE_FIELD_NUMBER: _ClassVar[int]
     POLAR_CLOCK_US_FIELD_NUMBER: _ClassVar[int]
     DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
     WALL_CLOCK_US_FIELD_NUMBER: _ClassVar[int]
     RECEIVER_CLOCK_US_FIELD_NUMBER: _ClassVar[int]
+    TIME_VERIFIED_FIELD_NUMBER: _ClassVar[int]
     value: int
     polar_clock_us: int
     device_id: str
     wall_clock_us: int
     receiver_clock_us: int
+    time_verified: bool
 
     def __init__(
         self,
@@ -42,10 +51,20 @@ class ECGSample(_message.Message):
         device_id: str | None = ...,
         wall_clock_us: int | None = ...,
         receiver_clock_us: int | None = ...,
+        time_verified: bool = ...,
     ) -> None: ...
 
 class AccelerometerSample(_message.Message):
-    __slots__ = ("x", "y", "z", "polar_clock_us", "device_id", "wall_clock_us", "receiver_clock_us")
+    __slots__ = (
+        "x",
+        "y",
+        "z",
+        "polar_clock_us",
+        "device_id",
+        "wall_clock_us",
+        "receiver_clock_us",
+        "time_verified",
+    )
     X_FIELD_NUMBER: _ClassVar[int]
     Y_FIELD_NUMBER: _ClassVar[int]
     Z_FIELD_NUMBER: _ClassVar[int]
@@ -53,6 +72,7 @@ class AccelerometerSample(_message.Message):
     DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
     WALL_CLOCK_US_FIELD_NUMBER: _ClassVar[int]
     RECEIVER_CLOCK_US_FIELD_NUMBER: _ClassVar[int]
+    TIME_VERIFIED_FIELD_NUMBER: _ClassVar[int]
     x: float
     y: float
     z: float
@@ -60,6 +80,7 @@ class AccelerometerSample(_message.Message):
     device_id: str
     wall_clock_us: int
     receiver_clock_us: int
+    time_verified: bool
 
     def __init__(
         self,
@@ -70,4 +91,5 @@ class AccelerometerSample(_message.Message):
         device_id: str | None = ...,
         wall_clock_us: int | None = ...,
         receiver_clock_us: int | None = ...,
+        time_verified: bool = ...,
     ) -> None: ...

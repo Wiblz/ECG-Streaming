@@ -45,6 +45,10 @@ def parse_ecg_frame(
 
         # Calculate timestamp for this sample (counting backwards from last sample)
         polar_clock_us = last_sample_polar_clock_us - (sample_count - i - 1) * interval_us
+
+        # Only the last sample has the direct timestamp from PMD frame
+        is_last_sample = i == sample_count - 1
+
         samples.append(
             common_pb2.ECGSample(
                 value=raw_value,
@@ -52,6 +56,7 @@ def parse_ecg_frame(
                 device_id=device_id,
                 wall_clock_us=wall_clock_us,
                 receiver_clock_us=receiver_clock_us,
+                time_verified=is_last_sample,
             )
         )
 
@@ -101,6 +106,10 @@ def parse_acc_frame(
 
         # Calculate timestamp for this sample (counting backwards from last sample)
         polar_clock_us = last_sample_polar_clock_us - (sample_count - i - 1) * interval_us
+
+        # Only the last sample has the direct timestamp from PMD frame
+        is_last_sample = i == sample_count - 1
+
         samples.append(
             common_pb2.AccelerometerSample(
                 x=x_g,
@@ -110,6 +119,7 @@ def parse_acc_frame(
                 device_id=device_id,
                 wall_clock_us=wall_clock_us,
                 receiver_clock_us=receiver_clock_us,
+                time_verified=is_last_sample,
             )
         )
 

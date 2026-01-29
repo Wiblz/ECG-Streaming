@@ -312,6 +312,7 @@ class ECGDataBuffer(DataBuffer[BufferedECGSample]):
         wall_clock_us: int,
         polar_clock_us: int,
         receiver_clock_us: int,
+        time_verified: bool = False,
     ) -> None:
         """Add a synchronized ECG sample to the buffer.
 
@@ -323,6 +324,7 @@ class ECGDataBuffer(DataBuffer[BufferedECGSample]):
             wall_clock_us: Wall clock (epoch time) when collector received frame (microseconds)
             polar_clock_us: Polar device timestamp (microseconds since Polar boot)
             receiver_clock_us: Receiver device clock (microseconds since ESP32/collector boot)
+            time_verified: True if polar timestamp came directly from PMD frame (not interpolated)
         """
         import time as time_module
 
@@ -342,6 +344,7 @@ class ECGDataBuffer(DataBuffer[BufferedECGSample]):
             wall_clock_us=wall_clock_us,
             receiver_clock_us=receiver_clock_us,
             polar_clock_us=polar_clock_us,
+            time_verified=time_verified,
         )
 
         with self._lock:
@@ -382,6 +385,7 @@ class AccelerometerDataBuffer(DataBuffer[BufferedAccelerometerSample]):
         wall_clock_us: int,
         polar_clock_us: int,
         receiver_clock_us: int,
+        time_verified: bool = False,
     ) -> None:
         """Add a synchronized accelerometer sample to the buffer.
 
@@ -397,6 +401,7 @@ class AccelerometerDataBuffer(DataBuffer[BufferedAccelerometerSample]):
             wall_clock_us: Wall clock (epoch time) when collector received frame (microseconds)
             polar_clock_us: Polar device timestamp (microseconds since Polar boot)
             receiver_clock_us: Receiver device clock (microseconds since ESP32/collector boot)
+            time_verified: True if polar timestamp came directly from PMD frame (not interpolated)
         """
         # Calculate motion magnitude (total acceleration vector length)
         magnitude = math.sqrt(x**2 + y**2 + z**2)
@@ -416,6 +421,7 @@ class AccelerometerDataBuffer(DataBuffer[BufferedAccelerometerSample]):
             wall_clock_us=wall_clock_us,
             receiver_clock_us=receiver_clock_us,
             polar_clock_us=polar_clock_us,
+            time_verified=time_verified,
         )
 
         with self._lock:

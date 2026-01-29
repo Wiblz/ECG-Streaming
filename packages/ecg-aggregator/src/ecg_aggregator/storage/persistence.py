@@ -166,6 +166,7 @@ class ECGDatabase:
         session_id: int | None = None,
         wall_clock_us: int | None = None,
         receiver_clock_us: int | None = None,
+        time_verified: bool = False,
     ) -> None:
         """Store a single ECG sample.
 
@@ -178,6 +179,7 @@ class ECGDatabase:
             session_id: Session ID to associate with this sample (optional)
             wall_clock_us: Collector-issued wall clock timestamp (epoch time in microseconds, optional)
             receiver_clock_us: Receiver device clock (microseconds since ESP32/collector boot, optional)
+            time_verified: True if polar timestamp came directly from PMD frame (not interpolated, optional)
         """
         with self._lock:
             try:
@@ -187,8 +189,8 @@ class ECGDatabase:
                 cursor.execute(
                     """
                     INSERT INTO ecg_samples
-                    (device_id, global_time, device_timestamp, raw_value, confidence, inserted_at, session_id, wall_clock_us, receiver_clock_us)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (device_id, global_time, device_timestamp, raw_value, confidence, inserted_at, session_id, wall_clock_us, receiver_clock_us, time_verified)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         device_id,
@@ -200,6 +202,7 @@ class ECGDatabase:
                         session_id,
                         wall_clock_us,
                         receiver_clock_us,
+                        1 if time_verified else 0,
                     ),
                 )
 
@@ -233,6 +236,7 @@ class ECGDatabase:
         session_id: int | None = None,
         wall_clock_us: int | None = None,
         receiver_clock_us: int | None = None,
+        time_verified: bool = False,
     ) -> None:
         """Store a single accelerometer sample.
 
@@ -248,6 +252,7 @@ class ECGDatabase:
             session_id: Session ID to associate with this sample (optional)
             wall_clock_us: Collector-issued wall clock timestamp (epoch time in microseconds, optional)
             receiver_clock_us: Receiver device clock (microseconds since ESP32/collector boot, optional)
+            time_verified: True if polar timestamp came directly from PMD frame (not interpolated, optional)
         """
         # Calculate magnitude if not provided
         if magnitude is None:
@@ -261,8 +266,8 @@ class ECGDatabase:
                 cursor.execute(
                     """
                     INSERT INTO accelerometer_samples
-                    (device_id, global_time, device_timestamp, x, y, z, magnitude, confidence, inserted_at, session_id, wall_clock_us, receiver_clock_us)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (device_id, global_time, device_timestamp, x, y, z, magnitude, confidence, inserted_at, session_id, wall_clock_us, receiver_clock_us, time_verified)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         device_id,
@@ -277,6 +282,7 @@ class ECGDatabase:
                         session_id,
                         wall_clock_us,
                         receiver_clock_us,
+                        1 if time_verified else 0,
                     ),
                 )
 
@@ -988,7 +994,7 @@ class ECGDatabase:
                 cursor = conn.cursor()
 
                 query = """
-                    SELECT id, device_id, global_time, raw_value, confidence, wall_clock_us, receiver_clock_us, device_timestamp
+                    SELECT id, device_id, global_time, raw_value, confidence, wall_clock_us, receiver_clock_us, device_timestamp, time_verified
                     FROM ecg_samples
                     WHERE session_id = ?
                 """
@@ -1026,6 +1032,7 @@ class ECGDatabase:
                             "wall_clock_us": row[5],
                             "receiver_clock_us": row[6],
                             "polar_clock_us": row[7],
+                            "time_verified": bool(row[8]),
                         }
                     )
 
@@ -1063,7 +1070,7 @@ class ECGDatabase:
                 cursor = conn.cursor()
 
                 query = """
-                    SELECT id, device_id, global_time, x, y, z, magnitude, confidence, wall_clock_us, receiver_clock_us, device_timestamp
+                    SELECT id, device_id, global_time, x, y, z, magnitude, confidence, wall_clock_us, receiver_clock_us, device_timestamp, time_verified
                     FROM accelerometer_samples
                     WHERE session_id = ?
                 """
@@ -1104,6 +1111,7 @@ class ECGDatabase:
                             "wall_clock_us": row[8],
                             "receiver_clock_us": row[9],
                             "polar_clock_us": row[10],
+                            "time_verified": bool(row[11]),
                         }
                     )
 
