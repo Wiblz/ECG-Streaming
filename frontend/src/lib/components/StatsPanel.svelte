@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { statusEvents } from '$lib/state/status-events.svelte';
-	import type { BufferStats } from '$lib/types/api';
+	import type { BufferStatsData } from '$lib/types/sse-protocol';
 	import Card from './Card.svelte';
 
 	// Use reactive state from SSE client
@@ -10,40 +10,48 @@
 
 <Card title="Statistics">
 	{#if stats}
+		{@const ecgStats = stats.ecg_buffer}
+		{@const accStats = stats.acc_buffer}
 		<dl class="grid grid-cols-2 gap-3">
 			<div class="bg-gray-50 rounded-lg p-4">
 				<dt class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Samples</dt>
 				<dd class="text-xl font-bold text-gray-900">
-					{stats.total_samples.toLocaleString()}
-				</dd>
-			</div>
-			<div class="bg-gray-50 rounded-lg p-4">
-				<dt class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Throughput</dt>
-				<dd class="text-xl font-bold text-gray-900">
-					{stats.samples_per_second.toFixed(1)} Hz
+					{ecgStats.total_samples.toLocaleString()}
 				</dd>
 			</div>
 			<div class="bg-gray-50 rounded-lg p-4">
 				<dt class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Devices</dt>
-				<dd class="text-xl font-bold text-gray-900">{stats.device_count}</dd>
+				<dd class="text-xl font-bold text-gray-900">{ecgStats.device_count}</dd>
+			</div>
+			<div class="bg-gray-50 rounded-lg p-4">
+				<dt class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">ECG Rate</dt>
+				<dd class="text-xl font-bold text-gray-900">
+					{ecgStats.samples_per_second.toFixed(1)} Hz
+				</dd>
+			</div>
+			<div class="bg-gray-50 rounded-lg p-4">
+				<dt class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">ACC Rate</dt>
+				<dd class="text-xl font-bold text-gray-900">
+					{accStats.samples_per_second.toFixed(1)} Hz
+				</dd>
 			</div>
 			<div class="bg-gray-50 rounded-lg p-4">
 				<dt class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Buffer</dt>
 				<dd class="text-xl font-bold text-gray-900">
-					{(stats.buffer_utilization * 100).toFixed(1)}%
+					{(ecgStats.buffer_utilization * 100).toFixed(1)}%
 				</dd>
 			</div>
 			<div class="bg-gray-50 rounded-lg p-4">
 				<dt class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Processed</dt>
 				<dd class="text-xl font-bold text-gray-900">
-					{stats.total_processed.toLocaleString()}
+					{ecgStats.total_processed.toLocaleString()}
 				</dd>
 			</div>
 		</dl>
 		<div class="mt-5 pt-4 border-t border-gray-200">
 			<div class="flex items-center justify-between text-xs">
 				<span class="text-gray-500">Buffer Duration</span>
-				<span class="font-medium text-gray-900">{stats.duration_seconds.toFixed(1)}s</span>
+				<span class="font-medium text-gray-900">{ecgStats.duration_seconds.toFixed(1)}s</span>
 			</div>
 		</div>
 	{:else}

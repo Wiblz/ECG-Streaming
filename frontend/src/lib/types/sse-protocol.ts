@@ -60,16 +60,30 @@ export interface DeviceUpdateData {
  * Buffer stats event - sent periodically (every 5s) with buffer statistics
  */
 export interface BufferStatsData {
-	total_samples: number
-	duration_seconds: number
-	device_count: number
-	samples_per_device: Record<string, number>
-	samples_per_second: number
-	samples_per_second_per_device: Record<string, number>
-	oldest_timestamp: number
-	newest_timestamp: number
-	total_processed: number
-	buffer_utilization: number
+	ecg_buffer: {
+		total_samples: number
+		duration_seconds: number
+		device_count: number
+		samples_per_device: Record<string, number>
+		samples_per_second: number
+		samples_per_second_per_device: Record<string, number>
+		oldest_timestamp: number
+		newest_timestamp: number
+		total_processed: number
+		buffer_utilization: number
+	}
+	acc_buffer: {
+		total_samples: number
+		duration_seconds: number
+		device_count: number
+		samples_per_device: Record<string, number>
+		samples_per_second: number
+		samples_per_second_per_device: Record<string, number>
+		oldest_timestamp: number
+		newest_timestamp: number
+		total_processed: number
+		buffer_utilization: number
+	}
 }
 
 /**

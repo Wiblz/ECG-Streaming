@@ -203,7 +203,10 @@ class ECGStreamingServer:
                     yield {"event": "connected", "data": json.dumps({"timestamp": time.time()})}
 
                     # Send initial buffer stats immediately
-                    initial_stats = self.ecg_buffer.get_stats()
+                    initial_stats = {
+                        "ecg_buffer": self.ecg_buffer.get_stats(),
+                        "acc_buffer": self.acc_buffer.get_stats(),
+                    }
                     yield {"event": "buffer_stats", "data": json.dumps(initial_stats)}
 
                     # Keepalive interval
@@ -1219,15 +1222,16 @@ class ECGStreamingServer:
         """Periodically broadcast buffer statistics via SSE."""
         while True:
             try:
-                await asyncio.sleep(5.0)  # Broadcast every 5 seconds
+                await asyncio.sleep(1.0)  # Broadcast every second
 
                 if self.sse_broadcaster.get_client_count() == 0:
                     continue  # No clients, skip
 
-                # Get ECG buffer stats
-                stats = self.ecg_buffer.get_stats()
+                stats = {
+                    "ecg_buffer": self.ecg_buffer.get_stats(),
+                    "acc_buffer": self.acc_buffer.get_stats(),
+                }
 
-                # Broadcast to SSE clients (stats dict matches BufferStatsData)
                 await self.sse_broadcaster.broadcast("buffer_stats", stats)  # type: ignore[arg-type]
 
             except asyncio.CancelledError:

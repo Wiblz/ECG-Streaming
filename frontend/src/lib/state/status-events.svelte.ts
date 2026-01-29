@@ -4,7 +4,8 @@
  */
 
 import { get_api_base_url } from '$lib/api/client'
-import type { BufferStats, Collector, DeviceStatus } from '$lib/types/api'
+import type { BufferStats } from '$lib/types/api'
+import type { Collector, DeviceStatus } from '$lib/types/api'
 import type {
 	BufferStatsData,
 	CollectorUpdateData,
@@ -24,7 +25,7 @@ class StatusEventsClient {
 	connectionStatus = $state<ConnectionStatus>('disconnected')
 	collectors = $state<Map<string, Collector>>(new Map())
 	devices = $state<Map<string, DeviceStatus>>(new Map())
-	bufferStats = $state<BufferStats | null>(null)
+	bufferStats = $state<BufferStatsData | null>(null)
 	lastUpdate = $state<Date | null>(null)
 	error = $state<string | null>(null)
 
@@ -180,8 +181,24 @@ class StatusEventsClient {
 	 */
 	private handleBufferStats(event: MessageEvent) {
 		try {
-			const data: BufferStatsData = JSON.parse(event.data)
-			this.bufferStats = data
+			const data = JSON.parse(event.data) as BufferStatsData | BufferStats
+			if ('ecg_buffer' in data && 'acc_buffer' in data) {
+				this.bufferStats = data
+			} else {
+				const empty: BufferStats = {
+					total_samples: 0,
+					duration_seconds: 0,
+					device_count: 0,
+					samples_per_device: {},
+					samples_per_second: 0,
+					samples_per_second_per_device: {},
+					oldest_timestamp: 0,
+					newest_timestamp: 0,
+					total_processed: 0,
+					buffer_utilization: 0
+				}
+				this.bufferStats = { ecg_buffer: data, acc_buffer: empty }
+			}
 			this.lastUpdate = new Date()
 		} catch (err) {
 			console.error('[SSE] Error parsing buffer_stats:', err)

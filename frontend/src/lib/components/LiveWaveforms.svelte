@@ -2,6 +2,7 @@
 	import { getSamples as getAccSamples } from '$lib/state/acc-data.svelte';
 	import { getSamples as getEcgSamples } from '$lib/state/ecg-data.svelte';
 	import { ConnectionState, getAccWsState, getWsState } from '$lib/state/websocket.svelte';
+	import Button from './buttons/Button.svelte';
 	import Card from './Card.svelte';
 	import PauseButton from './PauseButton.svelte';
 	import Waveform from './Waveform.svelte';
@@ -15,6 +16,9 @@
 	// Determine streaming status
 	const ecgStreaming = $derived(ecgWsState === ConnectionState.CONNECTED && ecgSamples.size > 0);
 	const accStreaming = $derived(accWsState === ConnectionState.CONNECTED && accSamples.size > 0);
+
+	// Shared state for verified points toggle
+	let showVerifiedPoints = $state(false);
 </script>
 
 <svelte:head>
@@ -23,6 +27,16 @@
 
 <Card title="Live Waveforms">
 	{#snippet headerActions()}
+		<Button
+			variant={showVerifiedPoints ? 'success' : 'ghost'}
+			size="sm"
+			onclick={() => {
+				showVerifiedPoints = !showVerifiedPoints;
+			}}
+			title="Toggle verified sample points (samples with direct Polar timestamps)"
+		>
+			Verified Points
+		</Button>
 		<PauseButton />
 	{/snippet}
 
@@ -43,15 +57,18 @@
 					</div>
 				{/if}
 			</div>
-			<Waveform
-				samples={ecgSamples}
-				wsState={ecgWsState}
-				getValue={(s) => s.raw_value}
-				yAxisLabel="Amplitude (mV)"
-				title="ECG"
-				emptyMessage="Waiting for ECG data..."
-				standalone={false}
-			/>
+			{#key showVerifiedPoints}
+				<Waveform
+					samples={ecgSamples}
+					wsState={ecgWsState}
+					getValue={(s) => s.raw_value}
+					yAxisLabel="Amplitude (mV)"
+					title="ECG"
+					emptyMessage="Waiting for ECG data..."
+					standalone={false}
+					{showVerifiedPoints}
+				/>
+			{/key}
 		</div>
 
 		<!-- Divider -->
@@ -73,15 +90,18 @@
 					</div>
 				{/if}
 			</div>
-			<Waveform
-				samples={accSamples}
-				wsState={accWsState}
-				getValue={(s) => s.magnitude}
-				yAxisLabel="Magnitude (g)"
-				title="Accelerometer"
-				emptyMessage="Waiting for accelerometer data..."
-				standalone={false}
-			/>
+			{#key showVerifiedPoints}
+				<Waveform
+					samples={accSamples}
+					wsState={accWsState}
+					getValue={(s) => s.magnitude}
+					yAxisLabel="Magnitude (g)"
+					title="Accelerometer"
+					emptyMessage="Waiting for accelerometer data..."
+					standalone={false}
+					{showVerifiedPoints}
+				/>
+			{/key}
 		</div>
 	</div>
 </Card>

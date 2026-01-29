@@ -14,7 +14,7 @@ from ecg_common.models import (
     BufferedSample,
 )
 
-RATE_WINDOW_SECONDS = 5.0
+RATE_WINDOW_SECONDS = 3.0
 RATE_BUCKET_SECONDS = 1.0
 
 

@@ -17,7 +17,10 @@ export function getDeviceColor(index: number): string {
 /**
  * Create series configuration for devices
  */
-export function createDeviceSeries(deviceIds: string[]): uPlot.Series[] {
+export function createDeviceSeries(
+	deviceIds: string[],
+	getVerifiedIndices?: () => number[]
+): uPlot.Series[] {
 	const series: uPlot.Series[] = [{ label: 'Time' }]
 
 	deviceIds.forEach((deviceId, idx) => {
@@ -25,7 +28,18 @@ export function createDeviceSeries(deviceIds: string[]): uPlot.Series[] {
 			label: deviceId,
 			stroke: getDeviceColor(idx),
 			width: 2,
-			points: { show: false }
+			points: getVerifiedIndices
+				? {
+						show: true,
+						size: 5,
+						width: 2,
+						stroke: '#00ff00', // Green for verified samples
+						filter: () => {
+							// Return pre-computed indices - O(1) lookup
+							return getVerifiedIndices()
+						}
+					}
+				: { show: false }
 		})
 	})
 

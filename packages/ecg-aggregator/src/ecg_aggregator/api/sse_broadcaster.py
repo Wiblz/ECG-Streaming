@@ -49,16 +49,8 @@ class DeviceUpdateData(TypedDict, total=False):
 class BufferStatsData(TypedDict):
     """Data for buffer_stats events."""
 
-    total_samples: int
-    duration_seconds: float
-    device_count: int
-    samples_per_device: dict[str, int]
-    samples_per_second: float
-    samples_per_second_per_device: dict[str, float]
-    oldest_timestamp: float
-    newest_timestamp: float
-    total_processed: int
-    buffer_utilization: float
+    ecg_buffer: dict[str, object]
+    acc_buffer: dict[str, object]
 
 
 class HeartbeatEventData(TypedDict):

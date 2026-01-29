@@ -8,7 +8,7 @@
 	import { flattenGroupedSamples } from '$lib/utils/samples';
 
 	let uPlotLib = $state<typeof uPlot | null>(null);
-	let createDeviceSeries: ((deviceIds: string[]) => uPlot.Series[]) | null = null;
+	let createDeviceSeries: ((deviceIds: string[], getVerifiedIndices?: () => number[]) => uPlot.Series[]) | null = null;
 	let createAxes: (() => uPlot.Axis[]) | null = null;
 	let tooltipsPlugin: ReturnType<typeof import('$lib/utils/uplot-tooltips').tooltipsPlugin> | null =
 		null;
@@ -16,14 +16,18 @@
 	interface Props {
 		session: Session;
 		loading?: boolean;
+		showVerifiedPoints?: boolean;
 	}
 
-	let { session, loading = false }: Props = $props();
+	let { session, loading = false, showVerifiedPoints = false }: Props = $props();
 
 	let plotContainer: HTMLDivElement;
 	let chart: uPlot | null = null;
 	let loadedSamples: SessionAccelerometerSample[] = $state([]);
 	let isLoadingData = $state(false);
+
+	// Pre-computed indices of verified samples for efficient filtering
+	let verifiedIndices: number[] = [];
 
 	// Track the currently loaded time range
 	let loadedTimeRange = $state<{ start: number; end: number } | null>(null);
@@ -114,9 +118,9 @@
 	// Prepare data for uPlot (convert to relative session time)
 	const prepareChartData = (
 		samples: SessionAccelerometerSample[]
-	): { data: uPlot.AlignedData; devices: string[] } => {
+	): { data: uPlot.AlignedData; devices: string[]; sortedSamples: SessionAccelerometerSample[] } => {
 		if (samples.length === 0) {
-			return { data: [[], []], devices: [] };
+			return { data: [[], []], devices: [], sortedSamples: [] };
 		}
 
 		const devices = [...new Set(samples.map((s) => s.device_id))];
@@ -130,7 +134,8 @@
 
 			return {
 				data: [timestamps, values] as uPlot.AlignedData,
-				devices
+				devices,
+				sortedSamples: sorted
 			};
 		}
 
@@ -152,7 +157,7 @@
 		// Use first device's timestamps as x-axis (relative time)
 		const firstDevice = byDevice.values().next().value;
 		if (!firstDevice) {
-			return { data: [[], []], devices: [] };
+			return { data: [[], []], devices: [], sortedSamples: [] };
 		}
 		const timestamps = firstDevice.map(
 			(s: SessionAccelerometerSample) => s.global_time - session.start_time
@@ -166,7 +171,8 @@
 
 		return {
 			data: [timestamps, ...seriesData] as uPlot.AlignedData,
-			devices
+			devices,
+			sortedSamples: firstDevice
 		};
 	};
 
@@ -276,14 +282,20 @@
 
 		console.log('[Waveform] Creating chart...');
 
-		const { data, devices } = prepareChartData(loadedSamples);
+		const { data, devices, sortedSamples } = prepareChartData(loadedSamples);
+
+		// Pre-compute verified indices for performance
+		verifiedIndices = sortedSamples.reduce((acc, sample, i) => {
+			if (sample.time_verified) acc.push(i);
+			return acc;
+		}, [] as number[]);
 
 		if (!createDeviceSeries || !createAxes) return;
 
 		const opts: uPlot.Options = {
 			width: plotContainer.clientWidth,
 			height: 400,
-			series: createDeviceSeries(devices),
+			series: createDeviceSeries(devices, showVerifiedPoints ? () => verifiedIndices : undefined),
 			axes: createAxes(),
 			scales: {
 				x: {

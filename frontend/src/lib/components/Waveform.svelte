@@ -10,6 +10,7 @@
 	} from '$lib/state/session-time.svelte';
 	import { isPaused } from '$lib/state/pause.svelte';
 	import type { ConnectionStateType } from '$lib/state/websocket.svelte';
+	import Button from './buttons/Button.svelte';
 	import Card from './Card.svelte';
 
 	interface Props {
@@ -24,6 +25,11 @@
 		 * @default true
 		 */
 		standalone?: boolean;
+		/**
+		 * Whether to show verified sample points
+		 * @default false
+		 */
+		showVerifiedPoints?: boolean;
 	}
 
 	let {
@@ -33,13 +39,14 @@
 		title,
 		emptyMessage = 'Waiting for data...',
 		wsState,
-		standalone = true
+		standalone = true,
+		showVerifiedPoints = false
 	}: Props = $props();
 
 	let plotContainer: HTMLDivElement;
 	let chart = $state<uPlot | null>(null);
 	let uPlotLib = $state<typeof uPlot | null>(null);
-	let createDeviceSeries: ((deviceIds: string[]) => uPlot.Series[]) | null = null;
+	let createDeviceSeries: ((deviceIds: string[], getVerifiedIndices?: () => number[]) => uPlot.Series[]) | null = null;
 	let createAxes: ((yLabel: string) => uPlot.Axis[]) | null = null;
 	let tooltipsPlugin: ReturnType<typeof import('$lib/utils/uplot-tooltips').tooltipsPlugin> | null =
 		null;
@@ -47,6 +54,8 @@
 
 	// Sample lookup for efficient tooltip access - maps chart data index to original sample
 	let sampleLookup: T[] = [];
+	// Pre-computed indices of verified samples for efficient filtering
+	let verifiedIndices: number[] = [];
 
 	import { ConnectionState } from '$lib/state/websocket.svelte';
 
@@ -215,8 +224,7 @@
 	function createChart() {
 		if (!plotContainer || !uPlotLib || !createDeviceSeries || !createAxes) return;
 
-		const { data, devices, samples: chartSamples } = prepareChartData(samples);
-		sampleLookup = chartSamples;
+		const { data, devices } = prepareChartData(samples);
 
 		if (devices.length === 0) {
 			// No data yet, skip chart creation
@@ -226,7 +234,7 @@
 		const opts: uPlot.Options = {
 			width: plotContainer.clientWidth,
 			height: 400,
-			series: createDeviceSeries(devices),
+			series: createDeviceSeries(devices, showVerifiedPoints ? () => verifiedIndices : undefined),
 			axes: createAxes(yAxisLabel),
 			scales: {
 				x: {
@@ -264,6 +272,11 @@
 
 		const { data, samples: chartSamples } = prepareChartData(samples, timeWindow);
 		sampleLookup = chartSamples;
+		// Pre-compute verified indices for performance
+		verifiedIndices = chartSamples.reduce((acc, sample, i) => {
+			if (sample.time_verified) acc.push(i);
+			return acc;
+		}, [] as number[]);
 
 		// Update the range array (chart will use function to read it)
 		xAxisRange[0] = timeWindow.minTime;
@@ -290,6 +303,7 @@
 		// setData will now use the updated range via the function
 		chart.setData(data);
 	}
+
 
 	// Start/stop update interval based on streaming state
 	$effect(() => {
@@ -325,6 +339,11 @@
 
 		const { data, devices, samples: chartSamples } = prepareChartData(samples);
 		sampleLookup = chartSamples;
+		// Pre-compute verified indices for performance
+		verifiedIndices = chartSamples.reduce((acc, sample, i) => {
+			if (sample.time_verified) acc.push(i);
+			return acc;
+		}, [] as number[]);
 
 		if (devices.length === 0) {
 			// No data yet
@@ -415,6 +434,17 @@
 {#if standalone}
 	<Card {title}>
 		{#snippet headerActions()}
+			<Button
+				variant={showVerifiedPoints ? 'success' : 'ghost'}
+				size="sm"
+				onclick={() => {
+					showVerifiedPoints = !showVerifiedPoints;
+					createChart();
+				}}
+				title="Toggle verified sample points (samples with direct Polar timestamps)"
+			>
+				Verified Points
+			</Button>
 			{#if isStreaming}
 				<div class="flex items-center gap-2 text-xs text-gray-500">
 					<div class="w-2 h-2 bg-status-success-fg rounded-full animate-pulse"></div>
