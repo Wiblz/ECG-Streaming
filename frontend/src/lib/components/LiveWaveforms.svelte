@@ -6,6 +6,7 @@
 	import Card from './Card.svelte';
 	import PauseButton from './PauseButton.svelte';
 	import Waveform from './Waveform.svelte';
+	import 'uplot/dist/uPlot.min.css';
 
 	// Get samples and connection states
 	const ecgSamples = $derived(getEcgSamples());
@@ -21,9 +22,6 @@
 	let showVerifiedPoints = $state(false);
 </script>
 
-<svelte:head>
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.min.css" />
-</svelte:head>
 
 <Card title="Live Waveforms">
 	{#snippet headerActions()}

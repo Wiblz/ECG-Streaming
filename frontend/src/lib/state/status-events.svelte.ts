@@ -4,8 +4,7 @@
  */
 
 import { get_api_base_url } from '$lib/api/client'
-import type { BufferStats } from '$lib/types/api'
-import type { Collector, DeviceStatus } from '$lib/types/api'
+import type { BufferStats, Collector, DeviceStatus } from '$lib/types/api'
 import type {
 	BufferStatsData,
 	CollectorUpdateData,

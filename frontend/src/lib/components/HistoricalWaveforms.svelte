@@ -4,6 +4,7 @@
 	import Card from './Card.svelte';
 	import HistoricalAccelerometerWaveform from './HistoricalAccelerometerWaveform.svelte';
 	import HistoricalWaveform from './HistoricalWaveform.svelte';
+	import 'uplot/dist/uPlot.min.css';
 
 	interface Props {
 		session: Session;
@@ -16,9 +17,6 @@
 	let showVerifiedPoints = $state(false);
 </script>
 
-<svelte:head>
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.min.css" />
-</svelte:head>
 
 <Card title="Session Waveforms">
 	{#snippet headerActions()}

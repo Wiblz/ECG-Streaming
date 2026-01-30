@@ -3,15 +3,16 @@
 	import type uPlot from 'uplot';
 	import type { AlignedData } from 'uplot';
 	import { browser } from '$app/environment';
-	import {
-		getSessionStartTime,
-		setSessionStartTime,
-		getCurrentPlaybackTime
-	} from '$lib/state/session-time.svelte';
 	import { isPaused } from '$lib/state/pause.svelte';
+	import {
+		getCurrentPlaybackTime, 
+		getSessionStartTime,
+		setSessionStartTime
+	} from '$lib/state/session-time.svelte';
 	import type { ConnectionStateType } from '$lib/state/websocket.svelte';
 	import Button from './buttons/Button.svelte';
 	import Card from './Card.svelte';
+	import 'uplot/dist/uPlot.min.css';
 
 	interface Props {
 		samples: Map<string, T[]>;
@@ -427,9 +428,6 @@
 	});
 </script>
 
-<svelte:head>
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.min.css" />
-</svelte:head>
 
 {#if standalone}
 	<Card {title}>
