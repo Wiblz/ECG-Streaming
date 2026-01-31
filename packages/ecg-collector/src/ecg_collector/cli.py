@@ -10,6 +10,7 @@ from bleak import BleakScanner
 from ecg_common import __version__
 from ecg_common.logging import setup_logging
 from rich.console import Console
+from rich.live import Live
 from rich.table import Table
 
 console = Console()
@@ -174,53 +175,154 @@ def usb_scan(
     ] = 12.0,
 ) -> None:
     """Scan for USB serial devices (ESP32)."""
-    from ecg_collector.usb.collector import discover_usb_devices, probe_usb_device
+    from ecg_collector.usb.collector import discover_and_group_usb_interfaces, probe_usb_device
+    from ecg_collector.usb.models import EspDeviceGroup, ProbeStatus
 
     console.print("[blue]Scanning for USB devices...[/blue]")
 
     async def _scan() -> None:
-        devices = await discover_usb_devices()
+        # Phase 1: Discover and group interfaces
+        device_groups = await discover_and_group_usb_interfaces()
 
-        if devices:
+        if not device_groups:
+            console.print("[yellow]No USB devices found[/yellow]")
+            return
+
+        # Create table
+        def create_table() -> Table:
             table = Table(title="USB Devices Found")
+            table.add_column("Physical Device", style="cyan", no_wrap=True)
+            table.add_column("Iface", style="dim", no_wrap=True)
             table.add_column("Device Path", style="green")
+            table.add_column("Status", style="white")
             table.add_column("ESP ID", style="cyan")
             table.add_column("Target", style="magenta")
             table.add_column("FW", style="yellow")
             table.add_column("Polar", style="blue")
-            table.add_column("Config Required", style="red")
-            table.add_column("Message", style="white")
+            table.add_column("Config", style="red")
+            return table
 
-            for device in devices:
-                info = await probe_usb_device(device, timeout_s=timeout)
-                if info and info.get("type") == "usb_device_info":
-                    target = info.get("current_target") or "<unassigned>"
+        def get_status_display(status: ProbeStatus, error_msg: str | None = None) -> str:
+            """Get colored status display string."""
+            if status == ProbeStatus.DISCOVERED:
+                return "[dim]Discovered[/dim]"
+            elif status == ProbeStatus.PROBING:
+                return "[yellow]Probing...[/yellow]"
+            elif status == ProbeStatus.RECEIVED:
+                return "[green]Received[/green]"
+            elif status == ProbeStatus.TIMEOUT:
+                return "[red]No response[/red]"
+            else:  # ProbeStatus.ERROR
+                return f"[red]Error[/red]: {error_msg or 'Unknown'}"
+
+        def update_table() -> Table:
+            """Generate updated table from current device groups state."""
+            table = create_table()
+
+            for _group_key, group in sorted(device_groups.items()):
+                # Determine display values
+                # Use the actual USB serial from the group, not the dictionary key
+                usb_serial = group.usb_serial
+                usb_serial_display = usb_serial if usb_serial else "No Serial"
+                esp_id = ""
+                target = ""
+                fw = ""
+                polar = ""
+                config = ""
+
+                # Extract device info if received
+                if group.device_info:
+                    esp_id = group.device_info.get("esp_id", "")
+                    target = group.device_info.get("current_target", "") or "<unassigned>"
+                    fw = group.device_info.get("firmware_version", "")
+                    polar = (
+                        "Connected" if group.device_info.get("polar_connected") else "Disconnected"
+                    )
+                    config = (
+                        "Unconfigured" if group.device_info.get("config_required") else "Configured"
+                    )
+
+                # Add data interface row
+                if group.data_interface:
+                    status_display = get_status_display(group.probe_status, group.error_message)
                     table.add_row(
-                        device,
-                        info.get("esp_id", ""),
+                        usb_serial_display,
+                        "DATA",
+                        group.data_interface.device_path,
+                        status_display,
+                        esp_id,
                         target,
-                        info.get("firmware_version", ""),
-                        str(info.get("polar_connected", "")),
-                        str(info.get("config_required", "")),
-                        "usb_device_info",
+                        fw,
+                        polar,
+                        config,
                     )
-                elif info:
-                    table.add_row(
-                        device,
-                        "",
-                        info.get("device_id", ""),
-                        "",
-                        "",
-                        "",
-                        info.get("type", ""),
-                    )
-                else:
-                    table.add_row(device, "", "", "", "", "", "no data")
 
-            console.print(table)
-            console.print(f"\n[green]Found {len(devices)} USB device(s)[/green]")
-        else:
-            console.print("[yellow]No USB devices found[/yellow]")
+                # Add log interface row
+                if group.log_interface:
+                    log_status = "[blue]Available[/blue]"
+                    # Show ESP ID in log row if we got device_info from data interface
+                    log_esp_id = esp_id if group.probe_status == ProbeStatus.RECEIVED else ""
+                    table.add_row(
+                        "",  # Empty for grouped display
+                        "LOG",
+                        group.log_interface.device_path,
+                        log_status,
+                        log_esp_id,
+                        "",
+                        "",
+                        "",
+                        "",
+                    )
+
+            return table
+
+        # Phase 2: Display initial table and probe asynchronously
+        with Live(update_table(), console=console, refresh_per_second=4) as live:
+            # Collect probe tasks
+            async def probe_device_group(group: EspDeviceGroup) -> None:
+                """Probe a device group's data interface."""
+                if not group.data_interface:
+                    return
+
+                group.probe_status = ProbeStatus.PROBING
+                live.update(update_table())
+
+                try:
+                    info = await probe_usb_device(
+                        group.data_interface.device_path, timeout_s=timeout
+                    )
+                    if info and info.get("type") == "usb_device_info":
+                        group.device_info = info
+                        group.probe_status = ProbeStatus.RECEIVED
+                    else:
+                        group.probe_status = ProbeStatus.TIMEOUT
+                except Exception as e:
+                    group.probe_status = ProbeStatus.ERROR
+                    group.error_message = str(e)[:50]  # Truncate error message
+                finally:
+                    live.update(update_table())
+
+            # Start all probe tasks concurrently
+            probe_tasks = [
+                probe_device_group(group)
+                for group in device_groups.values()
+                if group.data_interface
+            ]
+
+            if probe_tasks:
+                await asyncio.gather(*probe_tasks)
+
+        # Final summary
+        total_devices = len(device_groups)
+        data_interfaces = sum(1 for g in device_groups.values() if g.data_interface)
+        log_interfaces = sum(1 for g in device_groups.values() if g.log_interface)
+        received = sum(1 for g in device_groups.values() if g.probe_status == ProbeStatus.RECEIVED)
+
+        console.print(
+            f"\n[green]Found {total_devices} physical device(s)[/green] "
+            f"({data_interfaces} data, {log_interfaces} log) - "
+            f"{received} responded with device_info"
+        )
 
     asyncio.run(_scan())
 
@@ -254,7 +356,7 @@ def usb_run(
         config: Path to YAML configuration file
     """
     from ecg_collector.config import CollectorSettings
-    from ecg_collector.usb.collector import discover_usb_devices
+    from ecg_collector.usb.collector import discover_and_group_usb_interfaces
     from ecg_collector.usb.service import MultiUsbCollectorService
 
     # Load configuration
@@ -287,14 +389,37 @@ def usb_run(
     # Resolve device paths
     device_paths = devices or settings.usb.devices
     if not device_paths and settings.usb.auto_discover:
-        device_paths = asyncio.run(discover_usb_devices())
+        # Use smart discovery to only get DATA interfaces
+        console.print("[blue]Auto-discovering USB devices...[/blue]")
+
+        async def discover_data_interfaces() -> list[str]:
+            device_groups = await discover_and_group_usb_interfaces()
+            data_paths = [
+                group.data_interface.device_path
+                for group in device_groups.values()
+                if group.data_interface
+            ]
+
+            # Show discovery summary
+            total_devices = len(device_groups)
+            log_interfaces = sum(1 for g in device_groups.values() if g.log_interface)
+            if total_devices > 0:
+                console.print(
+                    f"[green]Found {total_devices} ESP device(s)[/green] "
+                    f"({len(data_paths)} data interface(s), {log_interfaces} log interface(s))"
+                )
+                console.print("[dim]Note: Only data interfaces will be used for streaming[/dim]")
+
+            return data_paths
+
+        device_paths = asyncio.run(discover_data_interfaces())
 
     if not device_paths:
         console.print("[red]No USB devices configured or discovered[/red]")
         console.print("Use --device to specify device paths or enable usb.auto_discover")
         return
 
-    console.print("[blue]Starting USB collector:[/blue]")
+    console.print("\n[blue]Starting USB collector:[/blue]")
     console.print(f"  Devices: {', '.join(device_paths)}")
     console.print(f"  Aggregator: {host}:{port}")
     if collector_id:

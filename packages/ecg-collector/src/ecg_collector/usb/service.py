@@ -10,7 +10,7 @@ from ecg_common.proto import esp_collector_pb2
 
 from ecg_collector.base import DataCollector
 from ecg_collector.grpc_client import CollectorGrpcClient
-from ecg_collector.usb.collector import UsbCollector, discover_usb_devices
+from ecg_collector.usb.collector import UsbCollector, discover_and_group_usb_interfaces
 
 logger = get_logger(__name__)
 ble_debug_logger = get_logger("ecg_collector.ble_debug")
@@ -179,10 +179,7 @@ class MultiUsbCollectorService(DataCollector):
             last_key = (python_frame.device_id, python_frame.sensor_type)
             last_ts = self._last_frame_ts.get(last_key)
             if last_ts is not None:
-                if python_frame.sensor_type == SensorType.ECG:
-                    sample_size = 3
-                else:
-                    sample_size = 6
+                sample_size = 3 if python_frame.sensor_type == SensorType.ECG else 6
                 sample_count = len(python_frame.raw_data) // sample_size
                 expected_span_us = (
                     int((sample_count - 1) * 1_000_000 / python_frame.sample_rate)
@@ -401,16 +398,25 @@ async def auto_start_usb_collectors(
     Returns:
         List of started MultiUsbCollectorService instances
     """
-    devices = await discover_usb_devices()
+    # Use smart discovery to only get DATA interfaces
+    device_groups = await discover_and_group_usb_interfaces()
+    data_devices = [
+        group.data_interface.device_path for group in device_groups.values() if group.data_interface
+    ]
 
-    if not devices:
-        logger.warning("No USB devices found")
+    if not data_devices:
+        logger.warning("No USB data interfaces found")
         return []
 
-    logger.info(f"Found {len(devices)} USB device(s): {devices}")
+    total_devices = len(device_groups)
+    log_interfaces = sum(1 for g in device_groups.values() if g.log_interface)
+    logger.info(
+        f"Found {total_devices} ESP device(s) with {len(data_devices)} data interface(s) "
+        f"and {log_interfaces} log interface(s). Using: {data_devices}"
+    )
 
     service = MultiUsbCollectorService(
-        device_paths=devices,
+        device_paths=data_devices,
         aggregator_host=aggregator_host,
         aggregator_port=aggregator_port,
     )

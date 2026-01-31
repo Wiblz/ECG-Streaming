@@ -4,6 +4,7 @@
 #include "esp_log.h"
 #include "config_store.h"
 #include "state.h"
+#include "usb_cdc.h"
 #include "usb_output.h"
 #include "usb_provision.h"
 #include "usb_transport.h"
@@ -63,22 +64,13 @@ void app_main(void) {
     g_target_device_name[0] = '\0';
     g_device_id[0] = '\0';
 
-#if BINARY_OUTPUT_MODE
-    // In binary mode, disable all logging to avoid corrupting USB framing
-    esp_log_level_set("*", ESP_LOG_NONE);
-#else
-    // In human-readable mode, enable normal logging
+    config_store_init();
+    usb_cdc_init();
+#if CONFIG_LOG_STREAM_USB_CDC
+    esp_log_set_vprintf(usb_cdc_log_vprintf);
+#endif
     esp_log_level_set("*", ESP_LOG_INFO);
     esp_log_level_set("NimBLE", ESP_LOG_WARN);
-
-    ESP_LOGI(TAG, "");
-    ESP_LOGI(TAG, "Polar H10 ECG + ACC Streamer");
-    ESP_LOGI(TAG, "Target/Device ID: %s", g_target_device_name);
-    ESP_LOGI(TAG, "ECG: %d Hz | ACC: %d Hz", g_ecg_sample_rate_hz, g_acc_sample_rate_hz);
-    ESP_LOGI(TAG, "Mode: HUMAN READABLE");
-    ESP_LOGI(TAG, "");
-#endif
-    config_store_init();
     usb_transport_init();
 
     ble_init();

@@ -1,7 +1,5 @@
 #include "usb_transport.h"
 
-#include <stdio.h>
-
 #include "pb.h"
 #include "pb_decode.h"
 #include "pb_encode.h"
@@ -9,6 +7,8 @@
 #include "common.pb.h"
 #include "esp_collector.pb.h"
 #include "usb_transport.pb.h"
+#include "usb_cdc.h"
+#include "pb_helpers.h"
 #include "state.h"
 
 static uint8_t g_frame_buf[4096];
@@ -16,11 +16,6 @@ static uint8_t g_payload_buf[4096];
 static uint8_t g_rx_frame_buf[4096];
 static uint8_t g_rx_payload_buf[2048];
 static ecg_streaming_UsbFrame g_usb_frame;
-
-typedef struct {
-    const uint8_t *data;
-    size_t len;
-} bytes_view_t;
 
 typedef struct {
     uint8_t *data;
@@ -38,14 +33,6 @@ static uint32_t crc32_ieee(const uint8_t *data, size_t len) {
         }
     }
     return crc ^ 0xFFFFFFFFu;
-}
-
-static bool encode_bytes_cb(pb_ostream_t *stream, const pb_field_t *field, void *const *arg) {
-    const bytes_view_t *view = (const bytes_view_t *)(*arg);
-    if (!pb_encode_tag_for_field(stream, field)) {
-        return false;
-    }
-    return pb_encode_string(stream, view->data, view->len);
 }
 
 static bool decode_bytes_cb(pb_istream_t *stream, const pb_field_t *field, void **arg) {
@@ -73,7 +60,7 @@ static bool send_usb_frame(ecg_streaming_UsbPayloadType type,
     g_usb_frame.payload_type = type;
     g_usb_frame.seq = g_usb_seq++;
     g_usb_frame.crc32 = crc32_ieee(payload, payload_len);
-    g_usb_frame.payload.funcs.encode = encode_bytes_cb;
+    g_usb_frame.payload.funcs.encode = pb_encode_bytes_cb;
     g_usb_frame.payload.arg = (void *)&view;
 
     pb_ostream_t stream = pb_ostream_from_buffer(g_frame_buf, sizeof(g_frame_buf));
@@ -89,9 +76,8 @@ static bool send_usb_frame(ecg_streaming_UsbPayloadType type,
         (uint8_t)((frame_len >> 24) & 0xFF),
     };
 
-    fwrite(len_le, 1, sizeof(len_le), stdout);
-    fwrite(g_frame_buf, 1, frame_len, stdout);
-    fflush(stdout);
+    usb_cdc_write_binary(len_le, sizeof(len_le));
+    usb_cdc_write_binary(g_frame_buf, frame_len);
     return true;
 }
 
@@ -112,7 +98,7 @@ bool usb_send_esp_message(const ecg_streaming_EspMessage *msg) {
 
 bool usb_receive_collector_to_esp_message(ecg_streaming_CollectorToEspMessage *out_msg) {
     uint8_t len_le[4];
-    if (fread(len_le, 1, sizeof(len_le), stdin) != sizeof(len_le)) {
+    if (usb_cdc_read_binary(len_le, sizeof(len_le), 10) != sizeof(len_le)) {
         return false;
     }
 
@@ -125,7 +111,7 @@ bool usb_receive_collector_to_esp_message(ecg_streaming_CollectorToEspMessage *o
         return false;
     }
 
-    if (fread(g_rx_frame_buf, 1, frame_len, stdin) != frame_len) {
+    if (usb_cdc_read_binary(g_rx_frame_buf, frame_len, 10) != frame_len) {
         return false;
     }
 

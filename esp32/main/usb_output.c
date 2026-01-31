@@ -11,27 +11,13 @@
 #include "esp_collector.pb.h"
 #include "state.h"
 #include "usb_transport.h"
+#include "pb_helpers.h"
 
 static const char *TAG = "H10_COMBINED";
 
-#if BINARY_OUTPUT_MODE
 static ecg_streaming_SensorFrame g_sensor_frame;
 static ecg_streaming_EspMessage g_esp_msg;
 static uint8_t g_sensor_data_buf[512];
-
-typedef struct {
-    const uint8_t *data;
-    size_t len;
-} bytes_view_t;
-
-static bool encode_bytes_cb(pb_ostream_t *stream, const pb_field_t *field, void *const *arg) {
-    const bytes_view_t *view = (const bytes_view_t *)(*arg);
-    if (!pb_encode_tag_for_field(stream, field)) {
-        return false;
-    }
-    return pb_encode_string(stream, view->data, view->len);
-}
-#endif
 
 void output_sensor_frame(
     ecg_streaming_SensorType sensor_type,
@@ -40,7 +26,6 @@ void output_sensor_frame(
     const uint8_t *data,
     size_t len
 ) {
-#if BINARY_OUTPUT_MODE
     if (len > sizeof(g_sensor_data_buf)) {
         ESP_LOGE(TAG, "Sensor frame too large: %zu bytes", len);
         return;
@@ -72,7 +57,7 @@ void output_sensor_frame(
     g_sensor_frame.sample_rate = sample_rate;
 
     // Set up callback for raw data
-    g_sensor_frame.raw_data.funcs.encode = encode_bytes_cb;
+    g_sensor_frame.raw_data.funcs.encode = pb_encode_bytes_cb;
     g_sensor_frame.raw_data.arg = (void *)&view;
 
     g_esp_msg.which_message = ecg_streaming_EspMessage_sensor_frame_tag;
@@ -81,5 +66,4 @@ void output_sensor_frame(
     if (!usb_send_esp_message(&g_esp_msg)) {
         ESP_LOGE(TAG, "Failed to send sensor frame (type=%d)", sensor_type);
     }
-#endif
 }

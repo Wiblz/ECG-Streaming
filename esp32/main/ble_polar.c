@@ -146,7 +146,7 @@ static void parse_pmd_response(uint8_t *data, int len) {
             break;
     }
 
-#if BINARY_OUTPUT_MODE && CONFIG_DEBUG_PMD_PROTO_ENABLE
+#if CONFIG_DEBUG_PMD_PROTO_ENABLE
     notif_index++;
     if (notif_index % CONFIG_DEBUG_PMD_PROTO_EVERY_N == 0) {
         ecg_streaming_BleNotificationDebug dbg =

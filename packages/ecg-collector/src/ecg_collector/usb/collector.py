@@ -16,6 +16,8 @@ import serial_asyncio
 from ecg_common.logging import get_logger
 from ecg_common.proto import esp_collector_pb2, usb_transport_pb2
 
+from .models import EspDeviceGroup, InterfaceType, UsbInterfaceInfo
+
 logger = get_logger(__name__)
 
 
@@ -249,6 +251,81 @@ async def discover_usb_devices() -> list[str]:
         devices.extend(str(p) for p in dev_path.glob(pattern))
 
     return sorted(devices)
+
+
+def get_usb_interface_string(device_path: str) -> str:
+    """Return the USB interface string for a tty device if available."""
+    try:
+        dev_name = Path(device_path).name
+        interface_path = Path("/sys/class/tty") / dev_name / "device" / "interface"
+        if interface_path.exists():
+            return interface_path.read_text().strip()
+    except Exception:
+        pass
+    return ""
+
+
+def get_usb_device_serial(device_path: str) -> str:
+    """Return the USB device serial for a tty device if available."""
+    try:
+        dev_name = Path(device_path).name
+        device_dir = (Path("/sys/class/tty") / dev_name / "device").resolve()
+        for candidate in [device_dir / "serial", device_dir.parent / "serial"]:
+            if candidate.exists():
+                return candidate.read_text().strip()
+    except Exception:
+        pass
+    return ""
+
+
+async def discover_and_group_usb_interfaces() -> dict[str, EspDeviceGroup]:
+    """Discover all USB interfaces and group them by physical device.
+
+    Returns:
+        Dictionary mapping USB serial number to EspDeviceGroup
+    """
+    devices = await discover_usb_devices()
+    groups: dict[str, EspDeviceGroup] = {}
+
+    for device_path in devices:
+        interface_string = get_usb_interface_string(device_path)
+        usb_serial = get_usb_device_serial(device_path)
+
+        # Use device path as fallback key if no USB serial available
+        # This prevents grouping unrelated devices together
+        group_key = usb_serial if usb_serial else f"no-serial:{device_path}"
+
+        # Determine interface type
+        if interface_string == "ECG-ESP-DATA":
+            interface_type = InterfaceType.DATA
+        elif interface_string == "ECG-ESP-LOG":
+            interface_type = InterfaceType.LOG
+        else:
+            interface_type = InterfaceType.UNKNOWN
+
+        # Create interface info
+        interface_info = UsbInterfaceInfo(
+            device_path=device_path,
+            interface_type=interface_type,
+            usb_serial=usb_serial,
+            interface_string=interface_string,
+        )
+
+        # Create or update device group
+        if group_key not in groups:
+            groups[group_key] = EspDeviceGroup(usb_serial=usb_serial)
+
+        # Add interface to appropriate slot
+        if interface_type == InterfaceType.DATA:
+            groups[group_key].data_interface = interface_info
+        elif interface_type == InterfaceType.LOG:
+            groups[group_key].log_interface = interface_info
+        else:
+            # Handle unknown interfaces - add as data interface if no data interface exists
+            if groups[group_key].data_interface is None:
+                groups[group_key].data_interface = interface_info
+
+    return groups
 
 
 async def probe_usb_device(device_path: str, timeout_s: float = 2.0) -> dict | None:

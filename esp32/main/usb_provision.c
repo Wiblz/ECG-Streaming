@@ -15,7 +15,6 @@
 #include "usb_transport.h"
 
 static void send_usb_device_info(void) {
-#if BINARY_OUTPUT_MODE
     ecg_streaming_UsbDeviceInfo info = ecg_streaming_UsbDeviceInfo_init_zero;
     ecg_streaming_EspMessage msg = ecg_streaming_EspMessage_init_zero;
 
@@ -31,11 +30,9 @@ static void send_usb_device_info(void) {
     msg.message.device_info = info;
 
     usb_send_esp_message(&msg);
-#endif
 }
 
 static void send_usb_config_ack(bool accepted, const char *message, const char *target) {
-#if BINARY_OUTPUT_MODE
     ecg_streaming_UsbConfigAck ack = ecg_streaming_UsbConfigAck_init_zero;
     ecg_streaming_EspMessage msg = ecg_streaming_EspMessage_init_zero;
 
@@ -52,7 +49,6 @@ static void send_usb_config_ack(bool accepted, const char *message, const char *
     msg.message.config_ack = ack;
 
     usb_send_esp_message(&msg);
-#endif
 }
 
 static void apply_usb_config(const ecg_streaming_UsbConfig *cfg) {
@@ -104,21 +100,13 @@ static void apply_usb_config(const ecg_streaming_UsbConfig *cfg) {
 }
 
 void usb_identity_task(void *param) {
-#if BINARY_OUTPUT_MODE
     while (1) {
         send_usb_device_info();
         vTaskDelay(pdMS_TO_TICKS(5000));
     }
-#else
-    (void)param;
-    while (1) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
-#endif
 }
 
 void usb_rx_task(void *param) {
-#if BINARY_OUTPUT_MODE
     ecg_streaming_CollectorToEspMessage msg = ecg_streaming_CollectorToEspMessage_init_zero;
     while (1) {
         if (!usb_receive_collector_to_esp_message(&msg)) {
@@ -135,10 +123,4 @@ void usb_rx_task(void *param) {
             send_usb_config_ack(true, "config applied", cfg->target_device_id);
         }
     }
-#else
-    (void)param;
-    while (1) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
-#endif
 }

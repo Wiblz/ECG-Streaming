@@ -36,13 +36,6 @@ static void load_usb_config_from_nvs(void) {
     if (nvs_get_i32(handle, "acc_rate", &value) == ESP_OK && value > 0) {
         g_acc_sample_rate_hz = value;
     }
-    if (nvs_get_i32(handle, "ecg_batch", &value) == ESP_OK && value > 0) {
-        g_ecg_batch_size = value;
-    }
-    if (nvs_get_i32(handle, "acc_batch", &value) == ESP_OK && value > 0) {
-        g_acc_batch_size = value;
-    }
-
     nvs_close(handle);
 }
 
@@ -56,8 +49,6 @@ void persist_usb_config_to_nvs(void) {
     nvs_set_str(handle, "target_name", g_target_device_name);
     nvs_set_i32(handle, "ecg_rate", g_ecg_sample_rate_hz);
     nvs_set_i32(handle, "acc_rate", g_acc_sample_rate_hz);
-    nvs_set_i32(handle, "ecg_batch", g_ecg_batch_size);
-    nvs_set_i32(handle, "acc_batch", g_acc_batch_size);
     nvs_commit(handle);
     nvs_close(handle);
     g_has_persisted_config = true;
@@ -85,21 +76,9 @@ static int normalize_acc_rate(int rate) {
     }
 }
 
-static int clamp_batch_size(int value, int max_value) {
-    if (value <= 0) {
-        return max_value;
-    }
-    if (value > max_value) {
-        return max_value;
-    }
-    return value;
-}
-
 void apply_runtime_config(void) {
     g_ecg_sample_rate_hz = normalize_ecg_rate(g_ecg_sample_rate_hz);
     g_acc_sample_rate_hz = normalize_acc_rate(g_acc_sample_rate_hz);
-    g_ecg_batch_size = clamp_batch_size(g_ecg_batch_size, MAX_ECG_SAMPLES);
-    g_acc_batch_size = clamp_batch_size(g_acc_batch_size, MAX_ACC_SAMPLES);
 
     if (g_target_device_name[0] == '\0') {
         g_target_device_name[0] = '\0';

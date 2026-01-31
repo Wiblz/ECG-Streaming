@@ -8,11 +8,6 @@
 #include "sdkconfig.h"
 
 #define DEVICE_ID_MAX_LEN 64
-#define BINARY_OUTPUT_MODE CONFIG_BINARY_OUTPUT_MODE
-
-#define MAX_ECG_SAMPLES CONFIG_ECG_BATCH_SIZE
-#define MAX_ACC_SAMPLES CONFIG_ACC_BATCH_SIZE
-
 typedef struct {
     uint64_t timestamp_ns;
     int32_t value_uv;
@@ -32,8 +27,6 @@ extern bool g_has_persisted_config;
 extern bool g_config_required;
 extern int g_ecg_sample_rate_hz;
 extern int g_acc_sample_rate_hz;
-extern int g_ecg_batch_size;
-extern int g_acc_batch_size;
 
 extern uint8_t g_own_addr_type;
 extern ble_addr_t g_target_addr;
@@ -52,8 +45,6 @@ extern uint32_t g_notification_count;
 extern TickType_t g_last_command_time;
 extern uint32_t g_usb_seq;
 
-extern ecg_sample_t g_ecg_buffer[MAX_ECG_SAMPLES];
-extern acc_sample_t g_acc_buffer[MAX_ACC_SAMPLES];
 extern int g_ecg_count;
 extern int g_acc_count;
 

@@ -9,8 +9,6 @@ bool g_has_persisted_config = false;
 bool g_config_required = true;
 int g_ecg_sample_rate_hz = CONFIG_ECG_SAMPLE_RATE;
 int g_acc_sample_rate_hz = CONFIG_ACC_SAMPLE_RATE;
-int g_ecg_batch_size = CONFIG_ECG_BATCH_SIZE;
-int g_acc_batch_size = CONFIG_ACC_BATCH_SIZE;
 
 uint8_t g_own_addr_type;
 ble_addr_t g_target_addr;
@@ -29,8 +27,6 @@ uint32_t g_notification_count = 0;
 TickType_t g_last_command_time = 0;
 uint32_t g_usb_seq = 0;
 
-ecg_sample_t g_ecg_buffer[MAX_ECG_SAMPLES];
-acc_sample_t g_acc_buffer[MAX_ACC_SAMPLES];
 int g_ecg_count = 0;
 int g_acc_count = 0;
 
