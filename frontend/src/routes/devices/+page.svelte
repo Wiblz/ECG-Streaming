@@ -139,13 +139,29 @@
 	function getCollectorHealthColors(health: Collector['health']) {
 		switch (health) {
 			case 'healthy':
-				return 'bg-green-100 text-green-800 border-green-200';
+				return {
+					bg: 'bg-status-success',
+					text: 'text-status-success-fg',
+					border: 'border-status-success-border'
+				};
 			case 'warning':
-				return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+				return {
+					bg: 'bg-status-warning',
+					text: 'text-status-warning-fg',
+					border: 'border-status-warning-border'
+				};
 			case 'disconnected':
-				return 'bg-gray-100 text-gray-800 border-gray-200';
+				return {
+					bg: 'bg-status-neutral',
+					text: 'text-status-neutral-fg',
+					border: 'border-status-neutral-border'
+				};
 			default:
-				return 'bg-gray-100 text-gray-800 border-gray-200';
+				return {
+					bg: 'bg-status-neutral',
+					text: 'text-status-neutral-fg',
+					border: 'border-status-neutral-border'
+				};
 		}
 	}
 
@@ -191,39 +207,32 @@
 	<title>Devices - ECG Streaming</title>
 </svelte:head>
 
-<Header />
+<div class="min-h-screen bg-linear-to-br from-gray-50 to-gray-100">
+	<Header />
 
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-	<!-- Page Header -->
-	<div class="mb-8">
-		<h1 class="text-3xl font-bold text-gray-900">Device Management</h1>
-		<p class="mt-2 text-sm text-gray-600">
-			Manage devices, assign nicknames, and view collector status
-		</p>
-	</div>
+	<main class="container mx-auto px-6 py-8 max-w-7xl">
 
-	<!-- Collectors Summary -->
-	{#if liveCollectors.length > 0}
-		<div class="mb-8">
-			<h2 class="text-lg font-semibold text-gray-900 mb-4">Collectors</h2>
-			<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-				{#each liveCollectors as collector (collector.collector_id)}
-					<div class="border border-gray-200 rounded-lg p-4 bg-white">
-						<div class="flex items-start justify-between mb-3">
-							<div class="flex-1 min-w-0">
-								<h3 class="text-sm font-semibold text-gray-900 truncate">
-									{collector.display_name}
-								</h3>
-								<p class="text-xs text-gray-500 font-mono truncate">{collector.collector_id}</p>
+		<!-- Collectors Summary -->
+		{#if liveCollectors.length > 0}
+			<div class="mb-8">
+				<h2 class="text-lg font-semibold text-gray-900 mb-4">Collectors</h2>
+				<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+					{#each liveCollectors as collector (collector.collector_id)}
+						{@const healthColors = getCollectorHealthColors(collector.health)}
+						<div class="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
+							<div class="flex items-start justify-between mb-3">
+								<div class="flex-1 min-w-0">
+									<h3 class="text-sm font-semibold text-gray-900 truncate">
+										{collector.display_name}
+									</h3>
+									<p class="text-xs text-gray-500 font-mono truncate">{collector.collector_id}</p>
+								</div>
+								<span
+									class="flex-shrink-0 px-2 py-1 text-xs font-medium rounded-full border {healthColors.bg} {healthColors.text} {healthColors.border}"
+								>
+									{collector.health}
+								</span>
 							</div>
-							<span
-								class="flex-shrink-0 px-2 py-1 text-xs font-medium rounded-full border {getCollectorHealthColors(
-									collector.health
-								)}"
-							>
-								{collector.health}
-							</span>
-						</div>
 
 						<div class="space-y-1 text-xs text-gray-600">
 							{#if collector.version}
@@ -262,14 +271,14 @@
 								{/if}
 							{/if}
 						</div>
-					</div>
-				{/each}
+						</div>
+					{/each}
+				</div>
 			</div>
-		</div>
-	{/if}
+		{/if}
 
-	<!-- Filters and Controls -->
-	<div class="mb-6 flex flex-wrap gap-4 items-center justify-between">
+			<!-- Filters and Controls -->
+		<div class="mb-6 flex flex-wrap gap-4 items-center justify-between">
 		<div class="flex gap-4">
 			<div>
 				<label for="filter-status" class="block text-sm font-medium text-gray-700 mb-1">
@@ -300,24 +309,24 @@
 			</div>
 		</div>
 
-		<div class="text-sm text-gray-600">
-			Showing {filteredDevices.length} of {liveDevices.length} devices
+			<div class="text-sm text-gray-600">
+				Showing {filteredDevices.length} of {liveDevices.length} devices
+			</div>
 		</div>
-	</div>
 
-	<!-- Devices Table -->
-	{#if filteredDevices.length === 0}
-		<div class="text-center py-12 bg-gray-50 rounded-lg border border-gray-200">
-			<div class="text-4xl mb-2">🔌</div>
-			<p class="text-sm font-medium text-gray-900 mb-1">No devices found</p>
-			<p class="text-xs text-gray-500">
-				{liveDevices.length === 0
-					? 'Devices will appear after first connection'
-					: 'Try adjusting your filters'}
-			</p>
-		</div>
-	{:else}
-		<div class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
+			<!-- Devices Table -->
+		{#if filteredDevices.length === 0}
+			<div class="bg-white border border-gray-200 rounded-xl shadow-sm p-12 text-center">
+				<div class="text-6xl mb-4">🔌</div>
+				<h3 class="text-lg font-semibold text-gray-900 mb-2">No devices found</h3>
+				<p class="text-sm text-gray-500">
+					{liveDevices.length === 0
+						? 'Devices will appear after first connection'
+						: 'Try adjusting your filters'}
+				</p>
+			</div>
+		{:else}
+			<div class="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
 			<table class="min-w-full divide-y divide-gray-200">
 				<thead class="bg-gray-50">
 					<tr>
@@ -395,27 +404,41 @@
 										</button>
 									</div>
 								{:else}
-									<div class="flex items-center gap-2">
-										<div class="min-w-0 flex-1">
-											{#if device.nickname}
-												<div class="text-sm font-medium text-gray-900">{device.nickname}</div>
-												<div class="text-xs text-gray-500 font-mono truncate">
+									<div class="group">
+										{#if device.nickname}
+											<div class="flex items-center gap-1.5">
+												<span class="text-sm font-medium text-gray-900">{device.nickname}</span>
+												<button
+													onclick={() =>
+														startEditingNickname(device.device_id, device.nickname || null)}
+													class="shrink-0 p-0.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors opacity-0 group-hover:opacity-100"
+													title="Edit nickname"
+												>
+													<svg class="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+													</svg>
+												</button>
+											</div>
+											<div class="text-xs text-gray-500 font-mono truncate">
+												{device.device_id}
+											</div>
+										{:else}
+											<div class="flex items-center gap-1.5">
+												<span class="text-sm font-medium font-mono text-gray-900 truncate">
 													{device.device_id}
-												</div>
-											{:else}
-												<div class="text-sm font-medium font-mono text-gray-900 truncate">
-													{device.device_id}
-												</div>
-											{/if}
-										</div>
-										<button
-											onclick={() =>
-												startEditingNickname(device.device_id, device.nickname || null)}
-											class="text-gray-400 hover:text-gray-600"
-											title="Edit nickname"
-										>
-											✏️
-										</button>
+												</span>
+												<button
+													onclick={() =>
+														startEditingNickname(device.device_id, device.nickname || null)}
+													class="shrink-0 p-0.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors opacity-0 group-hover:opacity-100"
+													title="Edit nickname"
+												>
+													<svg class="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+													</svg>
+												</button>
+											</div>
+										{/if}
 									</div>
 								{/if}
 							</td>
@@ -475,8 +498,9 @@
 							</td>
 						</tr>
 					{/each}
-				</tbody>
-			</table>
-		</div>
-	{/if}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	</main>
 </div>
