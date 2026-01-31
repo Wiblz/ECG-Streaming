@@ -615,7 +615,7 @@ class ECGStreamingServer:
             """Get details for a specific session."""
             session = self.database.get_session(session_id)
             if not session:
-                return {"error": "Session not found"}
+                raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
             return session
 
         @self.app.get("/sessions/{session_id}/samples")

@@ -9,7 +9,7 @@ export const load: PageLoad = async ({ params }) => {
 	const sessionId = parseInt(params.id)
 
 	if (isNaN(sessionId)) {
-		error(400, 'Invalid session ID')
+		throw error(400, 'Invalid session ID')
 	}
 
 	try {
@@ -18,6 +18,6 @@ export const load: PageLoad = async ({ params }) => {
 			session
 		}
 	} catch (e) {
-		error(404, e instanceof Error ? e.message : 'Session not found')
+		throw error(404, e instanceof Error ? e.message : 'Session not found')
 	}
 }

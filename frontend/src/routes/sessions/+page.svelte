@@ -1,11 +1,19 @@
 <script lang="ts">
-	import { goto, invalidate } from '$app/navigation';
+	import { goto } from '$app/navigation';
 	import { api } from '$lib/api/client';
 	import Header from '$lib/components/Header.svelte';
 	import { formatDuration, formatTimestamp } from '$lib/utils/format';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
+
+	// Local reactive copy of sessions that we can update
+	let sessions = $state(data.sessions);
+
+	// Watch for data changes from page load
+	$effect(() => {
+		sessions = data.sessions;
+	});
 
 	let importing = $state(false);
 	let importMessage = $state<string | null>(null);
@@ -30,8 +38,9 @@
 
 			if (result.success && result.session_id) {
 				importMessage = `Successfully imported session #${result.session_id}`;
-				// Reload sessions to show the new one
-				await invalidate(() => true);
+				// Reload sessions list to show the new one
+				const response = await api.getSessions();
+				sessions = response.sessions;
 				// Navigate to the new session after a brief delay
 				setTimeout(() => {
 					goto(`/sessions/${result.session_id}`);
@@ -60,8 +69,8 @@
 		try {
 			const result = await api.deleteSession(sessionId);
 			if (result.success) {
-				// Reload sessions to reflect deletion
-				await invalidate(() => true);
+				// Remove the deleted session from the local state
+				sessions = sessions.filter(s => s.id !== sessionId);
 				importMessage = `Session #${sessionId} deleted successfully`;
 				// Auto-dismiss success message after 3 seconds
 				setTimeout(() => {
@@ -143,7 +152,7 @@
 	{/if}
 
 	<main class="container mx-auto px-6 py-8 max-w-7xl">
-		{#if data.sessions.length === 0}
+		{#if sessions.length === 0}
 			<div class="bg-white border border-gray-200 rounded-xl shadow-sm p-12 text-center">
 				<div class="text-6xl mb-4">📊</div>
 				<h3 class="text-lg font-semibold text-gray-900 mb-2">No sessions found</h3>
@@ -151,7 +160,7 @@
 			</div>
 		{:else}
 			<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-				{#each data.sessions as session (session.id)}
+				{#each sessions as session (session.id)}
 					<div
 						class="bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-lg transition-shadow"
 					>
@@ -244,7 +253,7 @@
 			</div>
 
 			<div class="mt-8 text-center text-sm text-gray-500">
-				Showing {data.sessions.length} session{data.sessions.length === 1 ? '' : 's'}
+				Showing {sessions.length} session{sessions.length === 1 ? '' : 's'}
 			</div>
 		{/if}
 	</main>

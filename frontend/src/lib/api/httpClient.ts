@@ -97,7 +97,8 @@ export class HttpClient implements ApiClient {
 	async getSession(sessionId: number): Promise<Session> {
 		const res = await fetch(`${API_BASE}/sessions/${sessionId}`)
 		if (!res.ok) {
-			throw new Error(`Failed to fetch session ${sessionId}`)
+			const errorData = await res.json().catch(() => ({ detail: 'Unknown error' }))
+			throw new Error(errorData.detail || errorData.error || `Failed to fetch session ${sessionId}`)
 		}
 		return res.json()
 	}
