@@ -221,9 +221,13 @@ def usb_scan(
 
             for _group_key, group in sorted(device_groups.items()):
                 # Determine display values
-                # Use the actual USB serial from the group, not the dictionary key
-                usb_serial = group.usb_serial
-                usb_serial_display = usb_serial if usb_serial else "No Serial"
+                # Prefer bus-port for display if available (more reliable than USB serial)
+                if group.bus_port:
+                    physical_device_display = f"Port {group.bus_port}"
+                elif group.usb_serial:
+                    physical_device_display = group.usb_serial
+                else:
+                    physical_device_display = "Unknown"
                 esp_id = ""
                 target = ""
                 fw = ""
@@ -246,7 +250,7 @@ def usb_scan(
                 if group.data_interface:
                     status_display = get_status_display(group.probe_status, group.error_message)
                     table.add_row(
-                        usb_serial_display,
+                        physical_device_display,
                         "DATA",
                         group.data_interface.device_path,
                         status_display,

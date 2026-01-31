@@ -278,11 +278,38 @@ def get_usb_device_serial(device_path: str) -> str:
     return ""
 
 
+def get_usb_bus_port(device_path: str) -> str:
+    """Return unique USB bus-port identifier for a tty device.
+
+    This combines bus number and port path to uniquely identify a physical USB device,
+    even when multiple devices share the same serial number.
+
+    Returns:
+        String like "3-1" or "9-1.1" identifying the physical USB port
+    """
+    try:
+        dev_name = Path(device_path).name
+        device_dir = (Path("/sys/class/tty") / dev_name / "device").resolve().parent
+
+        # Read busnum and devpath from USB device sysfs
+        busnum_path = device_dir / "busnum"
+        devpath_path = device_dir / "devpath"
+
+        if busnum_path.exists() and devpath_path.exists():
+            busnum = busnum_path.read_text().strip()
+            devpath = devpath_path.read_text().strip()
+            return f"{busnum}-{devpath}"
+    except Exception:
+        pass
+    return ""
+
+
 async def discover_and_group_usb_interfaces() -> dict[str, EspDeviceGroup]:
     """Discover all USB interfaces and group them by physical device.
 
     Returns:
-        Dictionary mapping USB serial number to EspDeviceGroup
+        Dictionary mapping unique device identifier to EspDeviceGroup.
+        Uses bus-port as primary key since USB serial may not be unique.
     """
     devices = await discover_usb_devices()
     groups: dict[str, EspDeviceGroup] = {}
@@ -290,10 +317,16 @@ async def discover_and_group_usb_interfaces() -> dict[str, EspDeviceGroup]:
     for device_path in devices:
         interface_string = get_usb_interface_string(device_path)
         usb_serial = get_usb_device_serial(device_path)
+        bus_port = get_usb_bus_port(device_path)
 
-        # Use device path as fallback key if no USB serial available
-        # This prevents grouping unrelated devices together
-        group_key = usb_serial if usb_serial else f"no-serial:{device_path}"
+        # Use bus-port as primary key (unique per physical USB port)
+        # Fall back to USB serial, then device path if bus-port unavailable
+        if bus_port:
+            group_key = f"bus-port:{bus_port}"
+        elif usb_serial:
+            group_key = f"serial:{usb_serial}"
+        else:
+            group_key = f"path:{device_path}"
 
         # Determine interface type
         if interface_string == "ECG-ESP-DATA":
@@ -313,7 +346,7 @@ async def discover_and_group_usb_interfaces() -> dict[str, EspDeviceGroup]:
 
         # Create or update device group
         if group_key not in groups:
-            groups[group_key] = EspDeviceGroup(usb_serial=usb_serial)
+            groups[group_key] = EspDeviceGroup(usb_serial=usb_serial, bus_port=bus_port)
 
         # Add interface to appropriate slot
         if interface_type == InterfaceType.DATA:

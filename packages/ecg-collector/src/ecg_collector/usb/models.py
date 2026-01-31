@@ -37,6 +37,7 @@ class EspDeviceGroup:
     """Group of USB interfaces belonging to the same physical ESP device."""
 
     usb_serial: str
+    bus_port: str = ""  # USB bus-port identifier (e.g., "3-1" or "9-1.1")
     data_interface: UsbInterfaceInfo | None = None
     log_interface: UsbInterfaceInfo | None = None
     device_info: dict | None = None
