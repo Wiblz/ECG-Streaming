@@ -1,5 +1,4 @@
 import { addSamples } from '$lib/state/acc-data.svelte'
-import { isPaused } from '$lib/state/pause.svelte'
 import { ConnectionState, setAccWsError, setAccWsState } from '$lib/state/websocket.svelte'
 import type {
 	AccelerometerDataMessage,
@@ -103,11 +102,6 @@ export class AccelerometerWebSocket {
 	}
 
 	private handleData(msg: AccelerometerDataMessage) {
-		// Ignore data while paused
-		if (isPaused()) {
-			return
-		}
-
 		// Flatten grouped data back into samples array with device_id
 		const samples = flattenGroupedSamples<BufferedAccelerometerSample>(msg.devices)
 

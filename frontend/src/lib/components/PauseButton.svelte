@@ -1,20 +1,10 @@
 <script lang="ts">
-	import { clearSamples as clearAccSamples } from '$lib/state/acc-data.svelte';
-	import { clearSamples as clearEcgSamples } from '$lib/state/ecg-data.svelte';
 	import { isPaused, togglePause } from '$lib/state/pause.svelte';
-	import { resetSessionStartTime } from '$lib/state/session-time.svelte';
 
 	const paused = $derived(isPaused());
 
 	function handleToggle() {
-		const nowPaused = togglePause();
-
-		// When resuming, clear old data and reset session time for fresh start
-		if (!nowPaused) {
-			clearEcgSamples();
-			clearAccSamples();
-			resetSessionStartTime();
-		}
+		togglePause();
 	}
 </script>
 

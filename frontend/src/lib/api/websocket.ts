@@ -1,6 +1,5 @@
 import { setDevices } from '$lib/state/devices.svelte'
 import { addSamples } from '$lib/state/ecg-data.svelte'
-import { isPaused } from '$lib/state/pause.svelte'
 import { ConnectionState, setWsError, setWsState } from '$lib/state/websocket.svelte'
 import type { BufferedECGSample, DataMessage, InitMessage } from '$lib/types/api'
 import { flattenGroupedSamples } from '$lib/utils/samples'
@@ -98,11 +97,6 @@ export class ECGWebSocket {
 	}
 
 	private handleData(msg: DataMessage) {
-		// Ignore data while paused
-		if (isPaused()) {
-			return
-		}
-
 		// Flatten grouped data back into samples array with device_id
 		const samples = flattenGroupedSamples<BufferedECGSample>(msg.devices)
 

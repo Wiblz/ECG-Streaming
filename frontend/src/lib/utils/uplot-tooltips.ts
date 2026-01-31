@@ -144,13 +144,9 @@ export function tooltipsPlugin(opts: TooltipOptions = {}) {
 					if (xVal !== null && xVal !== undefined && yVal !== null && yVal !== undefined) {
 						tt.innerHTML = formatValue(xVal, yVal, i, idx)
 
-						// Position tooltip at the data point
-						const xPos = Math.round(u.valToPos(xVal, 'x'))
-						const yPos = Math.round(u.valToPos(yVal, (s.scale as string) || 'y'))
-
-						// Offset tooltip slightly above and to the right of the point
-						tt.style.left = xPos + 10 + 'px'
-						tt.style.top = yPos - 25 + 'px'
+						// Position tooltip at cursor position
+						tt.style.left = left + 15 + 'px'
+						tt.style.top = top + 15 + 'px'
 						tt.style.display = 'block'
 					} else {
 						tt.style.display = 'none'

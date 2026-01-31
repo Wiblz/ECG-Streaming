@@ -66,7 +66,7 @@
 
 	// Time window configuration
 	const WINDOW_DURATION = 7.5; // seconds to display
-	const UPDATE_INTERVAL_MS = 33; // update every 33ms (~30fps)
+	const UPDATE_INTERVAL_MS = 20; // update every 20ms (50Hz)
 
 	// X-axis range controlled by function (prevents setData from resetting scale)
 	let xAxisRange: [number, number] = [0, WINDOW_DURATION];
