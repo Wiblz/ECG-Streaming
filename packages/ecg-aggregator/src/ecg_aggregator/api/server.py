@@ -289,14 +289,14 @@ class ECGStreamingServer:
                     conn_info = connected_collectors[collector_id]
                     base_data.update(
                         {
-                            "display_name": conn_info.get("display_name", collector_id),
-                            "device_ids": conn_info.get("device_ids", []),
-                            "version": conn_info.get("version"),
-                            "metadata": conn_info.get("metadata", {}),
-                            "connected_at": conn_info.get("connected_at"),
-                            "last_heartbeat": conn_info.get("last_heartbeat", 0),
-                            "samples_sent": conn_info.get("samples_sent", 0),
-                            "active_devices": conn_info.get("active_devices", 0),
+                            "display_name": conn_info.display_name,
+                            "device_ids": conn_info.device_ids,
+                            "version": conn_info.version,
+                            "metadata": conn_info.metadata,
+                            "connected_at": conn_info.connected_at,
+                            "last_heartbeat": conn_info.last_heartbeat,
+                            "samples_sent": conn_info.samples_sent,
+                            "active_devices": conn_info.active_devices,
                         }
                     )
 
@@ -341,13 +341,12 @@ class ECGStreamingServer:
 
             # Build collector lookup for display names
             collector_names = {
-                cid: cinfo.get("display_name", cid)
-                for cid, cinfo in self.grpc_servicer.collectors.items()
+                cid: cinfo.display_name for cid, cinfo in self.grpc_servicer.collectors.items()
             }
 
             devices_status = []
             for device_id, status_info in self.grpc_servicer.device_statuses.items():
-                collector_id = status_info.get("collector_id")
+                collector_id = status_info.collector_id
                 devices_status.append(
                     {
                         "device_id": device_id,
@@ -355,10 +354,10 @@ class ECGStreamingServer:
                         "collector_name": collector_names.get(collector_id, collector_id)
                         if collector_id
                         else None,
-                        "status": status_info.get("status"),
-                        "last_update": status_info.get("last_update"),
-                        "battery_level": status_info.get("battery_level"),
-                        "error_message": status_info.get("error_message"),
+                        "status": status_info.status,
+                        "last_update": status_info.last_update,
+                        "battery_level": status_info.battery_level,
+                        "error_message": status_info.error_message,
                     }
                 )
 
@@ -423,11 +422,11 @@ class ECGStreamingServer:
                     status_info = device_statuses[device_id]
                     device_info.update(
                         {
-                            "collector_id": status_info.get("collector_id"),
-                            "status": status_info.get("status"),
-                            "last_update": status_info.get("last_update"),
-                            "battery_level": status_info.get("battery_level"),
-                            "error_message": status_info.get("error_message"),
+                            "collector_id": status_info.collector_id,
+                            "status": status_info.status,
+                            "last_update": status_info.last_update,
+                            "battery_level": status_info.battery_level,
+                            "error_message": status_info.error_message,
                         }
                     )
                 else:

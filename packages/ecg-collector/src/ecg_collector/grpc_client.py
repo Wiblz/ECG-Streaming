@@ -4,7 +4,6 @@ Used by both BLE and USB collectors to forward data to the aggregator.
 """
 
 import asyncio
-import time
 from collections.abc import AsyncIterator
 
 import grpc
@@ -53,7 +52,6 @@ class CollectorGrpcClient:
         )
         self._running = False
         self._connected = False
-        self._last_heartbeat = time.time()
 
     async def connect(self) -> bool:
         """Connect to aggregator.
@@ -123,24 +121,13 @@ class CollectorGrpcClient:
             # Send queued messages
             while self._running:
                 try:
-                    # Get next message with timeout to allow heartbeats
-                    message = await asyncio.wait_for(self._message_queue.get(), timeout=10.0)
+                    # Get next message from queue (no timeout needed)
+                    message = await self._message_queue.get()
                     yield message
 
-                except TimeoutError:
-                    # Send heartbeat if no messages for 10 seconds
-                    if time.time() - self._last_heartbeat > 10.0:
-                        heartbeat = collector_aggregator_pb2.CollectorHeartbeat(
-                            timestamp_ms=int(time.time() * 1000),
-                            samples_sent=0,  # Could be tracked by caller
-                            active_devices=len(self.device_ids),
-                        )
-
-                        hb_msg = collector_aggregator_pb2.CollectorMessage()
-                        hb_msg.heartbeat.CopyFrom(heartbeat)
-                        yield hb_msg
-
-                        self._last_heartbeat = time.time()
+                except Exception as e:
+                    logger.error(f"Error getting message from queue: {e}")
+                    break
         finally:
             pass
 

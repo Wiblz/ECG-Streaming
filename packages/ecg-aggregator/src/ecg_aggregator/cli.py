@@ -140,7 +140,7 @@ def generate_status_table(aggregator: ECGAggregator) -> Table:
         # Devices
         all_devices = set()
         for collector_data in collectors.values():
-            all_devices.update(collector_data.get("device_ids", []))
+            all_devices.update(collector_data.device_ids)
 
         table.add_row(
             "Registered Devices",
@@ -216,10 +216,10 @@ def generate_collectors_table(aggregator: ECGAggregator) -> Table:
         return table
 
     for collector_id, collector_data in collectors.items():
-        display_name = collector_data.get("display_name", "")
-        device_ids = collector_data.get("device_ids", [])
-        status = collector_data.get("status", "UNKNOWN")
-        metadata = collector_data.get("metadata", {})
+        display_name = collector_data.display_name
+        device_ids = collector_data.device_ids
+        status = "CONNECTED"  # Collectors dict only contains connected collectors
+        metadata = collector_data.metadata
         collector_type = metadata.get("type", "unknown")
 
         table.add_row(
