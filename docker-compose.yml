@@ -1,0 +1,69 @@
+services:
+  # ECG Aggregator - gRPC Server with SQLite database
+  aggregator:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.aggregator
+    container_name: ecg-aggregator
+    ports:
+      - "50051:50051"  # gRPC port
+      - "7999:7999"    # HTTP/WebSocket API port
+    volumes:
+      - ./ecg_data.db:/app/ecg_data.db  # Mount existing database file
+      - ./packages/ecg-aggregator/config.docker.yaml:/app/config.yaml:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.connect(('localhost', 50051)); s.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ECG Collector - BLE mode (default)
+  # For USB mode, see docker-compose.usb.yml
+  collector-ble:
+    image: ecg-streaming-collector:latest
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.collector
+    container_name: ecg-collector-ble
+    depends_on:
+      aggregator:
+        condition: service_healthy
+    network_mode: host
+    privileged: true  # Required for BLE access
+    volumes:
+      - ./packages/ecg-collector/config.docker.yaml:/app/config.yaml:ro
+      - /var/run/dbus:/var/run/dbus:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["ecg-collector", "ble", "run", "--config", "/app/config.yaml"]
+    restart: unless-stopped
+
+  # Frontend - SvelteKit Web Application
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    container_name: ecg-frontend
+    depends_on:
+      - aggregator
+    ports:
+      - "4173:4173"
+    environment:
+      - NODE_ENV=production
+      # Frontend connects to aggregator via browser, so use host's IP or localhost
+      - PUBLIC_AGGREGATOR_URL=http://localhost:50051
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:4173', (r) => process.exit(r.statusCode === 200 ? 0 : 1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  default:
+    name: ecg-network

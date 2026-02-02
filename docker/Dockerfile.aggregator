@@ -1,0 +1,28 @@
+# ECG Aggregator - gRPC Server
+FROM python:3.14-slim AS base
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install uv for fast package installation
+RUN pip install --no-cache-dir uv
+
+# Copy source code (needed for editable installs)
+COPY packages/ecg-common /app/packages/ecg-common
+COPY packages/ecg-aggregator /app/packages/ecg-aggregator
+COPY pyproject.toml /app/
+
+# Install dependencies
+RUN uv pip install --system -e packages/ecg-common
+RUN uv pip install --system -e packages/ecg-aggregator
+
+# Expose ports (gRPC and HTTP API)
+EXPOSE 50051 7999
+
+# Start aggregator (migrations run automatically in Python code)
+CMD ["ecg-aggregator", "run", "--config", "/app/config.yaml"]

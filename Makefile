@@ -1,4 +1,7 @@
-.PHONY: fmt check vet test lint install clean help
+# ECG Streaming - Main Makefile
+# Python development and build commands
+
+.PHONY: fmt check vet test lint install clean proto help
 
 # Activate venv and run commands
 VENV := .venv/bin/activate
@@ -6,6 +9,10 @@ RUN := . $(VENV) &&
 
 # Package directories
 PACKAGES := packages/ecg-common packages/ecg-collector packages/ecg-aggregator
+
+# ============================================================================
+# Code Quality
+# ============================================================================
 
 # Format code
 fmt:
@@ -48,6 +55,10 @@ test:
 	@echo "Running tests..."
 	$(RUN) pytest -v
 
+# ============================================================================
+# Installation
+# ============================================================================
+
 # Install all packages
 install:
 	@echo "Installing ECG-Streaming packages..."
@@ -74,11 +85,19 @@ install-collector:
 install-aggregator:
 	$(RUN) uv pip install -e "packages/ecg-aggregator[dev]"
 
+# ============================================================================
+# Code Generation
+# ============================================================================
+
 # Generate gRPC code
 proto:
 	@echo "Generating gRPC code..."
 	$(RUN) python packages/ecg-common/generate_proto.py
 	@echo "✓ gRPC code generated"
+
+# ============================================================================
+# Cleanup
+# ============================================================================
 
 # Clean up generated files
 clean:
@@ -92,33 +111,56 @@ clean:
 	rm -f ecg_data.db 2>/dev/null || true
 	@echo "✓ Cleaned up"
 
+# ============================================================================
+# Help
+# ============================================================================
+
 # Show help
 help:
 	@echo "ECG Streaming - Development Commands"
 	@echo ""
-	@echo "Formatting:"
+	@echo "Code Quality:"
 	@echo "  make fmt         Format code with ruff"
 	@echo "  make fmt-check   Check formatting without making changes"
-	@echo ""
-	@echo "Type Checking:"
-	@echo "  make vet         Run mypy type checker"
-	@echo ""
-	@echo "Linting:"
 	@echo "  make lint        Run ruff linter"
 	@echo "  make lint-fix    Run ruff linter with auto-fix"
-	@echo ""
-	@echo "Combined:"
+	@echo "  make vet         Run mypy type checker"
 	@echo "  make check       Run fmt + lint + vet (recommended before commit)"
 	@echo "  make check-only  Run lint + vet without formatting"
-	@echo ""
-	@echo "Testing:"
 	@echo "  make test        Run pytest tests"
 	@echo ""
-	@echo "Setup:"
+	@echo "Installation:"
 	@echo "  make install          Install all packages with dev dependencies"
 	@echo "  make install-prod     Install only production dependencies"
 	@echo "  make install-common   Install ecg-common only"
 	@echo "  make install-collector  Install ecg-collector only"
 	@echo "  make install-aggregator Install ecg-aggregator only"
+	@echo ""
+	@echo "Code Generation:"
 	@echo "  make proto           Generate gRPC code from .proto files"
+	@echo ""
+	@echo "Cleanup:"
 	@echo "  make clean           Remove generated files and caches"
+	@echo ""
+	@echo "Docker: (see Makefile.docker)"
+	@echo "  Development (build locally):"
+	@echo "    make docker-build          Build all Docker images"
+	@echo "    make docker-up             Start all services (BLE collector)"
+	@echo "    make docker-up-usb         Start all services (USB collector)"
+	@echo "    make docker-up-aggregator  Start aggregator + frontend only"
+	@echo "    make docker-up-collector   Start collector only (BLE mode)"
+	@echo ""
+	@echo "  Production (use GHCR images):"
+	@echo "    make docker-pull           Pull images from GitHub Container Registry"
+	@echo "    make docker-prod           Start with pre-built images"
+	@echo ""
+	@echo "  Management:"
+	@echo "    make docker-down           Stop all services"
+	@echo "    make docker-logs           Follow logs from all services"
+	@echo "    make docker-clean          Stop and remove all containers and volumes"
+
+# ============================================================================
+# Include Docker commands
+# ============================================================================
+
+include Makefile.docker

@@ -1,0 +1,32 @@
+# ECG Collector - BLE and USB Collector Service
+FROM python:3.14-slim AS base
+
+# Install system dependencies for BLE and USB
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    bluez \
+    bluetooth \
+    libbluetooth-dev \
+    libdbus-1-dev \
+    udev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install uv for fast package installation
+RUN pip install --no-cache-dir uv
+
+# Copy source code (needed for editable installs)
+COPY packages/ecg-common /app/packages/ecg-common
+COPY packages/ecg-collector /app/packages/ecg-collector
+COPY pyproject.toml /app/
+
+# Install dependencies
+RUN uv pip install --system -e "packages/ecg-common[dev]"
+RUN uv pip install --system -e "packages/ecg-collector[dev]"
+
+# Default command (can be overridden)
+# Note: For USB mode, requires --device flag in docker run
+# Note: For BLE mode, requires --privileged or --cap-add=NET_ADMIN
+CMD ["ecg-collector", "ble", "run", "--config", "/app/config.yaml"]

@@ -1,0 +1,33 @@
+# Docker Compose override for USB collector mode
+# Usage: docker compose -f docker-compose.yml -f docker-compose.usb.yml up
+
+services:
+  # Remove BLE collector when using USB
+  collector-ble:
+    profiles: ["disabled"]
+
+  # ECG Collector - USB mode
+  collector-usb:
+    image: ecg-streaming-collector:latest
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.collector
+    container_name: ecg-collector-usb
+    depends_on:
+      aggregator:
+        condition: service_healthy
+    devices:
+      # Mount USB devices - adjust as needed for your system
+      # To find devices: ls /dev/ttyACM* /dev/ttyUSB*
+      - /dev/ttyACM0:/dev/ttyACM0
+      - /dev/ttyACM1:/dev/ttyACM1
+      - /dev/ttyACM2:/dev/ttyACM2
+      - /dev/ttyACM3:/dev/ttyACM3
+      # Add more devices as needed
+    volumes:
+      - ./packages/ecg-collector/config.docker.yaml:/app/config.yaml:ro
+      - /run/udev:/run/udev:ro  # For udev device detection
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["ecg-collector", "usb", "run", "--config", "/app/config.yaml"]
+    restart: unless-stopped

@@ -1,0 +1,18 @@
+# Docker Compose override for running only Collector (standalone mode)
+# Connects to external aggregator (not in Docker)
+# Usage: docker compose -f docker compose.yml -f docker compose.collector-only.yml up
+
+services:
+  # Disable aggregator and frontend
+  aggregator:
+    profiles: ["disabled"]
+
+  frontend:
+    profiles: ["disabled"]
+
+  # Collector needs to connect to external aggregator
+  collector-ble:
+    depends_on: []  # Remove dependency on aggregator service
+    environment:
+      - PYTHONUNBUFFERED=1
+      # Override aggregator host in config or use external one

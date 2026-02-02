@@ -1,0 +1,7 @@
+# Docker Compose override for running only Aggregator + Frontend
+# Usage: docker compose -f docker compose.yml -f docker compose.aggregator-only.yml up
+
+services:
+  # Disable all collectors
+  collector-ble:
+    profiles: ["disabled"]

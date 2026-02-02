@@ -1,0 +1,46 @@
+# ECG Collector Configuration
+
+# Unique collector ID (useful when running multiple collectors)
+collector_id: "collector-1"
+
+# List of Polar H10 device IDs to connect to
+device_ids:
+  - "Polar H10 0781CC39"
+  - "Polar H10 0787323A"
+
+# BLE configuration
+ble:
+  max_devices_per_adapter: 7    # Maximum devices per BLE adapter
+  connection_timeout: 10         # Connection timeout in seconds
+
+# Aggregator connection
+aggregator:
+  host: "aggregator"              # Aggregator hostname or IP
+  port: 50051                    # Aggregator gRPC port
+  batch_size: 50                 # Samples per batch to send
+  batch_interval: 0.1            # Interval between batches (seconds)
+
+# Logging
+logging:
+  level: "INFO"                 # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "detailed"             # simple or detailed
+  file: "/tmp/ecg-collector.log" # Optional log file path
+  ble_debug_file: "/tmp/ecg-ble-debug.log" # Optional BLE debug log file path
+
+# USB configuration
+usb:
+  auto_discover: true            # Auto-discover USB devices when none specified
+  devices: []                    # Explicit device paths (e.g., /dev/ttyACM0)
+  allowed_device_ids: []         # Optional allowlist (empty allows all)
+  device_map:                    # Map esp_id -> Polar device ID
+#    "B43A45AD6CD8":
+#      device_id: "Polar H10 0781CC39"
+#      ecg_sample_rate: 130
+#      acc_sample_rate: 100
+    "B43A45AD6CD8": "Polar H10 0781CC39"
+    "B43A45AD6CF0": "Polar H10 0787323A"
+#    "CCBA97FFFEF0": "INVALID"
+  ecg_sample_rate: 0           # ECG sample rate to configure on USB devices (Hz)
+  acc_sample_rate: 100           # ACC sample rate to configure on USB devices (Hz)
+  persist_config: true           # Persist config on device when supported
+  detect_timeout_s: 20.0         # Seconds to detect valid USB data
