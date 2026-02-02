@@ -23,6 +23,35 @@ class ProbeStatus(str, Enum):
 
 
 @dataclass
+class UsbCollectorStats:
+    """Statistics for USB collector data reception."""
+
+    frames_received: int = 0
+    frames_crc_errors: int = 0
+    frames_parse_errors: int = 0
+    messages_received: int = 0
+    bytes_received: int = 0
+
+    def reset(self) -> None:
+        """Reset all statistics to zero."""
+        self.frames_received = 0
+        self.frames_crc_errors = 0
+        self.frames_parse_errors = 0
+        self.messages_received = 0
+        self.bytes_received = 0
+
+    def to_dict(self) -> dict[str, int]:
+        """Convert stats to dictionary for serialization."""
+        return {
+            "frames_received": self.frames_received,
+            "frames_crc_errors": self.frames_crc_errors,
+            "frames_parse_errors": self.frames_parse_errors,
+            "messages_received": self.messages_received,
+            "bytes_received": self.bytes_received,
+        }
+
+
+@dataclass
 class UsbInterfaceInfo:
     """Information about a USB interface."""
 

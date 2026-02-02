@@ -8,6 +8,7 @@ import contextlib
 import struct
 import time
 import zlib
+from collections import deque
 from collections.abc import Callable, Coroutine
 from pathlib import Path
 
@@ -16,7 +17,7 @@ import serial_asyncio
 from ecg_common.logging import get_logger
 from ecg_common.proto import esp_collector_pb2, usb_transport_pb2
 
-from .models import EspDeviceGroup, InterfaceType, UsbInterfaceInfo
+from .models import EspDeviceGroup, InterfaceType, UsbCollectorStats, UsbInterfaceInfo
 
 logger = get_logger(__name__)
 
@@ -47,14 +48,13 @@ class UsbCollector:
         self.running = False
         self.stats_interval_s = stats_interval_s
         self._last_stats_log = time.monotonic()
-        self.stats = {
-            "frames_received": 0,
-            "frames_crc_errors": 0,
-            "frames_parse_errors": 0,
-            "messages_received": 0,
-            "bytes_received": 0,
-        }
+        self.stats = UsbCollectorStats()
         self._tx_seq = 0
+
+        # Throughput tracking with rolling window
+        self._throughput_window_s = 10.0  # 10 second rolling window
+        self._throughput_samples: deque[tuple[float, int]] = deque()
+        self._bus_port = get_usb_bus_port(device_path)
 
     async def connect(self) -> None:
         """Open serial port connection."""
@@ -125,19 +125,19 @@ class UsbCollector:
             # Verify CRC
             computed_crc = self._crc32_ieee(usb_frame.payload)
             if computed_crc != usb_frame.crc32:
-                self.stats["frames_crc_errors"] += 1
+                self.stats.frames_crc_errors += 1
                 logger.warning(
                     f"[{self.device_path}] CRC mismatch: expected {usb_frame.crc32:08x}, got {computed_crc:08x}"
                 )
                 return False
 
-            self.stats["frames_received"] += 1
+            self.stats.frames_received += 1
 
             # Parse payload based on type
             if usb_frame.payload_type == usb_transport_pb2.USB_PAYLOAD_TYPE_ESP_MESSAGE:
                 esp_msg = esp_collector_pb2.EspMessage()
                 esp_msg.ParseFromString(usb_frame.payload)
-                self.stats["messages_received"] += 1
+                self.stats.messages_received += 1
 
                 # Invoke callback
                 if self.message_callback:
@@ -148,7 +148,7 @@ class UsbCollector:
 
             return True
         except Exception as e:
-            self.stats["frames_parse_errors"] += 1
+            self.stats.frames_parse_errors += 1
             logger.error(f"[{self.device_path}] Failed to parse frame: {e}")
             return False
 
@@ -178,7 +178,16 @@ class UsbCollector:
                     continue
 
                 buffer.extend(chunk)
-                self.stats["bytes_received"] += len(chunk)
+                self.stats.bytes_received += len(chunk)
+
+                # Record sample for throughput calculation
+                now = time.monotonic()
+                self._throughput_samples.append((now, self.stats.bytes_received))
+
+                # Remove samples outside rolling window
+                cutoff_time = now - self._throughput_window_s
+                while self._throughput_samples and self._throughput_samples[0][0] < cutoff_time:
+                    self._throughput_samples.popleft()
 
                 while len(buffer) >= 4:
                     frame_length = struct.unpack_from("<I", buffer, 0)[0]
@@ -201,14 +210,22 @@ class UsbCollector:
                 now = time.monotonic()
                 if now - self._last_stats_log >= self.stats_interval_s:
                     self._last_stats_log = now
+                    throughput_bps = self._calculate_throughput_bps()
+
+                    # Use bus-port identifier if available, otherwise fall back to device path
+                    connection_id = (
+                        f"bus-port:{self._bus_port}" if self._bus_port else self.device_path
+                    )
+
                     logger.info(
-                        "[%s] USB stats: frames=%d crc_errors=%d parse_errors=%d messages=%d bytes=%d",
-                        self.device_path,
-                        self.stats["frames_received"],
-                        self.stats["frames_crc_errors"],
-                        self.stats["frames_parse_errors"],
-                        self.stats["messages_received"],
-                        self.stats["bytes_received"],
+                        "[%s] USB stats: frames=%d crc_errors=%d parse_errors=%d messages=%d bytes=%d throughput=%.1f bytes/sec",
+                        connection_id,
+                        self.stats.frames_received,
+                        self.stats.frames_crc_errors,
+                        self.stats.frames_parse_errors,
+                        self.stats.messages_received,
+                        self.stats.bytes_received,
+                        throughput_bps,
                     )
 
         except KeyboardInterrupt:
@@ -223,13 +240,33 @@ class UsbCollector:
         """Stop the collector."""
         self.running = False
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, int]:
         """Get collector statistics.
 
         Returns:
             Dictionary with statistics
         """
-        return self.stats.copy()
+        return self.stats.to_dict()
+
+    def _calculate_throughput_bps(self) -> float:
+        """Calculate rolling average throughput in bytes per second.
+
+        Returns:
+            Bytes per second over the rolling window, or 0 if insufficient data
+        """
+        if len(self._throughput_samples) < 2:
+            return 0.0
+
+        # Get oldest and newest samples
+        oldest_time, oldest_bytes = self._throughput_samples[0]
+        newest_time, newest_bytes = self._throughput_samples[-1]
+
+        time_diff = newest_time - oldest_time
+        if time_diff <= 0:
+            return 0.0
+
+        bytes_diff = newest_bytes - oldest_bytes
+        return bytes_diff / time_diff
 
 
 async def discover_usb_devices() -> list[str]:
