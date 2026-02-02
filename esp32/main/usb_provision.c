@@ -62,7 +62,7 @@ static void apply_usb_config(const ecg_streaming_UsbConfig *cfg) {
         changed = true;
     }
 
-    if (cfg->ecg_sample_rate > 0) {
+    if (cfg->ecg_sample_rate >= 0) {
         g_ecg_sample_rate_hz = cfg->ecg_sample_rate;
     }
     if (cfg->acc_sample_rate >= 0) {

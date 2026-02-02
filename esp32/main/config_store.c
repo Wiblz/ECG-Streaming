@@ -55,6 +55,9 @@ void persist_usb_config_to_nvs(void) {
 }
 
 static int normalize_ecg_rate(int rate) {
+    if (rate == 0) {
+        return 0; // special value to disable ECG
+    }
     if (rate == 130) {
         return rate;
     }

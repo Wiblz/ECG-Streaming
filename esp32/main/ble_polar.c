@@ -189,8 +189,10 @@ static int write_cb(uint16_t conn_handle, const struct ble_gatt_error *error,
         vTaskDelay(pdMS_TO_TICKS(500));
         g_last_command_time = xTaskGetTickCount();
 
-        ESP_LOGI(TAG, "Starting ECG...");
-        pmd_start_ecg(conn_handle, g_pmd_ctrl_handle);
+        if (g_ecg_sample_rate_hz > 0) {
+            ESP_LOGI(TAG, "Starting ECG...");
+            pmd_start_ecg(conn_handle, g_pmd_ctrl_handle);
+        }
 
         // Start ACC streaming if sample rate is configured
         if (g_acc_sample_rate_hz > 0) {
