@@ -2,6 +2,7 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { AccelerometerWebSocket } from '$lib/api/accelerometerWebsocket';
 	import { ECGWebSocket } from '$lib/api/websocket';
+	import { api } from '$lib/api/client';
 	import Card from '$lib/components/Card.svelte';
 	import ConnectionStatus from '$lib/components/ConnectionStatus.svelte';
 	import DeviceCard from '$lib/components/DeviceCard.svelte';
@@ -10,7 +11,7 @@
 	import LiveWaveforms from '$lib/components/LiveWaveforms.svelte';
 	import SessionControl from '$lib/components/SessionControl.svelte';
 	import StatsPanel from '$lib/components/StatsPanel.svelte';
-	import { getDevices } from '$lib/state/devices.svelte';
+	import { getDevices, setDevices } from '$lib/state/devices.svelte';
 
 	let ecgWs: ECGWebSocket;
 	let accWs: AccelerometerWebSocket;
@@ -18,7 +19,15 @@
 	// Reactive derived devices
 	const devices = $derived(Array.from(getDevices().values()));
 
-	onMount(() => {
+	onMount(async () => {
+		// Load device info with nicknames
+		try {
+			const response = await api.getAllDevices();
+			setDevices(response.devices);
+		} catch (e) {
+			console.error('Failed to load device info:', e);
+		}
+
 		ecgWs = new ECGWebSocket();
 		ecgWs.connect();
 

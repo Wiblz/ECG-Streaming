@@ -2,8 +2,12 @@ import { api } from '$lib/api/client'
 import type { PageLoad } from './$types'
 
 export const load: PageLoad = async () => {
-	const response = await api.getSessions()
+	const [sessionsResponse, devicesResponse] = await Promise.all([
+		api.getSessions(),
+		api.getAllDevices()
+	])
 	return {
-		sessions: response.sessions
+		sessions: sessionsResponse.sessions,
+		devices: devicesResponse.devices
 	}
 }

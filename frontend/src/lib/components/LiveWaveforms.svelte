@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { getSamples as getAccSamples } from '$lib/state/acc-data.svelte';
 	import { getSamples as getEcgSamples } from '$lib/state/ecg-data.svelte';
+	import { getDevices } from '$lib/state/devices.svelte';
 	import { ConnectionState, getAccWsState, getWsState } from '$lib/state/websocket.svelte';
+	import { createDeviceNicknameMap } from '$lib/utils/device-names';
 	import Button from './buttons/Button.svelte';
 	import Card from './Card.svelte';
 	import PauseButton from './PauseButton.svelte';
@@ -13,6 +15,10 @@
 	const accSamples = $derived(getAccSamples());
 	const ecgWsState = $derived(getWsState());
 	const accWsState = $derived(getAccWsState());
+
+	// Get devices for nicknames
+	const devices = $derived(getDevices());
+	const deviceNicknames = $derived(createDeviceNicknameMap(Array.from(devices.values())));
 
 	// Determine streaming status
 	const ecgStreaming = $derived(ecgWsState === ConnectionState.CONNECTED && ecgSamples.size > 0);
@@ -55,10 +61,11 @@
 					</div>
 				{/if}
 			</div>
-			{#key showVerifiedPoints}
+			{#key `${showVerifiedPoints}-${deviceNicknames.size}`}
 				<Waveform
 					samples={ecgSamples}
 					wsState={ecgWsState}
+					{deviceNicknames}
 					getValue={(s) => s.raw_value}
 					yAxisLabel="Amplitude (mV)"
 					title="ECG"
@@ -88,10 +95,11 @@
 					</div>
 				{/if}
 			</div>
-			{#key showVerifiedPoints}
+			{#key `${showVerifiedPoints}-${deviceNicknames.size}`}
 				<Waveform
 					samples={accSamples}
 					wsState={accWsState}
+					{deviceNicknames}
 					getValue={(s) => s.magnitude}
 					yAxisLabel="Magnitude (g)"
 					title="Accelerometer"

@@ -19,13 +19,15 @@ export function getDeviceColor(index: number): string {
  */
 export function createDeviceSeries(
 	deviceIds: string[],
-	getVerifiedIndices?: () => number[]
+	getVerifiedIndices?: () => number[],
+	deviceNicknames?: Map<string, string>
 ): uPlot.Series[] {
 	const series: uPlot.Series[] = [{ label: 'Time' }]
 
 	deviceIds.forEach((deviceId, idx) => {
+		const displayName = deviceNicknames?.get(deviceId) || deviceId
 		series.push({
-			label: deviceId,
+			label: displayName,
 			stroke: getDeviceColor(idx),
 			width: 2,
 			points: getVerifiedIndices

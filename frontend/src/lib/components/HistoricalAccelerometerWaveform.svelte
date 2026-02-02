@@ -8,7 +8,7 @@
 	import { flattenGroupedSamples } from '$lib/utils/samples';
 
 	let uPlotLib = $state<typeof uPlot | null>(null);
-	let createDeviceSeries: ((deviceIds: string[], getVerifiedIndices?: () => number[]) => uPlot.Series[]) | null = null;
+	let createDeviceSeries: ((deviceIds: string[], getVerifiedIndices?: () => number[], deviceNicknames?: Map<string, string>) => uPlot.Series[]) | null = null;
 	let createAxes: (() => uPlot.Axis[]) | null = null;
 	let tooltipsPlugin: ReturnType<typeof import('$lib/utils/uplot-tooltips').tooltipsPlugin> | null =
 		null;
@@ -17,9 +17,10 @@
 		session: Session;
 		loading?: boolean;
 		showVerifiedPoints?: boolean;
+		deviceNicknames?: Map<string, string>;
 	}
 
-	let { session, loading = false, showVerifiedPoints = false }: Props = $props();
+	let { session, loading = false, showVerifiedPoints = false, deviceNicknames }: Props = $props();
 
 	let plotContainer: HTMLDivElement;
 	let chart: uPlot | null = null;
@@ -295,7 +296,7 @@
 		const opts: uPlot.Options = {
 			width: plotContainer.clientWidth,
 			height: 400,
-			series: createDeviceSeries(devices, showVerifiedPoints ? () => verifiedIndices : undefined),
+			series: createDeviceSeries(devices, showVerifiedPoints ? () => verifiedIndices : undefined, deviceNicknames),
 			axes: createAxes(),
 			scales: {
 				x: {

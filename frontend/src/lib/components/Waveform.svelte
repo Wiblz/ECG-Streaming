@@ -31,6 +31,10 @@
 		 * @default false
 		 */
 		showVerifiedPoints?: boolean;
+		/**
+		 * Map of device IDs to nicknames for display
+		 */
+		deviceNicknames?: Map<string, string>;
 	}
 
 	let {
@@ -41,13 +45,14 @@
 		emptyMessage = 'Waiting for data...',
 		wsState,
 		standalone = true,
-		showVerifiedPoints = false
+		showVerifiedPoints = false,
+		deviceNicknames
 	}: Props = $props();
 
 	let plotContainer: HTMLDivElement;
 	let chart = $state<uPlot | null>(null);
 	let uPlotLib = $state<typeof uPlot | null>(null);
-	let createDeviceSeries: ((deviceIds: string[], getVerifiedIndices?: () => number[]) => uPlot.Series[]) | null = null;
+	let createDeviceSeries: ((deviceIds: string[], getVerifiedIndices?: () => number[], deviceNicknames?: Map<string, string>) => uPlot.Series[]) | null = null;
 	let createAxes: ((yLabel: string) => uPlot.Axis[]) | null = null;
 	let tooltipsPlugin: ReturnType<typeof import('$lib/utils/uplot-tooltips').tooltipsPlugin> | null =
 		null;
@@ -235,7 +240,7 @@
 		const opts: uPlot.Options = {
 			width: plotContainer.clientWidth,
 			height: 400,
-			series: createDeviceSeries(devices, showVerifiedPoints ? () => verifiedIndices : undefined),
+			series: createDeviceSeries(devices, showVerifiedPoints ? () => verifiedIndices : undefined, deviceNicknames),
 			axes: createAxes(yAxisLabel),
 			scales: {
 				x: {
@@ -296,9 +301,9 @@
 				return `${deviceId}: Δ${delta.toFixed(2)}s`;
 			}).join(', ');
 
-			console.log(
-				`[${title}] window.maxTime=${timeWindow.maxTime.toFixed(2)}, wall=${wallTime.toFixed(2)}, buffer: ${bufferInfo}`
-			);
+			// console.log(
+			// 	`[${title}] window.maxTime=${timeWindow.maxTime.toFixed(2)}, wall=${wallTime.toFixed(2)}, buffer: ${bufferInfo}`
+			// );
 		}
 
 		// setData will now use the updated range via the function
@@ -311,13 +316,13 @@
 		if (isStreaming && chart) {
 			// Start update interval
 			if (updateIntervalId === null) {
-				console.log(`[${title}] Starting update interval`);
+				// console.log(`[${title}] Starting update interval`);
 				updateIntervalId = window.setInterval(updateChart, UPDATE_INTERVAL_MS);
 			}
 		} else {
 			// Stop update interval
 			if (updateIntervalId !== null) {
-				console.log(`[${title}] Stopping update interval`);
+				// console.log(`[${title}] Stopping update interval`);
 				clearInterval(updateIntervalId);
 				updateIntervalId = null;
 			}

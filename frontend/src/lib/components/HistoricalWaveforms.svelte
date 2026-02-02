@@ -9,9 +9,10 @@
 	interface Props {
 		session: Session;
 		loading?: boolean;
+		deviceNicknames?: Map<string, string>;
 	}
 
-	let { session, loading = false }: Props = $props();
+	let { session, loading = false, deviceNicknames }: Props = $props();
 
 	// Shared state for verified points toggle
 	let showVerifiedPoints = $state(false);
@@ -39,7 +40,7 @@
 				<h3 class="text-sm font-semibold text-gray-900">ECG</h3>
 			</div>
 			{#key showVerifiedPoints}
-				<HistoricalWaveform {session} {loading} {showVerifiedPoints} />
+				<HistoricalWaveform {session} {loading} {showVerifiedPoints} {deviceNicknames} />
 			{/key}
 		</div>
 
@@ -52,7 +53,7 @@
 				<h3 class="text-sm font-semibold text-gray-900">Accelerometer</h3>
 			</div>
 			{#key showVerifiedPoints}
-				<HistoricalAccelerometerWaveform {session} {loading} {showVerifiedPoints} />
+				<HistoricalAccelerometerWaveform {session} {loading} {showVerifiedPoints} {deviceNicknames} />
 			{/key}
 		</div>
 	</div>

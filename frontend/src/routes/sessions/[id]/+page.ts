@@ -13,9 +13,13 @@ export const load: PageLoad = async ({ params }) => {
 	}
 
 	try {
-		const session = await api.getSession(sessionId)
+		const [session, devicesResponse] = await Promise.all([
+			api.getSession(sessionId),
+			api.getAllDevices()
+		])
 		return {
-			session
+			session,
+			devices: devicesResponse.devices
 		}
 	} catch (e) {
 		throw error(404, e instanceof Error ? e.message : 'Session not found')

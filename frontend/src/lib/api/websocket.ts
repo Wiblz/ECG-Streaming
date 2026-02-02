@@ -1,4 +1,4 @@
-import { setDevices } from '$lib/state/devices.svelte'
+import { mergeDevice } from '$lib/state/devices.svelte'
 import { addSamples } from '$lib/state/ecg-data.svelte'
 import { ConnectionState, setWsError, setWsState } from '$lib/state/websocket.svelte'
 import type { BufferedECGSample, DataMessage, InitMessage } from '$lib/types/api'
@@ -88,12 +88,10 @@ export class ECGWebSocket {
 
 	private handleInit(msg: InitMessage) {
 		console.log('Devices initialized:', msg.devices)
-		// Initialize devices from init message
-		const devices = msg.devices.map((id) => ({
-			device_id: id,
-			sync_ready: false
-		}))
-		setDevices(devices)
+		// Merge devices from init message (preserves existing data like nicknames)
+		msg.devices.forEach((deviceId) => {
+			mergeDevice(deviceId, { sync_ready: false })
+		})
 	}
 
 	private handleData(msg: DataMessage) {

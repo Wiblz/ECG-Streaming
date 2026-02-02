@@ -4,9 +4,12 @@
 	import Header from '$lib/components/Header.svelte';
 	import HistoricalWaveforms from '$lib/components/HistoricalWaveforms.svelte';
 	import { formatDuration, formatFullTimestamp } from '$lib/utils/format';
+	import { createDeviceNicknameMap, getDisplayNameFromMap } from '$lib/utils/device-names';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
+
+	const deviceNicknameMap = $derived(createDeviceNicknameMap(data.devices));
 
 	let deleting = $state(false);
 
@@ -132,11 +135,13 @@
 					<div class="mt-6 pt-6 border-t border-gray-200">
 						<h3 class="text-sm font-semibold text-gray-700 mb-3">Connected Devices</h3>
 						<div class="flex flex-wrap gap-2">
-							{#each data.session.devices as device (device)}
+							{#each data.session.devices as deviceId (deviceId)}
+								{@const displayName = getDisplayNameFromMap(deviceId, deviceNicknameMap)}
 								<span
-									class="bg-status-info text-status-info-fg text-sm px-3 py-1.5 rounded-lg font-mono border border-status-info-border"
+									class="bg-status-info text-status-info-fg text-sm px-3 py-1.5 rounded-lg border border-status-info-border"
+									title={deviceId !== displayName ? deviceId : undefined}
 								>
-									{device}
+									{displayName}
 								</span>
 							{/each}
 						</div>
@@ -145,7 +150,7 @@
 			</div>
 
 			<!-- Waveform Visualization -->
-			<HistoricalWaveforms session={data.session} loading={false} />
+			<HistoricalWaveforms session={data.session} loading={false} deviceNicknames={deviceNicknameMap} />
 		</div>
 	</main>
 </div>

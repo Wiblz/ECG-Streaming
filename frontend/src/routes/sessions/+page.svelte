@@ -3,9 +3,12 @@
 	import { api } from '$lib/api/client';
 	import Header from '$lib/components/Header.svelte';
 	import { formatDuration, formatTimestamp } from '$lib/utils/format';
+	import { createDeviceNicknameMap, getDisplayNameFromMap } from '$lib/utils/device-names';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
+
+	const deviceNicknameMap = $derived(createDeviceNicknameMap(data.devices));
 
 	// Local reactive copy of sessions that we can update
 	let sessions = $state(data.sessions);
@@ -229,11 +232,13 @@
 									{#if session.devices.length > 0}
 										<div class="pt-3 border-t border-gray-100">
 											<div class="flex flex-wrap gap-2">
-												{#each session.devices as device (device)}
+												{#each session.devices as deviceId (deviceId)}
+													{@const displayName = getDisplayNameFromMap(deviceId, deviceNicknameMap)}
 													<span
-														class="bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded-md font-mono"
+														class="bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded-md"
+														title={deviceId !== displayName ? deviceId : undefined}
 													>
-														{device.split(' ').slice(-1)[0]}
+														{displayName}
 													</span>
 												{/each}
 											</div>
