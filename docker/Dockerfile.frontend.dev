@@ -1,0 +1,24 @@
+# Frontend Development Dockerfile - Hot reload enabled
+FROM node:24-slim
+
+WORKDIR /app
+
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@10.28.0 --activate
+
+# Copy package files for dependency installation
+COPY package.json pnpm-lock.yaml ./
+
+# Install dependencies
+# Use cache mount to speed up builds
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
+
+# Source files will be mounted as volumes for hot reload
+# Don't copy source here - it's mounted at runtime
+
+# Expose Vite dev server port
+EXPOSE 5173
+
+# Development server with hot reload
+CMD ["pnpm", "dev", "--host", "0.0.0.0"]

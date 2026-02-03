@@ -1,16 +1,31 @@
+# Docker Compose - Development Environment (default)
+# Uses dev Dockerfiles with hot reload enabled
+#
+# Usage:
+#   docker compose --profile ble up      # BLE collector
+#   docker compose --profile usb up      # USB collector
+#   docker compose up                    # No collector (aggregator + frontend only)
+#
+# Or use Make commands:
+#   make docker-up          # BLE collector
+#   make docker-up-usb      # USB collector
+#   make docker-up-aggregator # No collector
+
 services:
   # ECG Aggregator - gRPC Server with SQLite database
   aggregator:
     build:
       context: .
-      dockerfile: docker/Dockerfile.aggregator
+      dockerfile: docker/Dockerfile.aggregator.dev
     container_name: ecg-aggregator
     ports:
       - "50051:50051"  # gRPC port
       - "7999:7999"    # HTTP/WebSocket API port
     volumes:
-      - ./ecg_data.db:/app/ecg_data.db  # Mount existing database file
-      - ./packages/ecg-aggregator/config.docker.yaml:/app/config.yaml:ro
+      - ./packages/ecg-common:/app/packages/ecg-common
+      - ./packages/ecg-aggregator:/app/packages/ecg-aggregator
+      - ./ecg_data.db:/app/ecg_data.db
+      - ./packages/ecg-aggregator/config.default.yaml:/app/config.yaml:ro
     environment:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
@@ -21,48 +36,82 @@ services:
       retries: 3
       start_period: 40s
 
-  # ECG Collector - BLE mode (default)
-  # For USB mode, see docker-compose.usb.yml
+  # ECG Collector - BLE mode
+  # Use --profile ble to enable
+  # Note: Uses host networking, so overrides aggregator host to localhost
   collector-ble:
     image: ecg-streaming-collector:latest
     build:
       context: .
-      dockerfile: docker/Dockerfile.collector
+      dockerfile: docker/Dockerfile.collector.dev
     container_name: ecg-collector-ble
+    profiles:
+      - ble
     depends_on:
       aggregator:
         condition: service_healthy
     network_mode: host
     privileged: true  # Required for BLE access
     volumes:
-      - ./packages/ecg-collector/config.docker.yaml:/app/config.yaml:ro
+      - ./packages/ecg-common:/app/packages/ecg-common
+      - ./packages/ecg-collector:/app/packages/ecg-collector
+      - ./packages/ecg-collector/config.default.yaml:/app/config.yaml:ro
       - /var/run/dbus:/var/run/dbus:ro
     environment:
       - PYTHONUNBUFFERED=1
-    command: ["ecg-collector", "ble", "run", "--config", "/app/config.yaml"]
+      - ECG_COLLECTOR_AGGREGATOR__HOST=localhost
+    command: ["watchfiles", "--filter", "python", "python -m ecg_collector.cli ble run --config /app/config.yaml", "/app/packages"]
     restart: unless-stopped
 
-  # Frontend - SvelteKit Web Application
-  frontend:
+  # ECG Collector - USB mode
+  # Use --profile usb to enable
+  collector-usb:
+    image: ecg-streaming-collector:latest
     build:
       context: .
-      dockerfile: docker/Dockerfile.frontend
+      dockerfile: docker/Dockerfile.collector.dev
+    container_name: ecg-collector-usb
+    profiles:
+      - usb
+    depends_on:
+      aggregator:
+        condition: service_healthy
+    devices:
+      # Mount USB devices - adjust as needed for your system
+      # To find devices: ls /dev/ttyACM* /dev/ttyUSB*
+      - /dev/ttyACM0:/dev/ttyACM0
+      - /dev/ttyACM1:/dev/ttyACM1
+#      - /dev/ttyACM2:/dev/ttyACM2
+#      - /dev/ttyACM3:/dev/ttyACM3
+      # Add more devices as needed
+    volumes:
+      - ./packages/ecg-common:/app/packages/ecg-common
+      - ./packages/ecg-collector:/app/packages/ecg-collector
+      - ./packages/ecg-collector/config.default.yaml:/app/config.yaml:ro
+      - /run/udev:/run/udev:ro  # For udev device detection
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["watchfiles", "--filter", "python", "python -m ecg_collector.cli usb run --config /app/config.yaml", "/app/packages"]
+    restart: unless-stopped
+
+  # Frontend - SvelteKit Web Application with hot reload
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../docker/Dockerfile.frontend.dev
     container_name: ecg-frontend
     depends_on:
       - aggregator
     ports:
-      - "4173:4173"
+      - "5173:5173"  # Vite dev server port
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules  # Prevent overwriting node_modules
+      - /app/.svelte-kit   # Prevent overwriting build artifacts
     environment:
-      - NODE_ENV=production
-      # Frontend connects to aggregator via browser, so use host's IP or localhost
-      - PUBLIC_AGGREGATOR_URL=http://localhost:50051
+      - NODE_ENV=development
+      - PUBLIC_AGGREGATOR_URL=http://localhost:7999
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:4173', (r) => process.exit(r.statusCode === 200 ? 0 : 1))\""]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
 
 networks:
   default:

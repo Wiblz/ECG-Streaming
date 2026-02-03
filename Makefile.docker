@@ -1,81 +1,86 @@
 # Docker-specific commands for ECG Streaming
 # This file is included by the main Makefile
 
-.PHONY: docker-build docker-up docker-up-usb docker-up-aggregator docker-up-collector docker-down docker-logs docker-clean docker-pull docker-prod
+.PHONY: docker-build docker-up docker-up-usb docker-up-aggregator docker-down docker-logs docker-clean docker-prod docker-prod-usb docker-prod-build docker-prod-down
 
-# Build all Docker images
+# Build all Docker images for development
 docker-build:
-	@echo "Building Docker images..."
-	docker compose build
-	@echo "✓ Docker images built"
+	@echo "Building Docker images for development..."
+	docker compose build aggregator frontend
+	docker compose build collector-ble collector-usb
+	@echo "✓ Docker images built (aggregator, frontend, collector)"
 
-# Start all services with BLE collector
+# Start all services in development mode (BLE collector by default)
 docker-up:
-	@echo "Starting services with BLE collector..."
-	docker compose up -d
+	@echo "Starting services in development mode (BLE collector)..."
+	docker compose --profile ble up -d
 	@echo "✓ Services started"
 	@echo "  - Aggregator: http://localhost:50051"
-	@echo "  - Frontend: http://localhost:4173"
+	@echo "  - Frontend (dev): http://localhost:5173"
+	@echo "  - Hot reload enabled for all services"
 
-# Start all services with USB collector
+# Start all services in development mode (USB collector)
 docker-up-usb:
-	@echo "Starting services with USB collector..."
-	docker compose -f docker-compose.yml -f docker-compose.usb.yml up -d
+	@echo "Starting services in development mode (USB collector)..."
+	docker compose --profile usb up -d
 	@echo "✓ Services started"
 	@echo "  - Aggregator: http://localhost:50051"
-	@echo "  - Frontend: http://localhost:4173"
+	@echo "  - Frontend (dev): http://localhost:5173"
+	@echo "  - Hot reload enabled for all services"
 
-# Start aggregator + frontend only
+# Start aggregator + frontend only (no collector)
 docker-up-aggregator:
 	@echo "Starting aggregator + frontend only..."
-	docker compose -f docker-compose.yml -f docker-compose.aggregator-only.yml up -d
+	docker compose up -d aggregator frontend
 	@echo "✓ Services started"
 	@echo "  - Aggregator: http://localhost:50051"
-	@echo "  - Frontend: http://localhost:4173"
+	@echo "  - Frontend (dev): http://localhost:5173"
 	@echo "  - Note: Run collector separately (native or Docker)"
 
-# Start collector only (BLE mode)
-docker-up-collector:
-	@echo "Starting collector only (BLE mode)..."
-	@echo "Note: Requires external aggregator running"
-	docker compose -f docker-compose.yml -f docker-compose.collector-only.yml up -d
-	@echo "✓ Collector started"
-	@echo "  - Make sure aggregator is accessible (update config.yaml)"
-
-# Stop all services (handles both BLE and USB modes)
+# Stop all services
 docker-down:
 	@echo "Stopping services..."
-	@docker compose -f docker-compose.yml -f docker-compose.usb.yml down 2>/dev/null || true
-	@docker compose -f docker-compose.yml -f docker-compose.aggregator-only.yml down 2>/dev/null || true
-	@docker compose -f docker-compose.yml -f docker-compose.collector-only.yml down 2>/dev/null || true
-	@docker compose down
+	@docker compose --profile ble --profile usb down
 	@echo "✓ Services stopped"
 
 # Follow logs from all services
 docker-logs:
 	@echo "Following logs (Ctrl+C to stop)..."
-	docker compose logs -f
+	docker compose --profile ble --profile usb logs -f
 
 # Clean up Docker environment
 docker-clean:
 	@echo "Stopping and removing all containers, networks, and volumes..."
-	@docker compose -f docker-compose.yml -f docker-compose.usb.yml down -v 2>/dev/null || true
-	@docker compose -f docker-compose.yml -f docker-compose.aggregator-only.yml down -v 2>/dev/null || true
-	@docker compose -f docker-compose.yml -f docker-compose.collector-only.yml down -v 2>/dev/null || true
-	@docker compose down -v
+	@docker compose --profile ble --profile usb down -v
 	@echo "✓ Docker environment cleaned"
 
-# Pull pre-built images from GitHub Container Registry
-docker-pull:
-	@echo "Pulling images from GHCR..."
-	docker compose -f docker-compose.prod.yml pull
-	@echo "✓ Images pulled"
+# Build production images locally
+docker-prod-build:
+	@echo "Building production images (optimized, no hot reload)..."
+	docker compose -f docker-compose.prod.yml --profile ble --profile usb build
+	@echo "✓ Production images built"
+	@echo "  - ecg-streaming-aggregator:prod"
+	@echo "  - ecg-streaming-collector:prod"
+	@echo "  - ecg-streaming-frontend:prod"
 
-# Run production stack with pre-built images
+# Run production stack with BLE collector
 docker-prod:
-	@echo "Starting production stack from GHCR images..."
-	@echo "Note: Set GITHUB_REPOSITORY and IMAGE_TAG environment variables"
-	docker compose -f docker-compose.prod.yml up -d
+	@echo "Starting production stack (BLE collector)..."
+	docker compose -f docker-compose.prod.yml --profile ble up -d
 	@echo "✓ Services started"
 	@echo "  - Aggregator: http://localhost:50051"
 	@echo "  - Frontend: http://localhost:4173"
+
+# Run production stack with USB collector
+docker-prod-usb:
+	@echo "Starting production stack (USB collector)..."
+	docker compose -f docker-compose.prod.yml --profile usb up -d
+	@echo "✓ Services started"
+	@echo "  - Aggregator: http://localhost:50051"
+	@echo "  - Frontend: http://localhost:4173"
+
+# Stop production stack
+docker-prod-down:
+	@echo "Stopping production stack..."
+	docker compose -f docker-compose.prod.yml --profile ble --profile usb down
+	@echo "✓ Production stack stopped"

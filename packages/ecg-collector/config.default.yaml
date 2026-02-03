@@ -7,6 +7,7 @@ collector_id: "collector-1"
 device_ids:
   - "Polar H10 0781CC39"
   - "Polar H10 0787323A"
+  - "Polar H10 1497B538"
 
 # BLE configuration
 ble:
@@ -38,9 +39,15 @@ usb:
 #      ecg_sample_rate: 130
 #      acc_sample_rate: 100
     "B43A45AD6CD8": "Polar H10 0781CC39"
-    "B43A45AD6CF0": "Polar H10 0787323A"
+
+#    "B43A45AD6CF0": "Polar H10 0787323A"
+#    "B43A45AD6CF0": "Polar H10 1497B538"
+    "B43A45AD6CF0": "Polar H10 1496933F"
+
+#    "F0F5BD75BDD4": "Polar H10 0787323A"
+#    "F0F5BD75BDD4": "Polar H10 1497B538"
 #    "CCBA97FFFEF0": "INVALID"
-  ecg_sample_rate: 0           # ECG sample rate to configure on USB devices (Hz)
+  ecg_sample_rate: 130           # ECG sample rate to configure on USB devices (Hz)
   acc_sample_rate: 100           # ACC sample rate to configure on USB devices (Hz)
   persist_config: true           # Persist config on device when supported
   detect_timeout_s: 20.0         # Seconds to detect valid USB data

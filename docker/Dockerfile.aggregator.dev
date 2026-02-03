@@ -1,5 +1,5 @@
-# ECG Aggregator - gRPC Server
-FROM python:3.14-slim AS base
+# ECG Aggregator - Development with hot reload
+FROM python:3.14-slim
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -12,12 +12,16 @@ WORKDIR /app
 # Install uv for fast package installation
 RUN pip install --no-cache-dir uv
 
-# Copy source code (needed for editable installs)
+# Install watchfiles for hot reload support
+RUN pip install --no-cache-dir watchfiles
+
+# Copy source code for initial install
 COPY packages/ecg-common /app/packages/ecg-common
 COPY packages/ecg-aggregator /app/packages/ecg-aggregator
 COPY pyproject.toml /app/
 
-# Install dependencies
+# Install packages in editable mode
+# When volumes are mounted, editable installs will pick up changes automatically
 # Use cache mount to share downloaded packages between builds
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system -e packages/ecg-common
@@ -27,5 +31,6 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Expose ports (gRPC and HTTP API)
 EXPOSE 50051 7999
 
-# Start aggregator (migrations run automatically in Python code)
-CMD ["ecg-aggregator", "run", "--config", "/app/config.yaml"]
+# Run with watchfiles to restart on code changes
+# Use python -m to avoid issues with entry points when volumes are mounted
+CMD ["watchfiles", "--filter", "python", "python -m ecg_aggregator.cli run --config /app/config.yaml", "/app/packages"]

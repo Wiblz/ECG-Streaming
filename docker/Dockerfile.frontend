@@ -10,7 +10,9 @@ WORKDIR /app
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
 
 # Install dependencies
-RUN pnpm install --frozen-lockfile
+# Use cache mount to speed up builds
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
 
 # Copy source code
 COPY frontend/ ./

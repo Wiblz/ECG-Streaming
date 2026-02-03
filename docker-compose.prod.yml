@@ -1,0 +1,98 @@
+# Production Docker Compose - optimized builds (no hot reload)
+# Usage:
+#   make docker-prod-build     # Build production images
+#   make docker-prod-usb       # Start with USB collector
+#   make docker-prod           # Start with BLE collector
+
+services:
+  aggregator:
+    image: ecg-streaming-aggregator:prod
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.aggregator
+    container_name: ecg-aggregator
+    ports:
+      - "50051:50051"
+      - "7999:7999"
+    volumes:
+      - aggregator-data:/data
+      - ./packages/ecg-aggregator/config.default.yaml:/app/config.yaml:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ECG_AGGREGATOR_STORAGE__DATABASE_PATH=/data/ecg_data.db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.connect(('localhost', 50051)); s.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  collector-ble:
+    image: ecg-streaming-collector:prod
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.collector
+    container_name: ecg-collector-ble
+    profiles:
+      - ble
+    depends_on:
+      aggregator:
+        condition: service_healthy
+    network_mode: host
+    privileged: true
+    volumes:
+      - ./packages/ecg-collector/config.default.yaml:/app/config.yaml:ro
+      - /var/run/dbus:/var/run/dbus:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ECG_COLLECTOR_AGGREGATOR__HOST=localhost
+    command: ["ecg-collector", "ble", "run", "--config", "/app/config.yaml"]
+    restart: unless-stopped
+
+  collector-usb:
+    image: ecg-streaming-collector:prod
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.collector
+    container_name: ecg-collector-usb
+    profiles:
+      - usb
+    depends_on:
+      aggregator:
+        condition: service_healthy
+    devices:
+      - /dev/ttyACM0:/dev/ttyACM0
+      - /dev/ttyACM1:/dev/ttyACM1
+      - /dev/ttyACM2:/dev/ttyACM2
+      - /dev/ttyACM3:/dev/ttyACM3
+    volumes:
+      - ./packages/ecg-collector/config.default.yaml:/app/config.yaml:ro
+      - /run/udev:/run/udev:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["ecg-collector", "usb", "run", "--config", "/app/config.yaml"]
+    restart: unless-stopped
+
+  frontend:
+    image: ecg-streaming-frontend:prod
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    container_name: ecg-frontend
+    depends_on:
+      - aggregator
+    ports:
+      - "4173:4173"
+    environment:
+      - NODE_ENV=production
+      - PUBLIC_AGGREGATOR_URL=http://localhost:7999
+    restart: unless-stopped
+
+volumes:
+  aggregator-data:
+    driver: local
+
+networks:
+  default:
+    name: ecg-network
