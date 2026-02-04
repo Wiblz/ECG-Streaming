@@ -18,9 +18,20 @@
 		loading?: boolean;
 		showVerifiedPoints?: boolean;
 		deviceNicknames?: Map<string, string>;
+		timeSyncEnabled?: boolean;
+		sharedTimeWindow?: { minTime: number; maxTime: number } | null;
+		onTimeWindowChange?: (window: { minTime: number; maxTime: number }) => void;
 	}
 
-	let { session, loading = false, showVerifiedPoints = false, deviceNicknames }: Props = $props();
+	let {
+		session,
+		loading = false,
+		showVerifiedPoints = false,
+		deviceNicknames,
+		timeSyncEnabled = false,
+		sharedTimeWindow = null,
+		onTimeWindowChange
+	}: Props = $props();
 
 	let plotContainer: HTMLDivElement;
 	let chart: uPlot | null = null;
@@ -321,6 +332,11 @@
 							sampleCount: loadedSamples.length
 						};
 
+						// If time sync is enabled, notify parent of time window change
+						if (timeSyncEnabled && onTimeWindowChange && !programmaticUpdate) {
+							onTimeWindowChange({ minTime: relativeStart, maxTime: relativeEnd });
+						}
+
 						// Skip data loading if this is a programmatic update
 						if (programmaticUpdate) return;
 
@@ -389,6 +405,19 @@
 		if (!loading && session && !initialized) {
 			initialized = true;
 			initialize();
+		}
+	});
+
+	// Sync with shared time window when time sync is enabled
+	$effect(() => {
+		if (timeSyncEnabled && sharedTimeWindow && chart) {
+			// Set programmatic update flag to prevent triggering setScale hook
+			programmaticUpdate = true;
+			chart.setScale('x', {
+				min: sharedTimeWindow.minTime,
+				max: sharedTimeWindow.maxTime
+			});
+			programmaticUpdate = false;
 		}
 	});
 

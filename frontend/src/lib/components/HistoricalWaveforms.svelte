@@ -16,11 +16,37 @@
 
 	// Shared state for verified points toggle
 	let showVerifiedPoints = $state(false);
+
+	// Shared state for time sync
+	let timeSyncEnabled = $state(false);
+	let sharedTimeWindow = $state<{ minTime: number; maxTime: number } | null>(null);
+
+	// Determine if session has both ECG and ACC data
+	const hasBothSignals = $derived(session.ecg_sample_count > 0 && session.acc_sample_count > 0);
+
+	// Handler for time window changes from either chart
+	function handleTimeWindowChange(window: { minTime: number; maxTime: number }) {
+		if (timeSyncEnabled) {
+			sharedTimeWindow = window;
+		}
+	}
 </script>
 
 
 <Card title="Session Waveforms">
 	{#snippet headerActions()}
+		{#if hasBothSignals}
+			<Button
+				variant={timeSyncEnabled ? 'success' : 'ghost'}
+				size="sm"
+				onclick={() => {
+					timeSyncEnabled = !timeSyncEnabled;
+				}}
+				title="Synchronize time windows between ECG and Accelerometer"
+			>
+				Time Sync
+			</Button>
+		{/if}
 		<Button
 			variant={showVerifiedPoints ? 'success' : 'ghost'}
 			size="sm"
@@ -40,7 +66,15 @@
 				<h3 class="text-sm font-semibold text-gray-900">ECG</h3>
 			</div>
 			{#key showVerifiedPoints}
-				<HistoricalWaveform {session} {loading} {showVerifiedPoints} {deviceNicknames} />
+				<HistoricalWaveform
+					{session}
+					{loading}
+					{showVerifiedPoints}
+					{deviceNicknames}
+					{timeSyncEnabled}
+					{sharedTimeWindow}
+					onTimeWindowChange={handleTimeWindowChange}
+				/>
 			{/key}
 		</div>
 
@@ -53,7 +87,15 @@
 				<h3 class="text-sm font-semibold text-gray-900">Accelerometer</h3>
 			</div>
 			{#key showVerifiedPoints}
-				<HistoricalAccelerometerWaveform {session} {loading} {showVerifiedPoints} {deviceNicknames} />
+				<HistoricalAccelerometerWaveform
+					{session}
+					{loading}
+					{showVerifiedPoints}
+					{deviceNicknames}
+					{timeSyncEnabled}
+					{sharedTimeWindow}
+					onTimeWindowChange={handleTimeWindowChange}
+				/>
 			{/key}
 		</div>
 	</div>
