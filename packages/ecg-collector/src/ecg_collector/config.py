@@ -2,8 +2,37 @@
 
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class DeviceConfig(BaseSettings):
+    """Configuration for a single device."""
+
+    nickname: str | None = Field(
+        default=None,
+        description="Human-readable nickname for the device",
+    )
+    esp_id: str | None = Field(
+        default=None,
+        description="ESP32 ID for USB mode (maps this device to a specific ESP32)",
+    )
+    ecg_sample_rate: int | None = Field(
+        default=None,
+        description="ECG sample rate override (Hz), uses global default if not set",
+    )
+    acc_sample_rate: int | None = Field(
+        default=None,
+        description="Accelerometer sample rate override (Hz), uses global default if not set",
+    )
+    ble_adapter: str | None = Field(
+        default=None,
+        description="Pin device to specific BLE adapter (e.g., 'hci0')",
+    )
+    enabled: bool = Field(
+        default=True,
+        description="Enable/disable this device",
+    )
 
 
 class BLEConfig(BaseSettings):
@@ -72,24 +101,13 @@ class USBConfig(BaseSettings):
         default_factory=list,
         description="Explicit USB device paths (e.g., /dev/ttyACM0)",
     )
-    allowed_device_ids: list[str] = Field(
-        default_factory=list,
-        description="Optional allowlist of device IDs (empty allows all)",
-    )
-    device_map: dict[str, str | dict[str, object]] = Field(
-        default_factory=dict,
-        description=(
-            "Mapping of esp_id to Polar device ID (string) or dict with overrides "
-            "(device_id, ecg_sample_rate, acc_sample_rate)"
-        ),
-    )
     ecg_sample_rate: int = Field(
         default=130,
-        description="ECG sample rate to configure on USB devices (Hz)",
+        description="Default ECG sample rate for USB devices (Hz)",
     )
     acc_sample_rate: int = Field(
         default=100,
-        description="Accelerometer sample rate to configure on USB devices (Hz)",
+        description="Default accelerometer sample rate for USB devices (Hz)",
     )
     persist_config: bool = Field(
         default=True,
@@ -120,9 +138,10 @@ class CollectorSettings(BaseSettings):
         description="Human-readable display name for this collector",
     )
 
-    device_ids: list[str] = Field(
-        default_factory=list,
-        description="List of device IDs to connect to",
+    # Unified device configuration (device_id -> config)
+    devices: dict[str, DeviceConfig] = Field(
+        default_factory=dict,
+        description="Device configurations (Polar device ID -> DeviceConfig)",
     )
 
     ble: BLEConfig = Field(
@@ -144,6 +163,57 @@ class CollectorSettings(BaseSettings):
         default_factory=USBConfig,
         description="USB collector settings",
     )
+
+    @field_validator("devices", mode="before")
+    @classmethod
+    def normalize_devices(cls, v: object) -> dict[str, DeviceConfig]:
+        """Normalize devices dict to ensure all values are DeviceConfig instances."""
+        if not isinstance(v, dict):
+            return {}  # Return empty dict for invalid input
+
+        result: dict[str, DeviceConfig] = {}
+        for device_id, config in v.items():
+            if isinstance(config, DeviceConfig):
+                result[device_id] = config
+            elif isinstance(config, dict):
+                result[device_id] = DeviceConfig(**config)
+            elif config is None:
+                # Allow empty device config (use all defaults)
+                result[device_id] = DeviceConfig()
+            else:
+                raise ValueError(f"Invalid device config for {device_id}: {config}")
+        return result
+
+    def get_device_list(self) -> list[str]:
+        """Get list of all enabled device IDs.
+
+        Returns:
+            List of device IDs that are enabled
+        """
+        return [device_id for device_id, config in self.devices.items() if config.enabled]
+
+    def get_esp_to_device_map(self) -> dict[str, str]:
+        """Build ESP ID -> Device ID mapping for USB mode.
+
+        Returns:
+            Dictionary mapping ESP IDs to Polar device IDs
+        """
+        return {
+            config.esp_id: device_id
+            for device_id, config in self.devices.items()
+            if config.esp_id and config.enabled
+        }
+
+    def get_device_config(self, device_id: str) -> DeviceConfig | None:
+        """Get configuration for a specific device.
+
+        Args:
+            device_id: Polar device ID
+
+        Returns:
+            DeviceConfig or None if not found
+        """
+        return self.devices.get(device_id)
 
     @classmethod
     def from_yaml(cls, config_path: Path) -> CollectorSettings:

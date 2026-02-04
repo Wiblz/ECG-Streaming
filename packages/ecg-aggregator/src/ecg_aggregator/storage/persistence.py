@@ -1556,6 +1556,9 @@ class ECGDatabase:
 
                 conn.commit()
 
+                # Force WAL checkpoint to flush changes to main database file
+                conn.execute("PRAGMA wal_checkpoint(FULL)")
+
                 if cursor.rowcount > 0:
                     logger.info(f"Updated nickname for device {device_id} to '{nickname}'")
                     return True

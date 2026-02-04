@@ -139,16 +139,17 @@ def ble_run(
     )
 
     # Validate configuration
-    if not settings.device_ids:
+    device_list = settings.get_device_list()
+    if not device_list:
         console.print(
-            f"[red]No devices configured. Please add device_ids to {DEFAULT_CONFIG_PATH}[/red]"
+            f"[red]No devices configured. Please add devices to {DEFAULT_CONFIG_PATH}[/red]"
         )
         sys.exit(1)
 
     console.print("[blue]Starting BLE Collector...[/blue]")
     console.print(f"  Collector ID: {settings.collector_id}")
     console.print(f"  Display Name: {settings.display_name}")
-    console.print(f"  Devices: {settings.device_ids}")
+    console.print(f"  Devices: {device_list}")
     console.print(f"  Aggregator: {settings.aggregator.host}:{settings.aggregator.port}")
 
     # Create and run service
@@ -432,18 +433,21 @@ def usb_run(
         console.print(f"  Display Name: {display_name}")
 
     async def _run() -> None:
+        # Override settings if CLI args provided
+        effective_settings = settings
+        if collector_id:
+            effective_settings.collector_id = collector_id
+        if display_name:
+            effective_settings.display_name = display_name
+        if host != settings.aggregator.host:
+            effective_settings.aggregator.host = host
+        if port != settings.aggregator.port:
+            effective_settings.aggregator.port = port
+
+        # Create service with unified settings
         service = MultiUsbCollectorService(
             device_paths=device_paths,
-            aggregator_host=host,
-            aggregator_port=port,
-            collector_id=collector_id or settings.collector_id,
-            display_name=display_name or settings.display_name,
-            allowed_device_ids=settings.usb.allowed_device_ids,
-            detect_timeout_s=settings.usb.detect_timeout_s,
-            device_map=settings.usb.device_map,
-            persist_config=settings.usb.persist_config,
-            ecg_sample_rate=settings.usb.ecg_sample_rate,
-            acc_sample_rate=settings.usb.acc_sample_rate,
+            settings=effective_settings,
         )
 
         try:

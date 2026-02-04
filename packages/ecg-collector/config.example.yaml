@@ -7,21 +7,35 @@ collector_id: "collector-1"
 # Human-readable display name for dashboards
 display_name: "ECG Collector 1"
 
-# List of Polar H10 device IDs to connect to
+# Device configurations
+# Key: Polar H10 device ID (the advertised device name)
+# Value: Device configuration (all fields optional)
 # Find device IDs with: ecg-collector-cli scan
-device_ids:
-  - "Polar H10 ABC123"
-  - "Polar H10 DEF456"
-  # - "Polar H10 GHI789"
+devices:
+  "Polar H10 ABC123":
+    nickname: "Subject 1"           # Optional: Human-readable name for display
+    esp_id: "A1B2C3D4E5F6"         # For USB mode: ESP32 ID that streams this device
+    ecg_sample_rate: 130           # Optional: Override global ECG sample rate (Hz)
+    acc_sample_rate: 100           # Optional: Override global ACC sample rate (Hz)
+    # ble_adapter: "hci0"          # Optional: Pin to specific BLE adapter (e.g., hci0, hci1)
+    # enabled: true                # Optional: Enable/disable device (default: true)
+
+  "Polar H10 DEF456":
+    nickname: "Subject 2"
+    # This device only available via BLE (no esp_id specified)
+
+  # "Polar H10 GHI789":
+  #   esp_id: "112233445566"
+  #   # Minimal config - uses all global defaults
 
 # BLE configuration
 ble:
-  max_devices_per_adapter: 7    # Maximum devices per BLE adapter
+  max_devices_per_adapter: 7    # Maximum devices per BLE adapter (don't exceed 7)
   connection_timeout: 10         # Connection timeout in seconds
 
 # Aggregator connection
 aggregator:
-  host: "localhost"              # Aggregator hostname or IP
+  host: "localhost"              # Aggregator hostname or IP (use "aggregator" for Docker)
   port: 50051                    # Aggregator gRPC port
   batch_size: 50                 # Samples per batch to send
   batch_interval: 0.1            # Interval between batches (seconds)
@@ -30,21 +44,16 @@ aggregator:
 logging:
   level: "INFO"                  # DEBUG, INFO, WARNING, ERROR, CRITICAL
   format: "detailed"             # simple or detailed
-  file: "/tmp/ecg-collector.log" # Optional log file path
-  ble_debug_file: "/tmp/ecg-ble-debug.log" # Optional BLE debug log file path
+  file: "/tmp/ecg-collector.log" # Optional log file path (null to disable)
+  ble_debug_file: "/tmp/ecg-ble-debug.log" # Optional BLE debug log file path (null to disable)
 
 # USB configuration
 usb:
   auto_discover: true            # Auto-discover USB devices when none specified
-  devices: []                    # Explicit device paths (e.g., /dev/ttyACM0)
-  allowed_device_ids: []         # Optional allowlist (empty allows all)
-  device_map:                    # Map esp_id -> Polar device ID
-    # "A1B2C3D4E5F6": "Polar H10 ABC123"
-    # "A1B2C3D4E5F6":
-    #   device_id: "Polar H10 ABC123"
-    #   ecg_sample_rate: 130
-    #   acc_sample_rate: 100
-  ecg_sample_rate: 130           # ECG sample rate to configure on USB devices (Hz)
-  acc_sample_rate: 100           # ACC sample rate to configure on USB devices (Hz)
-  persist_config: true           # Persist config on device when supported
-  detect_timeout_s: 20.0         # Seconds to detect valid USB data
+  devices: []                    # Explicit device paths (e.g., ["/dev/ttyACM0", "/dev/ttyACM1"])
+
+  # Global defaults for USB devices (can be overridden per-device in devices section)
+  ecg_sample_rate: 130           # Default ECG sample rate for USB devices (Hz)
+  acc_sample_rate: 100           # Default ACC sample rate for USB devices (Hz)
+  persist_config: true           # Persist config on ESP32 device when supported
+  detect_timeout_s: 20.0         # Seconds to wait for valid USB data before skipping

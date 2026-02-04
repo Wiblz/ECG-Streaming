@@ -25,12 +25,15 @@ class BleCollectorService(DataCollector):
         Args:
             settings: Collector configuration settings
         """
+        # Get device list from new unified config
+        device_list = settings.get_device_list()
+
         # Initialize gRPC client
         grpc_client = CollectorGrpcClient(
             collector_id=settings.collector_id,
             aggregator_host=settings.aggregator.host,
             aggregator_port=settings.aggregator.port,
-            device_ids=settings.device_ids,
+            device_ids=device_list,
             display_name=settings.display_name,
             metadata={"type": "polar_h10_collector"},
         )
@@ -52,9 +55,11 @@ class BleCollectorService(DataCollector):
 
     async def start(self) -> None:
         """Start the BLE collector service."""
+        device_list = self.settings.get_device_list()
+
         logger.info(f"Starting BLE Collector: {self.settings.collector_id}")
         logger.info(f"Display Name: {self.settings.display_name}")
-        logger.info(f"Devices: {self.settings.device_ids}")
+        logger.info(f"Devices: {device_list}")
         logger.info(f"Aggregator: {self.settings.aggregator.host}:{self.settings.aggregator.port}")
 
         self.running = True
@@ -70,14 +75,24 @@ class BleCollectorService(DataCollector):
             )
 
         # Add devices to adapter manager and state manager
-        for device_id in self.settings.device_ids:
+        for device_id, device_config in self.settings.devices.items():
+            if not device_config.enabled:
+                logger.info(f"Skipping disabled device: {device_id}")
+                continue
+
             try:
                 driver = self.adapter_manager.add_device(
                     device_id=device_id,
                     address=None,  # Let driver discover MAC address by device name
+                    adapter_id=device_config.ble_adapter,  # Use pinned adapter if specified
                 )
                 self.device_manager.add_device(driver)
                 await self.send_status_update(device_id, DeviceStatus.DISCONNECTED)
+
+                # Log device nickname if set
+                if device_config.nickname:
+                    logger.info(f"  {device_id} (nickname: {device_config.nickname})")
+
             except Exception as e:
                 logger.error(f"Failed to add device {device_id}: {e}")
 

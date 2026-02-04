@@ -2,12 +2,14 @@
 	import { invalidate } from '$app/navigation';
 	import { api } from '$lib/api/client';
 	import Header from '$lib/components/Header.svelte';
+	import { mergeDevice, setDevices } from '$lib/state/devices.svelte';
 	import { statusEvents } from '$lib/state/status-events.svelte';
 	import type { Collector, DeviceInfo } from '$lib/types/api';
 	import { formatTimeSince } from '$lib/utils/format';
 	import type { PageProps } from './$types';
 
-	let { data }: PageProps = $props();
+	let { data: initialData }: PageProps = $props();
+	let data = $state(initialData);
 
 	// Action to focus an element when it's mounted
 	function focusElement(node: HTMLElement) {
@@ -40,10 +42,19 @@
 		savingNickname = true;
 		try {
 			const nickname = editingNickname.trim() || null;
-			await api.updateDeviceNickname(deviceId, nickname);
+			const response = await api.updateDeviceNickname(deviceId, nickname);
 
-			// Reload data to reflect changes
-			await invalidate(() => true);
+			// Update both global devices state and local data
+			if (response.success) {
+				mergeDevice(response.device_id, { nickname: response.nickname });
+
+				// Update local data.devices array for immediate UI update
+				// With $state wrapper, deep reactivity works
+				const device = data.devices.find((d) => d.device_id === response.device_id);
+				if (device) {
+					device.nickname = response.nickname;
+				}
+			}
 
 			editingDevice = null;
 			editingNickname = '';
