@@ -25,10 +25,13 @@ uint16_t g_pmd_cccd_handle = 0;
 uint16_t g_pmd_ctrl_cccd_handle = 0;
 uint8_t g_ecg_pmd_type = 0x00;
 uint8_t g_acc_pmd_type = 0x02;
-uint8_t g_ecg_settings[64] = {0};
-uint8_t g_acc_settings[64] = {0};
 uint8_t g_ecg_settings_len = 0;
 uint8_t g_acc_settings_len = 0;
+uint16_t g_ecg_rate_selected = 0;
+uint16_t g_ecg_resolution_selected = 0;
+uint16_t g_acc_rate_selected = 0;
+uint16_t g_acc_resolution_selected = 0;
+uint16_t g_acc_range_selected = 0;
 
 uint32_t g_notification_count = 0;
 TickType_t g_last_command_time = 0;

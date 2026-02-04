@@ -60,6 +60,8 @@ static bool g_ctrl_cccd_enabled = false;
 static bool g_data_cccd_enabled = false;
 static bool g_waiting_ecg_settings = false;
 #define PMD_SETTINGS_MIN_COMPLETE 8  // Minimum valid ECG settings (sample rate + resolution)
+static bool g_ecg_rate_warned = false;
+static bool g_acc_rate_warned = false;
 
 static void schedule_start_ecg(void);
 static void schedule_start_acc(void);
@@ -160,6 +162,7 @@ static void parse_pmd_response(uint8_t *data, int len) {
                 // Parse TLV to identify sensor type by its characteristics
                 uint16_t sample_rate = 0;
                 uint16_t resolution = 0;
+                uint16_t range = 0;
                 uint8_t channels = 0;
                 bool tlv_valid = false;
 
@@ -173,8 +176,19 @@ static void parse_pmd_response(uint8_t *data, int len) {
                         // Sample rate (uint16 little-endian)
                         // Count indicates number of available sample rates
                         if (offset + 2 * tlv_count <= settings_len) {
-                            // Use the first sample rate
+                            // Use the first sample rate as default
                             sample_rate = tlv_data[offset] | (tlv_data[offset + 1] << 8);
+                            // Prefer requested rate if present
+                            for (int i = 0; i < tlv_count; i++) {
+                                uint16_t candidate = tlv_data[offset + i * 2] |
+                                                    (tlv_data[offset + i * 2 + 1] << 8);
+                                if (measurement_type == PMD_TYPE_ECG && candidate == (uint16_t)g_ecg_sample_rate_hz) {
+                                    sample_rate = candidate;
+                                }
+                                if (measurement_type == PMD_TYPE_ACC && candidate == (uint16_t)g_acc_sample_rate_hz) {
+                                    sample_rate = candidate;
+                                }
+                            }
                             offset += 2 * tlv_count;
                             tlv_valid = true;
                         } else {
@@ -202,6 +216,7 @@ static void parse_pmd_response(uint8_t *data, int len) {
                     } else if (tlv_type == 2) {
                         // Range (uint16) - skip all values
                         if (offset + 2 * tlv_count <= settings_len) {
+                            range = tlv_data[offset] | (tlv_data[offset + 1] << 8);
                             offset += 2 * tlv_count;
                         } else {
                             ESP_LOGW(TAG, "TLV Type 2 (range): insufficient data, count=%d", tlv_count);
@@ -227,10 +242,16 @@ static void parse_pmd_response(uint8_t *data, int len) {
                 if (measurement_type == PMD_TYPE_ECG && tlv_valid) {
                     if (sample_rate == 130 && resolution == 14) {
                         // ECG settings found
-                        if (settings_len <= sizeof(g_ecg_settings) && settings_len > g_ecg_settings_len) {
-                            memcpy(g_ecg_settings, tlv_data, settings_len);
+                        if (settings_len > g_ecg_settings_len) {
                             g_ecg_settings_len = settings_len;
                             g_ecg_pmd_type = measurement_type;
+                            g_ecg_rate_selected = sample_rate;
+                            g_ecg_resolution_selected = resolution;
+                            if (!g_ecg_rate_warned && g_ecg_rate_selected != (uint16_t)g_ecg_sample_rate_hz) {
+                                ESP_LOGW(TAG, "ECG rate %d not supported, using %d",
+                                         g_ecg_sample_rate_hz, g_ecg_rate_selected);
+                                g_ecg_rate_warned = true;
+                            }
                             // Schedule START if ready
                             if (g_waiting_ecg_settings && !g_ecg_started &&
                                 g_ecg_settings_len >= PMD_SETTINGS_MIN_COMPLETE) {
@@ -244,10 +265,17 @@ static void parse_pmd_response(uint8_t *data, int len) {
                 // ACC is always on measurement type 0x02
                 if (measurement_type == PMD_TYPE_ACC) {
                     if (tlv_valid) {
-                        if (settings_len <= sizeof(g_acc_settings) && settings_len > g_acc_settings_len) {
-                            memcpy(g_acc_settings, tlv_data, settings_len);
+                        if (settings_len > g_acc_settings_len) {
                             g_acc_settings_len = settings_len;
                             g_acc_pmd_type = measurement_type;
+                            g_acc_rate_selected = sample_rate;
+                            g_acc_resolution_selected = resolution;
+                            g_acc_range_selected = range;
+                            if (!g_acc_rate_warned && g_acc_rate_selected != (uint16_t)g_acc_sample_rate_hz) {
+                                ESP_LOGW(TAG, "ACC rate %d not supported, using %d",
+                                         g_acc_sample_rate_hz, g_acc_rate_selected);
+                                g_acc_rate_warned = true;
+                            }
                         }
                     }
                 }
@@ -699,6 +727,13 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
             g_waiting_ecg_settings = false;
             g_ecg_settings_len = 0;
             g_acc_settings_len = 0;
+            g_ecg_rate_selected = 0;
+            g_ecg_resolution_selected = 0;
+            g_acc_rate_selected = 0;
+            g_acc_resolution_selected = 0;
+            g_acc_range_selected = 0;
+            g_ecg_rate_warned = false;
+            g_acc_rate_warned = false;
             g_ecg_pmd_type = PMD_TYPE_ECG;  // Reset to default, will be detected
             g_acc_pmd_type = PMD_TYPE_ACC;
 
@@ -735,6 +770,13 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         g_waiting_ecg_settings = false;
         g_ecg_settings_len = 0;
         g_acc_settings_len = 0;
+        g_ecg_rate_selected = 0;
+        g_ecg_resolution_selected = 0;
+        g_acc_rate_selected = 0;
+        g_acc_resolution_selected = 0;
+        g_acc_range_selected = 0;
+        g_ecg_rate_warned = false;
+        g_acc_rate_warned = false;
         g_ecg_pmd_type = PMD_TYPE_ECG;  // Reset to default
         g_acc_pmd_type = PMD_TYPE_ACC;
         led_status_set_polar_connected(false);
@@ -865,9 +907,9 @@ void pmd_start_ecg(uint16_t conn_handle, uint16_t ctrl_handle) {
     }
 
     // Build START command with selected settings
-    // ECG: 130Hz, 14-bit resolution
-    uint16_t desired_rate = (uint16_t)g_ecg_sample_rate_hz;
-    uint16_t desired_resolution = 14;  // 14-bit
+    // ECG: choose device-supported rate/resolution
+    uint16_t desired_rate = g_ecg_rate_selected ? g_ecg_rate_selected : (uint16_t)g_ecg_sample_rate_hz;
+    uint16_t desired_resolution = g_ecg_resolution_selected ? g_ecg_resolution_selected : 14;  // 14-bit fallback
 
     // Build TLV: [Type 0, Count 1, rate_lo, rate_hi]
     //            [Type 1, Count 1, res_lo, res_hi]
@@ -905,9 +947,9 @@ void pmd_start_acc(uint16_t conn_handle, uint16_t ctrl_handle) {
     // GET_SETTINGS returns all available options, but START needs specific values
     // Format: [0x02] [MeasurementType] [TLV with selected settings]
 
-    uint16_t desired_rate = (uint16_t)g_acc_sample_rate_hz;
-    uint16_t desired_resolution = 16;  // 16-bit
-    uint16_t desired_range = 8;        // ±8G
+    uint16_t desired_rate = g_acc_rate_selected ? g_acc_rate_selected : (uint16_t)g_acc_sample_rate_hz;
+    uint16_t desired_resolution = g_acc_resolution_selected ? g_acc_resolution_selected : 16;  // 16-bit fallback
+    uint16_t desired_range = g_acc_range_selected ? g_acc_range_selected : 8;        // ±8G fallback
 
     // Build TLV: [Type 0, Count 1, rate_lo, rate_hi]
     //            [Type 1, Count 1, res_lo, res_hi]

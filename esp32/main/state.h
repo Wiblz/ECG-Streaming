@@ -43,10 +43,13 @@ extern uint16_t g_pmd_cccd_handle;
 extern uint16_t g_pmd_ctrl_cccd_handle;
 extern uint8_t g_ecg_pmd_type;
 extern uint8_t g_acc_pmd_type;
-extern uint8_t g_ecg_settings[64];
-extern uint8_t g_acc_settings[64];
 extern uint8_t g_ecg_settings_len;
 extern uint8_t g_acc_settings_len;
+extern uint16_t g_ecg_rate_selected;
+extern uint16_t g_ecg_resolution_selected;
+extern uint16_t g_acc_rate_selected;
+extern uint16_t g_acc_resolution_selected;
+extern uint16_t g_acc_range_selected;
 
 extern uint32_t g_notification_count;
 extern TickType_t g_last_command_time;
