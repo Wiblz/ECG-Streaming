@@ -113,7 +113,6 @@ void usb_rx_task(void *param) {
             vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
-
         if (msg.which_message == ecg_streaming_CollectorToEspMessage_config_tag) {
             ecg_streaming_UsbConfig *cfg = &msg.message.config;
             if (cfg->esp_id[0] != '\0' && strcmp(cfg->esp_id, g_esp_id) != 0) {

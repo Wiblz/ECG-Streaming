@@ -22,6 +22,13 @@ uint16_t g_pmd_end = 0;
 uint16_t g_pmd_ctrl_handle = 0;
 uint16_t g_pmd_data_handle = 0;
 uint16_t g_pmd_cccd_handle = 0;
+uint16_t g_pmd_ctrl_cccd_handle = 0;
+uint8_t g_ecg_pmd_type = 0x00;
+uint8_t g_acc_pmd_type = 0x02;
+uint8_t g_ecg_settings[64] = {0};
+uint8_t g_acc_settings[64] = {0};
+uint8_t g_ecg_settings_len = 0;
+uint8_t g_acc_settings_len = 0;
 
 uint32_t g_notification_count = 0;
 TickType_t g_last_command_time = 0;

@@ -9,6 +9,7 @@
 #include "usb_provision.h"
 #include "usb_transport.h"
 #include "ble_polar.h"
+#include "led_status.h"
 
 static const char *TAG = "H10_COMBINED";
 
@@ -23,8 +24,8 @@ static void watchdog_task(void *param) {
         // Start ACC after first ECG data arrives
         if (g_connected && g_ecg_started && !g_acc_started && g_ecg_packet_count >= 2) {
             ESP_LOGI(TAG, "ECG streaming confirmed, starting ACC...");
-            pmd_start_acc(g_conn_handle, g_pmd_ctrl_handle);
-            g_acc_started = true;
+            ble_schedule_start_acc();
+            // Note: g_acc_started is set to true in pmd_start_acc() after START command is sent
         }
         
         // Calculate rates
@@ -72,6 +73,7 @@ void app_main(void) {
     esp_log_level_set("*", ESP_LOG_INFO);
     esp_log_level_set("NimBLE", ESP_LOG_WARN);
     usb_transport_init();
+    led_status_init();
 
     ble_init();
     
