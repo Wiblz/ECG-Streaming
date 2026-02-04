@@ -156,6 +156,50 @@ class ECGDatabase:
             self._conn.execute("PRAGMA journal_mode=WAL")
         return self._conn
 
+    def _get_or_create_device_id(self, device_id_str: str) -> int:
+        """Get or create integer device ID from string device ID.
+
+        Args:
+            device_id_str: String device identifier (e.g., "Polar H10 0781CC39")
+
+        Returns:
+            Integer device ID for use in sample tables
+        """
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                # Try to get existing device
+                cursor.execute(
+                    "SELECT id FROM devices WHERE device_id = ?",
+                    (device_id_str,),
+                )
+                row = cursor.fetchone()
+
+                if row:
+                    return int(row[0])
+
+                # Device doesn't exist, create it
+                current_time = time.time()
+                cursor.execute(
+                    """
+                    INSERT INTO devices (device_id, first_seen, last_seen, total_samples)
+                    VALUES (?, ?, ?, 0)
+                    """,
+                    (device_id_str, current_time, current_time),
+                )
+                conn.commit()
+
+                lastrowid = cursor.lastrowid
+                if lastrowid is None:
+                    raise RuntimeError(f"Failed to insert device {device_id_str}")
+                return lastrowid
+
+            except Exception as e:
+                logger.error(f"Error getting/creating device ID for {device_id_str}: {e}")
+                raise
+
     def add_sample(
         self,
         device_id: str,
@@ -181,6 +225,9 @@ class ECGDatabase:
             receiver_clock_us: Receiver device clock (microseconds since ESP32/collector boot, optional)
             time_verified: True if polar timestamp came directly from PMD frame (not interpolated, optional)
         """
+        # Get integer device ID
+        device_id_int = self._get_or_create_device_id(device_id)
+
         with self._lock:
             try:
                 conn = self._get_connection()
@@ -189,16 +236,15 @@ class ECGDatabase:
                 cursor.execute(
                     """
                     INSERT INTO ecg_samples
-                    (device_id, global_time, device_timestamp, raw_value, confidence, inserted_at, session_id, wall_clock_us, receiver_clock_us, time_verified)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (device_id, global_time, device_timestamp, raw_value, confidence, session_id, wall_clock_us, receiver_clock_us, time_verified)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
-                        device_id,
+                        device_id_int,
                         global_time,
                         device_timestamp,
                         raw_value,
                         confidence,
-                        time.time(),
                         session_id,
                         wall_clock_us,
                         receiver_clock_us,
@@ -254,6 +300,9 @@ class ECGDatabase:
             receiver_clock_us: Receiver device clock (microseconds since ESP32/collector boot, optional)
             time_verified: True if polar timestamp came directly from PMD frame (not interpolated, optional)
         """
+        # Get integer device ID
+        device_id_int = self._get_or_create_device_id(device_id)
+
         # Calculate magnitude if not provided
         if magnitude is None:
             magnitude = math.sqrt(x**2 + y**2 + z**2)
@@ -266,11 +315,11 @@ class ECGDatabase:
                 cursor.execute(
                     """
                     INSERT INTO accelerometer_samples
-                    (device_id, global_time, device_timestamp, x, y, z, magnitude, confidence, inserted_at, session_id, wall_clock_us, receiver_clock_us, time_verified)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (device_id, global_time, device_timestamp, x, y, z, magnitude, confidence, session_id, wall_clock_us, receiver_clock_us, time_verified)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
-                        device_id,
+                        device_id_int,
                         global_time,
                         device_timestamp,
                         x,
@@ -278,7 +327,6 @@ class ECGDatabase:
                         z,
                         magnitude,
                         confidence,
-                        time.time(),
                         session_id,
                         wall_clock_us,
                         receiver_clock_us,
@@ -320,37 +368,47 @@ class ECGDatabase:
                 conn = self._get_connection()
                 cursor = conn.cursor()
 
-                # Prepare batch data
-                insert_time = time.time()
+                # Build device ID mapping and prepare batch data
+                device_id_map: dict[str, int] = {}
+                for device_id_str, _, _, _, _ in samples:
+                    if device_id_str not in device_id_map:
+                        device_id_map[device_id_str] = self._get_or_create_device_id(device_id_str)
+
+                # Prepare batch data with integer device IDs
                 sample_data = [
-                    (device_id, global_time, device_timestamp, raw_value, confidence, insert_time)
+                    (
+                        device_id_map[device_id],
+                        global_time,
+                        device_timestamp,
+                        raw_value,
+                        confidence,
+                    )
                     for device_id, global_time, device_timestamp, raw_value, confidence in samples
                 ]
 
                 cursor.executemany(
                     """
                     INSERT INTO ecg_samples
-                    (device_id, global_time, device_timestamp, raw_value, confidence, inserted_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    (device_id, global_time, device_timestamp, raw_value, confidence)
+                    VALUES (?, ?, ?, ?, ?)
                     """,
                     sample_data,
                 )
 
                 # Update device metadata for each unique device
+                current_time = time.time()
                 device_counts: dict[str, int] = {}
                 for device_id, _, _, _, _ in samples:
                     device_counts[device_id] = device_counts.get(device_id, 0) + 1
 
-                for device_id, count in device_counts.items():
+                for device_id_str, count in device_counts.items():
                     cursor.execute(
                         """
-                        INSERT INTO devices (device_id, first_seen, last_seen, total_samples)
-                        VALUES (?, ?, ?, ?)
-                        ON CONFLICT(device_id) DO UPDATE SET
-                            last_seen = ?,
-                            total_samples = total_samples + ?
+                        UPDATE devices
+                        SET last_seen = ?, total_samples = total_samples + ?
+                        WHERE device_id = ?
                         """,
-                        (device_id, insert_time, insert_time, count, insert_time, count),
+                        (current_time, count, device_id_str),
                     )
 
                 conn.commit()
@@ -382,22 +440,27 @@ class ECGDatabase:
                 conn = self._get_connection()
                 cursor = conn.cursor()
 
-                query = "SELECT device_id, global_time, device_timestamp, raw_value, confidence FROM ecg_samples WHERE 1=1"
+                query = """
+                    SELECT d.device_id, e.global_time, e.device_timestamp, e.raw_value, e.confidence
+                    FROM ecg_samples e
+                    JOIN devices d ON e.device_id = d.id
+                    WHERE 1=1
+                """
                 params: list[str | float | int] = []
 
                 if device_id:
-                    query += " AND device_id = ?"
+                    query += " AND d.device_id = ?"
                     params.append(device_id)
 
                 if start_time:
-                    query += " AND global_time >= ?"
+                    query += " AND e.global_time >= ?"
                     params.append(start_time)
 
                 if end_time:
-                    query += " AND global_time <= ?"
+                    query += " AND e.global_time <= ?"
                     params.append(end_time)
 
-                query += " ORDER BY global_time ASC"
+                query += " ORDER BY e.global_time ASC"
 
                 if limit:
                     query += " LIMIT ?"
@@ -789,11 +852,13 @@ class ECGDatabase:
                     # Get unique devices for this session
                     cursor.execute(
                         """
-                        SELECT DISTINCT device_id FROM ecg_samples
-                        WHERE session_id = ?
+                        SELECT DISTINCT d.device_id FROM ecg_samples e
+                        JOIN devices d ON e.device_id = d.id
+                        WHERE e.session_id = ?
                         UNION
-                        SELECT DISTINCT device_id FROM accelerometer_samples
-                        WHERE session_id = ?
+                        SELECT DISTINCT d.device_id FROM accelerometer_samples a
+                        JOIN devices d ON a.device_id = d.id
+                        WHERE a.session_id = ?
                         """,
                         (row[0], row[0]),
                     )
@@ -871,11 +936,13 @@ class ECGDatabase:
                 # Get unique devices
                 cursor.execute(
                     """
-                    SELECT DISTINCT device_id FROM ecg_samples
-                    WHERE session_id = ?
+                    SELECT DISTINCT d.device_id FROM ecg_samples e
+                    JOIN devices d ON e.device_id = d.id
+                    WHERE e.session_id = ?
                     UNION
-                    SELECT DISTINCT device_id FROM accelerometer_samples
-                    WHERE session_id = ?
+                    SELECT DISTINCT d.device_id FROM accelerometer_samples a
+                    JOIN devices d ON a.device_id = d.id
+                    WHERE a.session_id = ?
                     """,
                     (session_id, session_id),
                 )
@@ -994,25 +1061,26 @@ class ECGDatabase:
                 cursor = conn.cursor()
 
                 query = """
-                    SELECT id, device_id, global_time, raw_value, confidence, wall_clock_us, receiver_clock_us, device_timestamp, time_verified
-                    FROM ecg_samples
-                    WHERE session_id = ?
+                    SELECT e.id, d.device_id, e.global_time, e.raw_value, e.confidence, e.wall_clock_us, e.receiver_clock_us, e.device_timestamp, e.time_verified
+                    FROM ecg_samples e
+                    JOIN devices d ON e.device_id = d.id
+                    WHERE e.session_id = ?
                 """
                 params: list[int | str | float] = [session_id]
 
                 if device_id:
-                    query += " AND device_id = ?"
+                    query += " AND d.device_id = ?"
                     params.append(device_id)
 
                 if start_time is not None:
-                    query += " AND global_time >= ?"
+                    query += " AND e.global_time >= ?"
                     params.append(start_time)
 
                 if end_time is not None:
-                    query += " AND global_time <= ?"
+                    query += " AND e.global_time <= ?"
                     params.append(end_time)
 
-                query += " ORDER BY global_time ASC"
+                query += " ORDER BY e.global_time ASC"
 
                 if limit:
                     query += " LIMIT ? OFFSET ?"
@@ -1070,25 +1138,26 @@ class ECGDatabase:
                 cursor = conn.cursor()
 
                 query = """
-                    SELECT id, device_id, global_time, x, y, z, magnitude, confidence, wall_clock_us, receiver_clock_us, device_timestamp, time_verified
-                    FROM accelerometer_samples
-                    WHERE session_id = ?
+                    SELECT a.id, d.device_id, a.global_time, a.x, a.y, a.z, a.magnitude, a.confidence, a.wall_clock_us, a.receiver_clock_us, a.device_timestamp, a.time_verified
+                    FROM accelerometer_samples a
+                    JOIN devices d ON a.device_id = d.id
+                    WHERE a.session_id = ?
                 """
                 params: list[int | str | float] = [session_id]
 
                 if device_id:
-                    query += " AND device_id = ?"
+                    query += " AND d.device_id = ?"
                     params.append(device_id)
 
                 if start_time is not None:
-                    query += " AND global_time >= ?"
+                    query += " AND a.global_time >= ?"
                     params.append(start_time)
 
                 if end_time is not None:
-                    query += " AND global_time <= ?"
+                    query += " AND a.global_time <= ?"
                     params.append(end_time)
 
-                query += " ORDER BY global_time ASC"
+                query += " ORDER BY a.global_time ASC"
 
                 if limit:
                     query += " LIMIT ? OFFSET ?"
@@ -1380,15 +1449,18 @@ class ECGDatabase:
                 session_id = cursor.lastrowid
 
                 # Import samples
-                current_time = time.time()
                 for sample in samples_data:
+                    # Get integer device ID
+                    device_id_str = str(sample["device_id"])
+                    device_id_int = self._get_or_create_device_id(device_id_str)
+
                     cursor.execute(
                         """
-                        INSERT INTO ecg_samples (device_id, global_time, device_timestamp, raw_value, confidence, session_id, inserted_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO ecg_samples (device_id, global_time, device_timestamp, raw_value, confidence, session_id)
+                        VALUES (?, ?, ?, ?, ?, ?)
                         """,
                         (
-                            sample["device_id"],
+                            device_id_int,
                             sample["global_time"],
                             sample[
                                 "global_time"
@@ -1396,7 +1468,6 @@ class ECGDatabase:
                             sample["raw_value"],
                             sample["confidence"],
                             session_id,
-                            current_time,
                         ),
                     )
 

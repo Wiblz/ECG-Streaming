@@ -55,6 +55,7 @@ class UsbCollector:
         self._throughput_window_s = 10.0  # 10 second rolling window
         self._throughput_samples: deque[tuple[float, int]] = deque()
         self._bus_port = get_usb_bus_port(device_path)
+        self._esp_id: str | None = None  # Track ESP32 ID from device_info
 
     async def connect(self) -> None:
         """Open serial port connection."""
@@ -139,6 +140,10 @@ class UsbCollector:
                 esp_msg.ParseFromString(usb_frame.payload)
                 self.stats.messages_received += 1
 
+                # Track ESP ID from device_info messages
+                if esp_msg.HasField("device_info"):
+                    self._esp_id = esp_msg.device_info.esp_id
+
                 # Invoke callback
                 if self.message_callback:
                     await self.message_callback(esp_msg)
@@ -217,8 +222,11 @@ class UsbCollector:
                         f"bus-port:{self._bus_port}" if self._bus_port else self.device_path
                     )
 
+                    # Include ESP ID if known
+                    esp_info = f" esp_id={self._esp_id}" if self._esp_id else ""
+
                     logger.info(
-                        "[%s] USB stats: frames=%d crc_errors=%d parse_errors=%d messages=%d bytes=%d throughput=%.1f bytes/sec",
+                        "[%s] USB stats: frames=%d crc_errors=%d parse_errors=%d messages=%d bytes=%d throughput=%.1f bytes/sec%s",
                         connection_id,
                         self.stats.frames_received,
                         self.stats.frames_crc_errors,
@@ -226,6 +234,7 @@ class UsbCollector:
                         self.stats.messages_received,
                         self.stats.bytes_received,
                         throughput_bps,
+                        esp_info,
                     )
 
         except KeyboardInterrupt:

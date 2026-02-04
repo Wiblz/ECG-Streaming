@@ -144,10 +144,59 @@ class AggregatorSettings(BaseSettings):
 
         Returns:
             AggregatorSettings instance
+
+        Note:
+            Environment variables override YAML values.
+            Use ECG_AGGREGATOR_* prefix (e.g., ECG_AGGREGATOR_STORAGE__DATABASE_PATH).
         """
+        import os
+
         import yaml
 
         with open(config_path) as f:
             config_data = yaml.safe_load(f) or {}
 
-        return cls(**config_data)
+        # Check which env vars are actually set
+        env_prefix = "ECG_AGGREGATOR_"
+        env_delimiter = "__"
+
+        # Collect env var overrides
+        import json
+        from typing import Any
+
+        env_overrides: dict[str, Any] = {}
+        for env_key, env_value in os.environ.items():
+            if env_key.startswith(env_prefix):
+                # Remove prefix and convert to nested dict structure
+                key_path = env_key[len(env_prefix) :].lower().split(env_delimiter)
+
+                # Try to parse value as JSON for complex types (lists, dicts, bools, numbers)
+                # If it fails, keep as string
+                try:
+                    parsed_value = json.loads(env_value)
+                except (json.JSONDecodeError, ValueError):
+                    parsed_value = env_value
+
+                # Build nested dict
+                current = env_overrides
+                for key in key_path[:-1]:
+                    if key not in current:
+                        current[key] = {}
+                    current = current[key]
+
+                # Set the final value
+                current[key_path[-1]] = parsed_value
+
+        # Merge: YAML provides base, env_overrides take precedence
+        def deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+            """Recursively merge overrides into base."""
+            result = base.copy()
+            for key, value in overrides.items():
+                if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                    result[key] = deep_merge(result[key], value)
+                else:
+                    result[key] = value
+            return result
+
+        merged_data = deep_merge(config_data, env_overrides)
+        return cls(**merged_data)
