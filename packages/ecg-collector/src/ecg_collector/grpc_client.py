@@ -27,6 +27,7 @@ class CollectorGrpcClient:
         device_ids: list[str] | None = None,
         display_name: str = "",
         metadata: dict[str, str] | None = None,
+        device_nicknames: dict[str, str] | None = None,
     ) -> None:
         """Initialize collector gRPC client.
 
@@ -37,6 +38,7 @@ class CollectorGrpcClient:
             device_ids: List of device IDs (can be empty, updated later)
             display_name: Human-readable name
             metadata: Optional metadata dict
+            device_nicknames: Optional device ID -> nickname mapping from config
         """
         self.collector_id = collector_id
         self.aggregator_host = aggregator_host
@@ -44,6 +46,7 @@ class CollectorGrpcClient:
         self.device_ids = device_ids or []
         self.display_name = display_name or collector_id
         self.metadata = metadata or {}
+        self.device_nicknames = device_nicknames or {}
 
         self._channel: grpc.aio.Channel | None = None
         self._stub: collector_aggregator_pb2_grpc.ECGStreamingServiceStub | None = None
@@ -110,6 +113,7 @@ class CollectorGrpcClient:
                 device_ids=self.device_ids,
                 display_name=self.display_name,
                 metadata=self.metadata,
+                device_nicknames=self.device_nicknames,
             )
 
             reg_msg = collector_aggregator_pb2.CollectorMessage()

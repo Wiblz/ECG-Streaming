@@ -35,6 +35,13 @@ class MultiUsbCollectorService(DataCollector):
         # Get device list for initial registration
         device_list = settings.get_device_list()
 
+        # Extract nicknames from device configs
+        device_nicknames = {
+            device_id: config.nickname
+            for device_id, config in settings.devices.items()
+            if config.nickname and config.enabled
+        }
+
         # Create gRPC client
         grpc_client = CollectorGrpcClient(
             collector_id=settings.collector_id,
@@ -46,6 +53,7 @@ class MultiUsbCollectorService(DataCollector):
                 "type": "usb",
                 "device_paths": ",".join(device_paths),
             },
+            device_nicknames=device_nicknames,
         )
 
         # Initialize base class

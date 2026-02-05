@@ -1718,6 +1718,8 @@ class ECGDatabase:
     def update_device_nickname(self, device_id: str, nickname: str | None) -> bool:
         """Update a device's nickname.
 
+        Creates the device entry if it doesn't exist yet.
+
         Args:
             device_id: Device identifier
             nickname: New nickname (or None to clear)
@@ -1730,6 +1732,18 @@ class ECGDatabase:
                 conn = self._get_connection()
                 cursor = conn.cursor()
 
+                # Use INSERT OR IGNORE to create device if it doesn't exist, then UPDATE
+                current_time = time.time()
+                cursor.execute(
+                    """
+                    INSERT INTO devices (device_id, first_seen, last_seen, total_samples)
+                    VALUES (?, ?, ?, 0)
+                    ON CONFLICT(device_id) DO NOTHING
+                    """,
+                    (device_id, current_time, current_time),
+                )
+
+                # Now update the nickname
                 cursor.execute(
                     "UPDATE devices SET nickname = ? WHERE device_id = ?",
                     (nickname, device_id),
@@ -1740,12 +1754,8 @@ class ECGDatabase:
                 # Force WAL checkpoint to flush changes to main database file
                 conn.execute("PRAGMA wal_checkpoint(FULL)")
 
-                if cursor.rowcount > 0:
-                    logger.info(f"Updated nickname for device {device_id} to '{nickname}'")
-                    return True
-                else:
-                    logger.warning(f"Device {device_id} not found in database")
-                    return False
+                logger.info(f"Updated nickname for device {device_id} to '{nickname}'")
+                return True
 
             except Exception as e:
                 logger.error(f"Error updating device nickname: {e}")

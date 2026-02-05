@@ -41,6 +41,7 @@ message CollectorRegistration {
   string version = 3;                 // Collector software version
   map<string, string> metadata = 4;   // Optional metadata (location, hardware, etc.)
   string display_name = 5;            // Human-readable name for the collector
+  map<string, string> device_nicknames = 6; // Device ID -> nickname mapping from collector config
 }
 
 // Batch of ECG samples from a single device

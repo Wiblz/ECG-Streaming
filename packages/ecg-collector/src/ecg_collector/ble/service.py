@@ -28,6 +28,13 @@ class BleCollectorService(DataCollector):
         # Get device list from new unified config
         device_list = settings.get_device_list()
 
+        # Extract nicknames from device configs
+        device_nicknames = {
+            device_id: config.nickname
+            for device_id, config in settings.devices.items()
+            if config.nickname and config.enabled
+        }
+
         # Initialize gRPC client
         grpc_client = CollectorGrpcClient(
             collector_id=settings.collector_id,
@@ -36,6 +43,7 @@ class BleCollectorService(DataCollector):
             device_ids=device_list,
             display_name=settings.display_name,
             metadata={"type": "polar_h10_collector"},
+            device_nicknames=device_nicknames,
         )
 
         # Initialize base class

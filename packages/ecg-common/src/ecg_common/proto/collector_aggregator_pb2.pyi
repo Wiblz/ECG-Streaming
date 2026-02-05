@@ -34,9 +34,25 @@ class CollectorMessage(_message.Message):
     ) -> None: ...
 
 class CollectorRegistration(_message.Message):
-    __slots__ = ("collector_id", "device_ids", "version", "metadata", "display_name")
+    __slots__ = (
+        "collector_id",
+        "device_ids",
+        "version",
+        "metadata",
+        "display_name",
+        "device_nicknames",
+    )
 
     class MetadataEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+
+        def __init__(self, key: str | None = ..., value: str | None = ...) -> None: ...
+
+    class DeviceNicknamesEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
         VALUE_FIELD_NUMBER: _ClassVar[int]
@@ -50,11 +66,13 @@ class CollectorRegistration(_message.Message):
     VERSION_FIELD_NUMBER: _ClassVar[int]
     METADATA_FIELD_NUMBER: _ClassVar[int]
     DISPLAY_NAME_FIELD_NUMBER: _ClassVar[int]
+    DEVICE_NICKNAMES_FIELD_NUMBER: _ClassVar[int]
     collector_id: str
     device_ids: _containers.RepeatedScalarFieldContainer[str]
     version: str
     metadata: _containers.ScalarMap[str, str]
     display_name: str
+    device_nicknames: _containers.ScalarMap[str, str]
 
     def __init__(
         self,
@@ -63,6 +81,7 @@ class CollectorRegistration(_message.Message):
         version: str | None = ...,
         metadata: _Mapping[str, str] | None = ...,
         display_name: str | None = ...,
+        device_nicknames: _Mapping[str, str] | None = ...,
     ) -> None: ...
 
 class ECGBatch(_message.Message):

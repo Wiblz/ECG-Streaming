@@ -276,11 +276,24 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                             metadata=dict(reg.metadata),
                         )
 
-                        # Persist device-collector mappings
+                        # Ensure all devices exist in database and persist mappings
                         for device_id in device_ids:
+                            # Get or create device entry (creates if doesn't exist)
+                            self.database._get_or_create_device_id(device_id)
+
+                            # Persist device-collector mapping
                             self.database.upsert_device_collector_mapping(
                                 device_id=device_id, collector_id=collector_id
                             )
+
+                        # Update device nicknames from collector config
+                        if reg.device_nicknames:
+                            for device_id, nickname in reg.device_nicknames.items():
+                                if nickname:  # Only update if nickname is non-empty
+                                    self.database.update_device_nickname(device_id, nickname)
+                                    logger.info(
+                                        f"Set nickname for {device_id} to '{nickname}' from collector config"
+                                    )
 
                     # Initialize device statuses for all configured devices
                     for device_id in device_ids:

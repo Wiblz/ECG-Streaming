@@ -13,7 +13,7 @@ display_name: "ECG Collector 1"
 # Find device IDs with: ecg-collector-cli scan
 devices:
   "Polar H10 ABC123":
-    nickname: "Subject 1"           # Optional: Human-readable name for display
+    nickname: "Subject 1"           # Optional: Syncs to aggregator database on registration
     esp_id: "A1B2C3D4E5F6"         # For USB mode: ESP32 ID that streams this device
     ecg_sample_rate: 130           # Optional: Override global ECG sample rate (Hz)
     acc_sample_rate: 100           # Optional: Override global ACC sample rate (Hz)
@@ -21,7 +21,7 @@ devices:
     # enabled: true                # Optional: Enable/disable device (default: true)
 
   "Polar H10 DEF456":
-    nickname: "Subject 2"
+    nickname: "Subject 2"           # Nickname will be synced to database automatically
     # This device only available via BLE (no esp_id specified)
 
   # "Polar H10 GHI789":

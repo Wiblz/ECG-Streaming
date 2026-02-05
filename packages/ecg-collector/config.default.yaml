@@ -38,6 +38,7 @@ devices:
 
   "Polar H10 1497B538":
     esp_id: "B43A45ADA858"
+    nickname: "Collector set nickname"
 
   "Polar H10 0781CC39":
     esp_id: "B43A45AD6518"
