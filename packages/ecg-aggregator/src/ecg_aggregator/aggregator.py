@@ -102,6 +102,11 @@ class ECGAggregator:
         # Stop gRPC server
         if self.grpc_server:
             logger.info("Stopping gRPC server...")
+
+            # Stop periodic flush task and flush remaining samples
+            if self.grpc_servicer:
+                await self.grpc_servicer.stop_flush_task()
+
             await self.grpc_server.stop(grace=5)
 
         # Close database
@@ -138,6 +143,9 @@ class ECGAggregator:
 
         logger.info(f"Starting gRPC server on {listen_addr}")
         await self.grpc_server.start()
+
+        # Start periodic flush task for batched database writes
+        self.grpc_servicer.start_flush_task()
 
     async def _start_http_server(self) -> None:
         """Start the HTTP/WebSocket server."""

@@ -1,6 +1,7 @@
 """gRPC server for receiving ECG data from collectors."""
 
 import asyncio
+import contextlib
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
@@ -97,6 +98,110 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
         self._samples_received = 0
         self._acc_samples_received = 0
         self._last_frame_ts: dict[tuple[str, str], int] = {}
+
+        # Sample batching for database writes
+        self._ecg_batch_buffer: list[
+            tuple[str, float, float, int, float, int | None, int | None, int | None, bool]
+        ] = []
+        self._acc_batch_buffer: list[
+            tuple[
+                str,
+                float,
+                float,
+                float,
+                float,
+                float,
+                float,
+                int | None,
+                int | None,
+                int | None,
+                bool,
+            ]
+        ] = []
+        self._last_flush_time = time.time()
+        self._flush_lock = asyncio.Lock()
+        self._flush_task: asyncio.Task | None = None
+
+        # Batching configuration
+        self._batch_size_threshold = 750  # Flush when buffer reaches this size
+        self._batch_time_threshold = 0.5  # Flush at least every 0.5 seconds
+
+    async def _flush_sample_batches(self, force: bool = False) -> None:
+        """Flush accumulated samples to database.
+
+        Args:
+            force: If True, flush regardless of thresholds
+        """
+        if not self.database:
+            return
+
+        async with self._flush_lock:
+            current_time = time.time()
+            time_since_flush = current_time - self._last_flush_time
+
+            # Check if we should flush
+            should_flush = force or (
+                (len(self._ecg_batch_buffer) + len(self._acc_batch_buffer))
+                >= self._batch_size_threshold
+                or time_since_flush >= self._batch_time_threshold
+            )
+
+            if not should_flush:
+                return
+
+            # Flush ECG samples
+            if self._ecg_batch_buffer:
+                ecg_count = len(self._ecg_batch_buffer)
+                try:
+                    # Execute in thread pool to avoid blocking async event loop
+                    await asyncio.get_event_loop().run_in_executor(
+                        None, self.database.add_samples_batch, self._ecg_batch_buffer.copy()
+                    )
+                    self._ecg_batch_buffer.clear()
+                    logger.debug(f"Flushed {ecg_count} ECG samples to database")
+                except Exception as e:
+                    logger.error(f"Error flushing ECG batch: {e}")
+
+            # Flush ACC samples
+            if self._acc_batch_buffer:
+                acc_count = len(self._acc_batch_buffer)
+                try:
+                    # Execute in thread pool to avoid blocking async event loop
+                    await asyncio.get_event_loop().run_in_executor(
+                        None, self.database.add_acc_samples_batch, self._acc_batch_buffer.copy()
+                    )
+                    self._acc_batch_buffer.clear()
+                    logger.debug(f"Flushed {acc_count} ACC samples to database")
+                except Exception as e:
+                    logger.error(f"Error flushing ACC batch: {e}")
+
+            self._last_flush_time = current_time
+
+    async def _periodic_flush_task(self) -> None:
+        """Background task to periodically flush sample batches."""
+        try:
+            while True:
+                await asyncio.sleep(self._batch_time_threshold)
+                await self._flush_sample_batches()
+        except asyncio.CancelledError:
+            # Flush any remaining samples before exiting
+            logger.info("Periodic flush task cancelled, flushing remaining samples...")
+            await self._flush_sample_batches(force=True)
+            raise
+
+    def start_flush_task(self) -> None:
+        """Start the periodic flush background task."""
+        if self._flush_task is None or self._flush_task.done():
+            self._flush_task = asyncio.create_task(self._periodic_flush_task())
+            logger.info("Started periodic flush task")
+
+    async def stop_flush_task(self) -> None:
+        """Stop the periodic flush background task and flush remaining samples."""
+        if self._flush_task and not self._flush_task.done():
+            self._flush_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._flush_task
+            logger.info("Stopped periodic flush task")
 
     async def StreamECG(  # noqa: N802
         self,
@@ -467,7 +572,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
             else:
                 logger.debug(f"[FLOW] Skipped sample: confidence {synced.confidence} < 0.8")
 
-            # Store in database only if session is active
+            # Accumulate sample for batch database write
             if self.database and self._active_session_id is not None:
                 confidence = synced.confidence if synced else 0.0
                 # NOTE: synced should always exist here due to continue above, but use wall_clock_s as fallback
@@ -481,21 +586,27 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                 ):
                     session_id = self._active_session_id
 
-                self.database.add_sample(
-                    device_id=device_id,
-                    global_time=global_time,
-                    device_timestamp=sample.polar_clock_us,
-                    raw_value=sample.value,
-                    confidence=confidence,
-                    session_id=session_id,
-                    wall_clock_us=sample.wall_clock_us,
-                    receiver_clock_us=sample.receiver_clock_us,
-                    time_verified=sample.time_verified,
+                # Add to batch buffer instead of writing immediately
+                self._ecg_batch_buffer.append(
+                    (
+                        device_id,
+                        global_time,
+                        sample.polar_clock_us,
+                        sample.value,
+                        confidence,
+                        session_id,
+                        sample.wall_clock_us,
+                        sample.receiver_clock_us,
+                        sample.time_verified,
+                    )
                 )
 
         logger.debug(
             f"[FLOW] Added {samples_added}/{len(batch.samples)} samples to buffer for {device_id}"
         )
+
+        # Check if we should flush batched samples
+        await self._flush_sample_batches()
 
     async def _process_acc_batch(
         self, device_id: str, batch: collector_aggregator_pb2.AccelerometerBatch
@@ -614,7 +725,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                         },
                     )
 
-            # Store in database only if session is active
+            # Accumulate sample for batch database write
             if self.database and self._active_session_id is not None:
                 confidence = synced.confidence if synced else 0.0
                 # NOTE: synced should always exist here due to continue above, but use wall_clock_s as fallback
@@ -628,23 +739,29 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                 ):
                     session_id = self._active_session_id
 
-                self.database.add_acc_sample(
-                    device_id=device_id,
-                    global_time=global_time,
-                    device_timestamp=sample.polar_clock_us,
-                    x=sample.x,
-                    y=sample.y,
-                    z=sample.z,
-                    confidence=confidence,
-                    session_id=session_id,
-                    wall_clock_us=sample.wall_clock_us,
-                    receiver_clock_us=sample.receiver_clock_us,
-                    time_verified=sample.time_verified,
+                # Add to batch buffer instead of writing immediately
+                self._acc_batch_buffer.append(
+                    (
+                        device_id,
+                        global_time,
+                        sample.polar_clock_us,
+                        sample.x,
+                        sample.y,
+                        sample.z,
+                        confidence,
+                        session_id,
+                        sample.wall_clock_us,
+                        sample.receiver_clock_us,
+                        sample.time_verified,
+                    )
                 )
 
         logger.debug(
             f"[FLOW] Added {samples_added}/{len(batch.samples)} ACC samples to buffer for {device_id}"
         )
+
+        # Check if we should flush batched samples
+        await self._flush_sample_batches()
 
     def start_session(self, notes: str | None = None) -> int:
         """Start a new recording session.

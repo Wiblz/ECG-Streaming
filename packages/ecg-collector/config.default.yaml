@@ -22,7 +22,7 @@ devices:
     esp_id: "24EC4A30020C"         # For USB mode: ESP32 ID that streams this device
 
   "Polar H10 14BB0531":
-    esp_id: "24EC4A300250"
+    esp_id: "B43A45AD6D6C"
 
   "Polar H10 14BCDA3E":
     esp_id: "B43A45AD6CD8"
@@ -72,6 +72,6 @@ usb:
 
   # Global defaults for USB devices (can be overridden per-device)
   ecg_sample_rate: 130           # Default ECG sample rate for USB devices (Hz)
-  acc_sample_rate: 100           # Default ACC sample rate for USB devices (Hz)
+  acc_sample_rate: 0           # Default ACC sample rate for USB devices (Hz)
   persist_config: true           # Persist config on device when supported
   detect_timeout_s: 20.0         # Seconds to detect valid USB data

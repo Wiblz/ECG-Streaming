@@ -353,12 +353,15 @@ class ECGDatabase:
 
     def add_samples_batch(
         self,
-        samples: list[tuple[str, float, float, int, float]],
+        samples: list[
+            tuple[str, float, float, int, float, int | None, int | None, int | None, bool]
+        ],
     ) -> None:
         """Store multiple ECG samples efficiently.
 
         Args:
-            samples: List of tuples (device_id, global_time, device_timestamp, raw_value, confidence)
+            samples: List of tuples (device_id, global_time, device_timestamp, raw_value, confidence,
+                                    session_id, wall_clock_us, receiver_clock_us, time_verified)
         """
         if not samples:
             return
@@ -370,7 +373,7 @@ class ECGDatabase:
 
                 # Build device ID mapping and prepare batch data
                 device_id_map: dict[str, int] = {}
-                for device_id_str, _, _, _, _ in samples:
+                for device_id_str, *_ in samples:
                     if device_id_str not in device_id_map:
                         device_id_map[device_id_str] = self._get_or_create_device_id(device_id_str)
 
@@ -382,15 +385,29 @@ class ECGDatabase:
                         device_timestamp,
                         raw_value,
                         confidence,
+                        session_id,
+                        wall_clock_us,
+                        receiver_clock_us,
+                        1 if time_verified else 0,
                     )
-                    for device_id, global_time, device_timestamp, raw_value, confidence in samples
+                    for (
+                        device_id,
+                        global_time,
+                        device_timestamp,
+                        raw_value,
+                        confidence,
+                        session_id,
+                        wall_clock_us,
+                        receiver_clock_us,
+                        time_verified,
+                    ) in samples
                 ]
 
                 cursor.executemany(
                     """
                     INSERT INTO ecg_samples
-                    (device_id, global_time, device_timestamp, raw_value, confidence)
-                    VALUES (?, ?, ?, ?, ?)
+                    (device_id, global_time, device_timestamp, raw_value, confidence, session_id, wall_clock_us, receiver_clock_us, time_verified)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     sample_data,
                 )
@@ -398,24 +415,130 @@ class ECGDatabase:
                 # Update device metadata for each unique device
                 current_time = time.time()
                 device_counts: dict[str, int] = {}
-                for device_id, _, _, _, _ in samples:
+                for device_id, *_ in samples:
                     device_counts[device_id] = device_counts.get(device_id, 0) + 1
 
                 for device_id_str, count in device_counts.items():
                     cursor.execute(
                         """
-                        UPDATE devices
-                        SET last_seen = ?, total_samples = total_samples + ?
-                        WHERE device_id = ?
+                        INSERT INTO devices (device_id, first_seen, last_seen, total_samples)
+                        VALUES (?, ?, ?, ?)
+                        ON CONFLICT(device_id) DO UPDATE SET
+                            last_seen = ?,
+                            total_samples = total_samples + ?
                         """,
-                        (current_time, count, device_id_str),
+                        (device_id_str, current_time, current_time, count, current_time, count),
                     )
 
                 conn.commit()
-                logger.debug(f"Stored {len(samples)} samples in batch")
+                logger.debug(f"Stored {len(samples)} ECG samples in batch")
 
             except Exception as e:
-                logger.error(f"Error storing batch: {e}")
+                logger.error(f"Error storing ECG batch: {e}")
+
+    def add_acc_samples_batch(
+        self,
+        samples: list[
+            tuple[
+                str,
+                float,
+                float,
+                float,
+                float,
+                float,
+                float,
+                int | None,
+                int | None,
+                int | None,
+                bool,
+            ]
+        ],
+    ) -> None:
+        """Store multiple accelerometer samples efficiently.
+
+        Args:
+            samples: List of tuples (device_id, global_time, device_timestamp, x, y, z, confidence,
+                                    session_id, wall_clock_us, receiver_clock_us, time_verified)
+        """
+        if not samples:
+            return
+
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+
+                # Build device ID mapping and prepare batch data
+                device_id_map: dict[str, int] = {}
+                for device_id_str, *_ in samples:
+                    if device_id_str not in device_id_map:
+                        device_id_map[device_id_str] = self._get_or_create_device_id(device_id_str)
+
+                # Prepare batch data with integer device IDs and calculate magnitudes
+                sample_data = []
+                for (
+                    device_id,
+                    global_time,
+                    device_timestamp,
+                    x,
+                    y,
+                    z,
+                    confidence,
+                    session_id,
+                    wall_clock_us,
+                    receiver_clock_us,
+                    time_verified,
+                ) in samples:
+                    magnitude = math.sqrt(x**2 + y**2 + z**2)
+                    sample_data.append(
+                        (
+                            device_id_map[device_id],
+                            global_time,
+                            device_timestamp,
+                            x,
+                            y,
+                            z,
+                            magnitude,
+                            confidence,
+                            session_id,
+                            wall_clock_us,
+                            receiver_clock_us,
+                            1 if time_verified else 0,
+                        )
+                    )
+
+                cursor.executemany(
+                    """
+                    INSERT INTO accelerometer_samples
+                    (device_id, global_time, device_timestamp, x, y, z, magnitude, confidence, session_id, wall_clock_us, receiver_clock_us, time_verified)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    sample_data,
+                )
+
+                # Update device metadata for each unique device
+                current_time = time.time()
+                device_counts: dict[str, int] = {}
+                for device_id, *_ in samples:
+                    device_counts[device_id] = device_counts.get(device_id, 0) + 1
+
+                for device_id_str, count in device_counts.items():
+                    cursor.execute(
+                        """
+                        INSERT INTO devices (device_id, first_seen, last_seen, total_samples)
+                        VALUES (?, ?, ?, ?)
+                        ON CONFLICT(device_id) DO UPDATE SET
+                            last_seen = ?,
+                            total_samples = total_samples + ?
+                        """,
+                        (device_id_str, current_time, current_time, count, current_time, count),
+                    )
+
+                conn.commit()
+                logger.debug(f"Stored {len(samples)} accelerometer samples in batch")
+
+            except Exception as e:
+                logger.error(f"Error storing accelerometer batch: {e}")
 
     def get_samples(
         self,
@@ -812,16 +935,85 @@ class ECGDatabase:
                     params.extend([limit, offset])
 
                 cursor.execute(query, params)
+                rows = cursor.fetchall()
 
+                if not rows:
+                    return []
+
+                # Extract session IDs
+                session_ids = [row[0] for row in rows]
+
+                # Batch query 1: Get ECG sample counts for all sessions
+                ecg_counts: dict[int, int] = {}
+                if session_ids:
+                    placeholders = ",".join("?" * len(session_ids))
+                    cursor.execute(
+                        f"""
+                        SELECT session_id, COUNT(*)
+                        FROM ecg_samples
+                        WHERE session_id IN ({placeholders})
+                        GROUP BY session_id
+                        """,
+                        session_ids,
+                    )
+                    ecg_counts = dict(cursor.fetchall())
+
+                # Batch query 2: Get ACC sample counts for all sessions
+                acc_counts: dict[int, int] = {}
+                if session_ids:
+                    placeholders = ",".join("?" * len(session_ids))
+                    cursor.execute(
+                        f"""
+                        SELECT session_id, COUNT(*)
+                        FROM accelerometer_samples
+                        WHERE session_id IN ({placeholders})
+                        GROUP BY session_id
+                        """,
+                        session_ids,
+                    )
+                    acc_counts = dict(cursor.fetchall())
+
+                # Batch query 3: Get devices for all sessions
+                session_devices: dict[int, list[str]] = {sid: [] for sid in session_ids}
+                if session_ids:
+                    placeholders = ",".join("?" * len(session_ids))
+                    cursor.execute(
+                        f"""
+                        SELECT e.session_id, d.device_id
+                        FROM ecg_samples e
+                        JOIN devices d ON e.device_id = d.id
+                        WHERE e.session_id IN ({placeholders})
+                        GROUP BY e.session_id, d.device_id
+                        UNION
+                        SELECT a.session_id, d.device_id
+                        FROM accelerometer_samples a
+                        JOIN devices d ON a.device_id = d.id
+                        WHERE a.session_id IN ({placeholders})
+                        GROUP BY a.session_id, d.device_id
+                        """,
+                        session_ids + session_ids,
+                    )
+                    for session_id, device_id in cursor.fetchall():
+                        session_devices[session_id].append(device_id)
+
+                # Build results
                 results = []
-                for row in cursor.fetchall():
+                for row in rows:
+                    session_id = row[0]
+
+                    # Get sample counts from batch queries
+                    ecg_count = ecg_counts.get(session_id, 0)
+                    acc_count = acc_counts.get(session_id, 0)
+                    devices_list = session_devices.get(session_id, [])
+
                     session_data = {
-                        "id": row[0],
+                        "id": session_id,
                         "start_time": row[1],
                         "end_time": row[2],
-                        "device_count": row[3],
-                        "sample_count": row[4],
                         "notes": row[5],
+                        "ecg_sample_count": ecg_count,
+                        "acc_sample_count": acc_count,
+                        "devices": devices_list,
                     }
 
                     # Calculate duration
@@ -830,40 +1022,29 @@ class ECGDatabase:
                     else:
                         session_data["duration_seconds"] = None
 
-                    # If device_count or sample_count is NULL (active session), calculate on-the-fly
-                    if row[3] is None or row[4] is None:
-                        sample_count, device_count = self._calculate_session_stats(cursor, row[0])
-                        session_data["sample_count"] = sample_count
-                        session_data["device_count"] = device_count
+                    # Use stored counts if available, otherwise calculate from batch results
+                    if row[3] is not None and row[4] is not None:
+                        session_data["device_count"] = row[3]
+                        session_data["sample_count"] = row[4]
+                    else:
+                        calculated_sample_count = ecg_count + acc_count
+                        calculated_device_count = len(devices_list)
+                        session_data["sample_count"] = calculated_sample_count
+                        session_data["device_count"] = calculated_device_count
 
-                    # Get separate ECG and ACC sample counts
-                    cursor.execute(
-                        "SELECT COUNT(*) FROM ecg_samples WHERE session_id = ?",
-                        (row[0],),
-                    )
-                    session_data["ecg_sample_count"] = cursor.fetchone()[0]
-
-                    cursor.execute(
-                        "SELECT COUNT(*) FROM accelerometer_samples WHERE session_id = ?",
-                        (row[0],),
-                    )
-                    session_data["acc_sample_count"] = cursor.fetchone()[0]
-
-                    # Get unique devices for this session
-                    cursor.execute(
-                        """
-                        SELECT DISTINCT d.device_id FROM ecg_samples e
-                        JOIN devices d ON e.device_id = d.id
-                        WHERE e.session_id = ?
-                        UNION
-                        SELECT DISTINCT d.device_id FROM accelerometer_samples a
-                        JOIN devices d ON a.device_id = d.id
-                        WHERE a.session_id = ?
-                        """,
-                        (row[0], row[0]),
-                    )
-                    devices = [d[0] for d in cursor.fetchall()]
-                    session_data["devices"] = devices
+                        # Update the database with calculated values
+                        cursor.execute(
+                            """
+                            UPDATE sessions
+                            SET device_count = ?, sample_count = ?
+                            WHERE id = ?
+                            """,
+                            (calculated_device_count, calculated_sample_count, session_id),
+                        )
+                        conn.commit()
+                        logger.debug(
+                            f"Session {session_id}: Updated counts in DB - device_count={calculated_device_count}, sample_count={calculated_sample_count}"
+                        )
 
                     results.append(session_data)
 
