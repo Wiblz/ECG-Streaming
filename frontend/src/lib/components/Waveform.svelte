@@ -56,7 +56,8 @@
 	let createAxes: ((yLabel: string) => uPlot.Axis[]) | null = null;
 	let tooltipsPlugin: ReturnType<typeof import('$lib/utils/uplot-tooltips').tooltipsPlugin> | null =
 		null;
-	let updateIntervalId: number | null = null;
+	let animationFrameId: number | null = null;
+	let lastUpdateTime = 0;
 
 	// Sample lookup for efficient tooltip access - maps chart data index to original sample
 	let sampleLookup: T[] = [];
@@ -71,7 +72,7 @@
 
 	// Time window configuration
 	const WINDOW_DURATION = 7.5; // seconds to display
-	const UPDATE_INTERVAL_MS = 20; // update every 20ms (50Hz)
+	const UPDATE_INTERVAL_MS = 33; // update every 33ms (~30 FPS)
 
 	// X-axis range controlled by function (prevents setData from resetting scale)
 	let xAxisRange: [number, number] = [0, WINDOW_DURATION];
@@ -191,22 +192,40 @@
 				});
 			}
 
-			// Align device samples to base timestamps using nearest neighbor
+			// Align device samples to base timestamps using binary search for nearest neighbor
 			return timestamps.map((baseTimestamp) => {
 				const baseAbsTime = baseTimestamp + currentStartTime;
 
-				// Find the closest sample from this device
-				let closestSample = filtered[0];
-				let minDiff = Math.abs(filtered[0]?.global_time - baseAbsTime);
+				// Binary search to find closest sample - O(log n) instead of O(n)
+				let left = 0;
+				let right = filtered.length - 1;
 
-				for (let i = 1; i < filtered.length; i++) {
-					const diff = Math.abs(filtered[i].global_time - baseAbsTime);
-					if (diff < minDiff) {
-						minDiff = diff;
-						closestSample = filtered[i];
+				// Handle edge cases
+				if (filtered.length === 0) return null;
+				if (filtered.length === 1) {
+					const diff = Math.abs(filtered[0].global_time - baseAbsTime);
+					return diff <= 0.1 ? getValue(filtered[0]) : null;
+				}
+
+				// Binary search for insertion point
+				while (left < right) {
+					const mid = Math.floor((left + right) / 2);
+					if (filtered[mid].global_time < baseAbsTime) {
+						left = mid + 1;
 					} else {
-						// Samples are time-ordered, so we can stop searching
-						break;
+						right = mid;
+					}
+				}
+
+				// Check left and left-1 for closest match
+				let closestIdx = left;
+				let minDiff = Math.abs(filtered[left].global_time - baseAbsTime);
+
+				if (left > 0) {
+					const leftDiff = Math.abs(filtered[left - 1].global_time - baseAbsTime);
+					if (leftDiff < minDiff) {
+						closestIdx = left - 1;
+						minDiff = leftDiff;
 					}
 				}
 
@@ -215,7 +234,7 @@
 					return null;
 				}
 
-				return getValue(closestSample);
+				return getValue(filtered[closestIdx]);
 			});
 		});
 
@@ -265,14 +284,27 @@
 	// Debug logging counter
 	let updateCounter = 0;
 
-	// Update function for time-based chart updates
-	function updateChart() {
+	// Update function for time-based chart updates using requestAnimationFrame
+	function updateChart(currentTime: number) {
 		if (!chart || !isStreaming) {
+			animationFrameId = null;
 			return;
 		}
 
+		// Throttle based on UPDATE_INTERVAL_MS for configurable frame rate
+		const deltaTime = currentTime - lastUpdateTime;
+		if (deltaTime < UPDATE_INTERVAL_MS) {
+			// Schedule next frame
+			animationFrameId = requestAnimationFrame(updateChart);
+			return;
+		}
+
+		lastUpdateTime = currentTime;
+
 		const timeWindow = getCurrentTimeWindow();
 		if (!timeWindow) {
+			// Schedule next frame
+			animationFrameId = requestAnimationFrame(updateChart);
 			return;
 		}
 
@@ -288,12 +320,12 @@
 		xAxisRange[0] = timeWindow.minTime;
 		xAxisRange[1] = timeWindow.maxTime;
 
-		// Periodic logging every 10 updates (~1 second at 100ms interval)
+		// Periodic logging every 10 updates
 		updateCounter++;
 		if (updateCounter % 10 === 0) {
 			const wallTime = Date.now() / 1000;
 			const devices = Array.from(samples.keys());
-			const bufferInfo = devices.map((deviceId) => {
+			const _bufferInfo = devices.map((deviceId) => {
 				const deviceSamples = samples.get(deviceId)!;
 				const lastSample = deviceSamples[deviceSamples.length - 1];
 				if (!lastSample) return `${deviceId}: none`;
@@ -302,37 +334,41 @@
 			}).join(', ');
 
 			// console.log(
-			// 	`[${title}] window.maxTime=${timeWindow.maxTime.toFixed(2)}, wall=${wallTime.toFixed(2)}, buffer: ${bufferInfo}`
+			// 	`[${title}] window.maxTime=${timeWindow.maxTime.toFixed(2)}, wall=${wallTime.toFixed(2)}, buffer: ${_bufferInfo}`
 			// );
 		}
 
 		// setData will now use the updated range via the function
 		chart.setData(data);
+
+		// Schedule next frame
+		animationFrameId = requestAnimationFrame(updateChart);
 	}
 
 
-	// Start/stop update interval based on streaming state
+	// Start/stop animation loop based on streaming state
 	$effect(() => {
 		if (isStreaming && chart) {
-			// Start update interval
-			if (updateIntervalId === null) {
-				// console.log(`[${title}] Starting update interval`);
-				updateIntervalId = window.setInterval(updateChart, UPDATE_INTERVAL_MS);
+			// Start animation loop
+			if (animationFrameId === null) {
+				// console.log(`[${title}] Starting animation loop`);
+				lastUpdateTime = performance.now();
+				animationFrameId = requestAnimationFrame(updateChart);
 			}
 		} else {
-			// Stop update interval
-			if (updateIntervalId !== null) {
-				// console.log(`[${title}] Stopping update interval`);
-				clearInterval(updateIntervalId);
-				updateIntervalId = null;
+			// Stop animation loop
+			if (animationFrameId !== null) {
+				// console.log(`[${title}] Stopping animation loop`);
+				cancelAnimationFrame(animationFrameId);
+				animationFrameId = null;
 			}
 		}
 
 		// Cleanup on effect disposal
 		return () => {
-			if (updateIntervalId !== null) {
-				clearInterval(updateIntervalId);
-				updateIntervalId = null;
+			if (animationFrameId !== null) {
+				cancelAnimationFrame(animationFrameId);
+				animationFrameId = null;
 			}
 		};
 	});
@@ -424,8 +460,8 @@
 		if (browser) {
 			window.removeEventListener('resize', handleResize);
 		}
-		if (updateIntervalId !== null) {
-			clearInterval(updateIntervalId);
+		if (animationFrameId !== null) {
+			cancelAnimationFrame(animationFrameId);
 		}
 		if (chart) {
 			chart.destroy();
