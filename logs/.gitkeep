@@ -1,0 +1,2 @@
+# This directory stores logs from Docker containers
+# Actual log files are ignored by .gitignore

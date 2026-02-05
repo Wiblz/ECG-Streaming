@@ -26,6 +26,7 @@ services:
       - ./packages/ecg-aggregator:/app/packages/ecg-aggregator
       - ./ecg_data.db:/app/ecg_data.db
       - ./packages/ecg-aggregator/config.default.yaml:/app/config.yaml:ro
+      - ./logs:/tmp:rw  # Mount logs directory for persistence
     environment:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
@@ -57,6 +58,7 @@ services:
       - ./packages/ecg-collector:/app/packages/ecg-collector
       - ./packages/ecg-collector/config.default.yaml:/app/config.yaml:ro
       - /var/run/dbus:/var/run/dbus:ro
+      - ./logs:/tmp:rw  # Mount logs directory for persistence
     environment:
       - PYTHONUNBUFFERED=1
       - ECG_COLLECTOR_AGGREGATOR__HOST=localhost
@@ -83,6 +85,7 @@ services:
       - ./packages/ecg-collector/config.default.yaml:/app/config.yaml:ro
       - /dev:/dev  # Mount all devices
       - /run/udev:/run/udev:ro  # For udev device detection
+      - ./logs:/tmp:rw  # Mount logs directory for persistence
     environment:
       - PYTHONUNBUFFERED=1
     command: ["watchfiles", "--filter", "python", "python -m ecg_collector.cli usb run --config /app/config.yaml", "/app/packages"]
