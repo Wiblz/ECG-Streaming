@@ -1,7 +1,9 @@
 <script lang="ts">
-	import { getContext } from 'svelte';
+	import { onMount, getContext } from 'svelte';
 	import { page } from '$app/state';
+	import { api } from '$lib/api/client';
 	import { isMockMode, setMockMode } from '$lib/api/client';
+	import { getActiveSession, isRecording, setActiveSession } from '$lib/state/session.svelte';
 	import favicon from '$lib/assets/favicon.svg';
 
 	interface Props {
@@ -17,8 +19,25 @@
 	const versionContext = getContext<{ value: string }>('version');
 	const version = $derived(versionContext?.value || '');
 
+	// Session state
+	const recording = $derived(isRecording());
+	const activeSession = $derived(getActiveSession());
+	let stoppingSession = $state(false);
+
 	// Mock mode state
 	let mockMode = $state(isMockMode());
+
+	// Load active session on mount
+	onMount(async () => {
+		try {
+			const response = await api.getActiveSession();
+			if (response.active && response.session) {
+				setActiveSession(response.session);
+			}
+		} catch (err) {
+			console.error('[Header] Failed to load active session:', err);
+		}
+	});
 
 	function toggleMockMode() {
 		mockMode = !mockMode;
@@ -26,6 +45,24 @@
 		// Reload page to refresh data
 		if (typeof window !== 'undefined') {
 			window.location.reload();
+		}
+	}
+
+	async function handleStopSession() {
+		if (stoppingSession) return;
+		stoppingSession = true;
+		try {
+			const response = await api.stopSession();
+			if (response.success) {
+				setActiveSession(null);
+				console.log(`[Header] Session ${response.session_id} stopped`);
+			} else {
+				console.error('[Header] Failed to stop session:', response.error);
+			}
+		} catch (err) {
+			console.error('[Header] Error stopping session:', err);
+		} finally {
+			stoppingSession = false;
 		}
 	}
 
@@ -146,6 +183,19 @@
 					<span class="text-xs text-gray-500 px-2 py-1 font-medium" title="Application version">
 						v{version}
 					</span>
+				{/if}
+
+				<!-- Stop Session Button (visible when recording) -->
+				{#if recording && activeSession}
+					<button
+						onclick={handleStopSession}
+						disabled={stoppingSession}
+						class="px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors bg-red-50 text-red-700 border-red-300 hover:bg-red-100 disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-300 disabled:cursor-not-allowed flex items-center gap-1.5"
+						title="Stop recording session #{activeSession.id}"
+					>
+						<div class="w-1.5 h-1.5 bg-red-600 rounded-full animate-pulse"></div>
+						{stoppingSession ? 'Stopping...' : `Stop Session #${activeSession.id}`}
+					</button>
 				{/if}
 
 				<!-- Mock Mode Toggle -->
