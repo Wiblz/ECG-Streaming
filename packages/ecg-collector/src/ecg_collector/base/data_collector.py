@@ -47,6 +47,15 @@ class DataCollector(ABC):
             frame: Python SensorFrame dataclass with raw PMD data
         """
         try:
+            # Skip frames with sample_rate = 0 (stream disabled)
+            if frame.sample_rate <= 0:
+                logger.warning(
+                    f"Received {frame.sensor_type.name} frame from {frame.device_id} with sample_rate=0 (stream disabled). "
+                    f"Frame details: raw_data_len={len(frame.raw_data)}, polar_clock_us={frame.polar_clock_us}, "
+                    f"wall_clock_us={frame.wall_clock_us}, receiver_clock_us={frame.receiver_clock_us}"
+                )
+                return
+
             # Parse raw PMD data into structured samples
             if frame.sensor_type == SensorType.ECG:
                 samples = parse_ecg_frame(

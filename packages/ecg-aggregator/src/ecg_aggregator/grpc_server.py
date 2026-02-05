@@ -154,11 +154,15 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                 ecg_count = len(self._ecg_batch_buffer)
                 try:
                     # Execute in thread pool to avoid blocking async event loop
+                    flush_start = time.time()
                     await asyncio.get_event_loop().run_in_executor(
                         None, self.database.add_samples_batch, self._ecg_batch_buffer.copy()
                     )
+                    flush_duration = time.time() - flush_start
                     self._ecg_batch_buffer.clear()
-                    logger.debug(f"Flushed {ecg_count} ECG samples to database")
+                    logger.info(
+                        f"Flushed {ecg_count} ECG samples to DB in {flush_duration:.3f}s (buffer wait: {time_since_flush:.2f}s)"
+                    )
                 except Exception as e:
                     logger.error(f"Error flushing ECG batch: {e}")
 
@@ -167,11 +171,13 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                 acc_count = len(self._acc_batch_buffer)
                 try:
                     # Execute in thread pool to avoid blocking async event loop
+                    flush_start = time.time()
                     await asyncio.get_event_loop().run_in_executor(
                         None, self.database.add_acc_samples_batch, self._acc_batch_buffer.copy()
                     )
+                    flush_duration = time.time() - flush_start
                     self._acc_batch_buffer.clear()
-                    logger.debug(f"Flushed {acc_count} ACC samples to database")
+                    logger.info(f"Flushed {acc_count} ACC samples to DB in {flush_duration:.3f}s")
                 except Exception as e:
                     logger.error(f"Error flushing ACC batch: {e}")
 
@@ -236,9 +242,10 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                     display_name = reg.display_name or collector_id
 
                     logger.info(
-                        f"Collector {display_name} ({collector_id}) registered with {len(device_ids)} devices: "
-                        f"{', '.join(device_ids)}"
+                        f"Collector {display_name} ({collector_id}) registered with {len(device_ids)} devices"
                     )
+                    if device_ids:
+                        logger.info(f"  Devices: {', '.join(device_ids)}")
 
                     now = time.time()
                     self.collectors[collector_id] = CollectorMetadata(
@@ -351,6 +358,9 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                     if self.time_alignment.is_device_ready(device_id):
                         state = self.time_alignment._device_models.get(device_id)
                         if state and state.model:
+                            logger.info(
+                                f"Time sync ready for {device_id}: offset={state.model.offset:.3f}s, confidence={state.model.confidence:.2f}"
+                            )
                             sync_status = collector_aggregator_pb2.SyncStatusUpdate(
                                 device_id=device_id,
                                 sync_ready=True,
@@ -520,8 +530,6 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
         if not batch.samples:
             return
 
-        logger.debug(f"[FLOW] Processing ECG batch from {device_id}: {len(batch.samples)} samples")
-
         # Add timestamp pair using last sample's polar clock and wall clock
         # NOTE: batch.wall_clock_us contains collector's epoch timestamp (wall clock time)
         last_sample = batch.samples[-1]
@@ -562,12 +570,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
             )
 
             if not synced:
-                logger.debug(f"[FLOW] No sync available for {device_id}")
                 continue
-
-            logger.debug(
-                f"[FLOW] Synced sample: device_ts={sample.polar_clock_us}, global_time={synced.global_time:.2f}, confidence={synced.confidence}"
-            )
 
             # Only add to buffer if sync confidence is high enough
             if synced and synced.confidence >= 0.8:
@@ -582,8 +585,6 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                     time_verified=sample.time_verified,
                 )
                 samples_added += 1
-            else:
-                logger.debug(f"[FLOW] Skipped sample: confidence {synced.confidence} < 0.8")
 
             # Accumulate sample for batch database write
             if self.database and self._active_session_id is not None:
@@ -614,10 +615,6 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                     )
                 )
 
-        logger.debug(
-            f"[FLOW] Added {samples_added}/{len(batch.samples)} samples to buffer for {device_id}"
-        )
-
         # Check if we should flush batched samples
         await self._flush_sample_batches()
 
@@ -632,8 +629,6 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
         """
         if not batch.samples:
             return
-
-        logger.debug(f"[FLOW] Processing ACC batch from {device_id}: {len(batch.samples)} samples")
 
         # Add timestamp pair using last sample's polar clock and wall clock
         # NOTE: batch.wall_clock_us contains collector's epoch timestamp (wall clock time)
@@ -769,10 +764,6 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                     )
                 )
 
-        logger.debug(
-            f"[FLOW] Added {samples_added}/{len(batch.samples)} ACC samples to buffer for {device_id}"
-        )
-
         # Check if we should flush batched samples
         await self._flush_sample_batches()
 
@@ -803,7 +794,16 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
             if session:
                 self._active_session_id = session_id
                 self._active_session_start_time = session["start_time"]
-                logger.info(f"Started recording session {session_id} at {session['start_time']}")
+                active_devices = [
+                    dev_id
+                    for dev_id, dev_status in self.device_statuses.items()
+                    if dev_status.status == "STREAMING"
+                ]
+                logger.info(
+                    f"Started session {session_id} with {len(active_devices)} streaming devices"
+                )
+                if active_devices:
+                    logger.info(f"  Streaming: {', '.join(active_devices)}")
             else:
                 logger.error(f"Failed to fetch session {session_id} after creation")
                 return -1
@@ -829,9 +829,23 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
 
         if success:
             stopped_session_id = self._active_session_id
+            # Get session stats before clearing
+            session = self.database.get_session(stopped_session_id)
             self._active_session_id = None
             self._active_session_start_time = None
-            logger.info(f"Stopped recording session {stopped_session_id}")
+
+            if session:
+                duration = session.get("duration_seconds", 0)
+                ecg_count = session.get("ecg_sample_count", 0)
+                acc_count = session.get("acc_sample_count", 0)
+                device_count = session.get("device_count", 0)
+                logger.info(
+                    f"Stopped session {stopped_session_id}: {duration:.1f}s, {device_count} devices, "
+                    f"{ecg_count} ECG samples, {acc_count} ACC samples"
+                )
+            else:
+                logger.info(f"Stopped recording session {stopped_session_id}")
+
             return stopped_session_id
 
         return None
