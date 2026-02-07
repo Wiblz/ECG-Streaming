@@ -4,10 +4,9 @@ import asyncio
 import struct
 import time
 
-from bleak import BleakClient, BleakScanner
+from bleak import BleakClient
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
-from bleak.backends.scanner import AdvertisementData
 from ecg_common.logging import get_logger
 from ecg_common.models import DeviceStatus, SensorFrame, SensorType
 
@@ -69,26 +68,16 @@ class PolarH10Driver(DeviceDriver):
         Returns:
             BLEDevice if found, None otherwise
         """
-        logger.info(f"Scanning for device {self.device_id} (adapter: {self.adapter_id})...")
+        from ecg_collector.ble_scanner import find_polar_device
 
-        def match_device(device: BLEDevice, adv_data: AdvertisementData) -> bool:
-            """Check if device matches our target."""
-            if self.address:
-                # Match by address or name
-                return device.address.lower() == self.address.lower() or device.name == self.address
-            # Match by device ID in name (e.g., "Polar H10 ABC123")
-            return device.name is not None and self.device_id in device.name
-
-        device = await BleakScanner.find_device_by_filter(
-            match_device,
+        device = await find_polar_device(
+            device_id=self.device_id,
+            address=self.address,
             timeout=timeout,
         )
 
         if device:
-            logger.info(f"Found device {self.device_id}: {device.name} ({device.address})")
             self.address = device.address
-        else:
-            logger.warning(f"Device {self.device_id} not found")
 
         return device
 

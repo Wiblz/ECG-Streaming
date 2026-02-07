@@ -96,9 +96,9 @@ static void led_task(void *param) {
         if (streaming_active) {
             c = scale_color(k_green, BRIGHTNESS);
         } else if (!polar_connected) {
-            // Yellow blink every 2s
-            uint32_t t = now_ms % 2000;
-            if (t < 150) {
+            // Yellow blink every 500ms
+            uint32_t t = now_ms % 500;
+            if (t < 80) {
                 c = scale_color(k_yellow, BRIGHTNESS);
             }
         } else {

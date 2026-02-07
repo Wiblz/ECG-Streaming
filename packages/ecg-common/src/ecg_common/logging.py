@@ -26,6 +26,7 @@ def setup_logging(
     log_file: Path | None = None,
     ble_debug_file: Path | None = None,
     log_format: str = "detailed",
+    console: bool = True,
 ) -> None:
     """Configure application-wide logging.
 
@@ -34,6 +35,7 @@ def setup_logging(
         log_file: Optional path to log file
         ble_debug_file: Optional path to BLE debug log file
         log_format: Format style - "simple" or "detailed"
+        console: Enable console logging (set to False when using rich Live displays)
     """
     # Define log formats
     formats = {
@@ -44,8 +46,16 @@ def setup_logging(
     log_format_str = formats.get(log_format, formats["detailed"])
     date_format = "%Y-%m-%d %H:%M:%S"
 
-    # Create formatters
-    formatter = logging.Formatter(log_format_str, datefmt=date_format)
+    # Create formatters with milliseconds
+    class MillisecondFormatter(logging.Formatter):
+        def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:  # noqa: N802
+            if datefmt:
+                s = datetime.fromtimestamp(record.created).strftime(datefmt)
+            else:
+                s = datetime.fromtimestamp(record.created).strftime("%Y-%m-%d %H:%M:%S")
+            return f"{s},{int(record.msecs):03d}"
+
+    formatter = MillisecondFormatter(log_format_str, datefmt=date_format)
 
     # Setup root logger
     root_logger = logging.getLogger()
@@ -54,11 +64,12 @@ def setup_logging(
     # Remove existing handlers
     root_logger.handlers.clear()
 
-    # Console handler
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(getattr(logging, level.upper()))
-    console_handler.setFormatter(formatter)
-    root_logger.addHandler(console_handler)
+    # Console handler (optional)
+    if console:
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setLevel(getattr(logging, level.upper()))
+        console_handler.setFormatter(formatter)
+        root_logger.addHandler(console_handler)
 
     # File handler (optional)
     if log_file:

@@ -17,7 +17,15 @@ import serial_asyncio
 from ecg_common.logging import get_logger
 from ecg_common.proto import esp_collector_pb2, usb_transport_pb2
 
-from .models import EspDeviceGroup, InterfaceType, UsbCollectorStats, UsbInterfaceInfo
+from .models import (
+    EspDeviceGroup,
+    EspDeviceInfo,
+    InterfaceType,
+    ProbePartialInfo,
+    ProbeStatus,
+    UsbCollectorStats,
+    UsbInterfaceInfo,
+)
 
 logger = get_logger(__name__)
 
@@ -407,11 +415,80 @@ async def discover_and_group_usb_interfaces() -> dict[str, EspDeviceGroup]:
     return groups
 
 
-async def probe_usb_device(device_path: str, timeout_s: float = 2.0) -> dict | None:
+async def probe_usb_groups(
+    device_groups: dict[str, EspDeviceGroup],
+    timeout_s: float = 12.0,
+    on_update: Callable[[str, EspDeviceGroup], None] | None = None,
+) -> None:
+    """Probe USB device groups concurrently.
+
+    Probes all device groups in-place, updating their probe_status, device_info,
+    partial_info, and error_message fields. Optionally calls a callback after each
+    state change with the group key and updated group object.
+
+    Args:
+        device_groups: Dictionary of device groups to probe (modified in-place)
+        timeout_s: Probe timeout per device in seconds
+        on_update: Optional callback invoked when any device state changes.
+                   Receives (group_key: str, group: EspDeviceGroup)
+    """
+
+    async def probe_device_group(group_key: str, group: EspDeviceGroup) -> None:
+        """Probe a single device group's data interface."""
+        if not group.data_interface:
+            return
+
+        # Reset state before probing (important for reusability in long-lived processes)
+        group.probe_status = ProbeStatus.DISCOVERED
+        group.device_info = None
+        group.partial_info = None
+        group.error_message = None
+        if on_update:
+            on_update(group_key, group)
+
+        # Update to probing state
+        group.probe_status = ProbeStatus.PROBING
+        if on_update:
+            on_update(group_key, group)
+
+        try:
+            device_info, partial_info = await probe_usb_device(
+                group.data_interface.device_path, timeout_s=timeout_s
+            )
+            if device_info:
+                group.device_info = device_info
+                group.probe_status = ProbeStatus.RECEIVED
+            else:
+                group.probe_status = ProbeStatus.TIMEOUT
+                group.partial_info = partial_info  # May be None if no messages seen
+        except Exception as e:
+            group.probe_status = ProbeStatus.ERROR
+            group.error_message = str(e)[:50]  # Truncate error message
+        finally:
+            if on_update:
+                on_update(group_key, group)
+
+    # Probe all device groups concurrently
+    probe_tasks = [
+        probe_device_group(group_key, group)
+        for group_key, group in device_groups.items()
+        if group.data_interface
+    ]
+
+    if probe_tasks:
+        await asyncio.gather(*probe_tasks)
+
+
+async def probe_usb_device(
+    device_path: str, timeout_s: float = 2.0
+) -> tuple[EspDeviceInfo | None, ProbePartialInfo | None]:
     """Probe a USB device for a valid CollectorMessage.
 
     Returns:
-        Dict with basic device info if detected, otherwise None.
+        Tuple of (device_info, partial_info):
+        - device_info: Full EspDeviceInfo if device_info message received
+        - partial_info: Partial data if timeout with other message types seen
+        - (None, None): If no valid messages received at all
     """
     reader: asyncio.StreamReader | None = None
     writer: asyncio.StreamWriter | None = None
@@ -421,10 +498,12 @@ async def probe_usb_device(device_path: str, timeout_s: float = 2.0) -> dict | N
     last_message: dict | None = None
 
     try:
+        logger.info(f"Probing USB device: {device_path} (timeout={timeout_s}s)")
         reader, writer = await serial_asyncio.open_serial_connection(
             url=device_path,
             baudrate=115200,
         )
+        logger.debug(f"Opened serial connection to {device_path}")
 
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
@@ -462,14 +541,19 @@ async def probe_usb_device(device_path: str, timeout_s: float = 2.0) -> dict | N
 
                 if msg_type == "device_info":
                     info = esp_msg.device_info
-                    return {
-                        "type": "usb_device_info",
-                        "esp_id": info.esp_id,
-                        "firmware_version": info.firmware_version,
-                        "current_target": info.current_target,
-                        "config_required": info.config_required,
-                        "polar_connected": info.polar_connected,
-                    }
+                    logger.info(
+                        f"Probed {device_path}: ESP_ID={info.esp_id}, target={info.current_target or '<unassigned>'}, "
+                        f"polar={'connected' if info.polar_connected else 'disconnected'}, "
+                        f"config={'required' if info.config_required else 'ok'}"
+                    )
+                    device_info = EspDeviceInfo(
+                        esp_id=info.esp_id,
+                        firmware_version=info.firmware_version,
+                        current_target=info.current_target if info.current_target else None,
+                        config_required=info.config_required,
+                        polar_connected=info.polar_connected,
+                    )
+                    return (device_info, None)
 
                 device_id = None
                 if msg_type == "ecg_frame":
@@ -483,7 +567,23 @@ async def probe_usb_device(device_path: str, timeout_s: float = 2.0) -> dict | N
                 }
                 continue
 
-        return last_message
+        # Timeout reached
+        if last_message:
+            logger.warning(
+                f"Probe timeout for {device_path}: received {last_message['type']} messages but no device_info"
+            )
+            partial = ProbePartialInfo(
+                last_message_type=last_message["type"], device_id=last_message.get("device_id")
+            )
+            return (None, partial)
+        else:
+            logger.warning(f"Probe timeout for {device_path}: no valid messages received")
+            return (None, None)
+
+    except Exception as e:
+        logger.error(f"Failed to probe {device_path}: {type(e).__name__}: {e}")
+        raise
+
     finally:
         if writer:
             writer.close()

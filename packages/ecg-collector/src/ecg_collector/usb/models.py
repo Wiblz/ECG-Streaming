@@ -62,6 +62,25 @@ class UsbInterfaceInfo:
 
 
 @dataclass
+class EspDeviceInfo:
+    """Information about an ESP32 device."""
+
+    esp_id: str
+    firmware_version: str
+    current_target: str | None  # None when unassigned
+    config_required: bool
+    polar_connected: bool
+
+
+@dataclass
+class ProbePartialInfo:
+    """Partial probe result when device sends messages but no device_info."""
+
+    last_message_type: str  # e.g., "ecg_frame", "acc_frame"
+    device_id: str | None  # Device ID from the message, if available
+
+
+@dataclass
 class EspDeviceGroup:
     """Group of USB interfaces belonging to the same physical ESP device."""
 
@@ -69,6 +88,7 @@ class EspDeviceGroup:
     bus_port: str = ""  # USB bus-port identifier (e.g., "3-1" or "9-1.1")
     data_interface: UsbInterfaceInfo | None = None
     log_interface: UsbInterfaceInfo | None = None
-    device_info: dict | None = None
+    device_info: EspDeviceInfo | None = None
     probe_status: ProbeStatus = ProbeStatus.DISCOVERED
     error_message: str | None = None
+    partial_info: ProbePartialInfo | None = None  # Populated on timeout with partial data

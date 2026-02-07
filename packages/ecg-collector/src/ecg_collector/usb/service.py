@@ -349,7 +349,7 @@ class MultiUsbCollectorService(DataCollector):
             target_device_id=desired_target,
             ecg_sample_rate=ecg_rate,
             acc_sample_rate=acc_rate,
-            persist=self.persist_config,
+            persist=False,  # Stateless ESPs - config not persisted
         )
         collector_to_esp_msg = esp_collector_pb2.CollectorToEspMessage()
         collector_to_esp_msg.config.CopyFrom(config_msg)
@@ -359,12 +359,11 @@ class MultiUsbCollectorService(DataCollector):
             self._configured_esp_ids.add(esp_id)
             self._last_usb_config[esp_id] = desired_config
             logger.info(
-                "Sent USB config to %s -> %s (ecg_rate=%d acc_rate=%d persist=%s)",
+                "Sent USB config to %s -> %s (ecg_rate=%d acc_rate=%d persist=False)",
                 esp_id,
                 desired_target,
                 ecg_rate,
                 acc_rate,
-                self.persist_config,
             )
         except Exception as e:
             logger.error("Failed sending USB config to %s: %s", esp_id, e)

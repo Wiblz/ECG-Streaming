@@ -93,6 +93,10 @@ class LoggingConfig(BaseSettings):
 class USBConfig(BaseSettings):
     """USB collector configuration."""
 
+    model_config = SettingsConfigDict(
+        extra="ignore",  # Ignore old fields like allowed_device_ids, device_map
+    )
+
     auto_discover: bool = Field(
         default=True,
         description="Auto-discover USB devices when no devices are specified",
@@ -125,7 +129,7 @@ class CollectorSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="ECG_COLLECTOR_",
         env_nested_delimiter="__",
-        extra="ignore",
+        extra="ignore",  # Ignore extra fields for backward compatibility
     )
 
     collector_id: str = Field(
