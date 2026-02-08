@@ -1,5 +1,4 @@
-# ECG Aggregator Configuration Example
-# Copy to packages/ecg-aggregator/config.yaml and customize for your setup
+# ECG Aggregator Configuration
 
 # gRPC Server (receives data from collectors)
 grpc:
@@ -13,7 +12,7 @@ sync:
 
 # HTTP/WebSocket API (serves dashboard and REST API)
 api:
-  port: 8000                     # HTTP/WebSocket server port
+  port: 7999                     # HTTP/WebSocket server port
   websocket_fps: 30              # WebSocket broadcast rate (frames/sec)
   cors_origins:
     - "*"                        # CORS origins (change for production)
@@ -30,6 +29,6 @@ buffer:
 
 # Logging
 logging:
-  level: "INFO"                  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"                 # DEBUG, INFO, WARNING, ERROR, CRITICAL
   format: "detailed"             # simple or detailed
-  file: null                     # Optional log file path
+  file: "/tmp/ecg-aggregator.log" # Optional log file path

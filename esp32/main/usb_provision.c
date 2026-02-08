@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "esp_log.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -13,6 +14,8 @@
 #include "esp_collector.pb.h"
 #include "state.h"
 #include "usb_transport.h"
+
+static const char *TAG = "usb_provision";
 
 static void send_usb_device_info(void) {
     ecg_streaming_UsbDeviceInfo info = ecg_streaming_UsbDeviceInfo_init_zero;
@@ -75,9 +78,15 @@ static void apply_usb_config(const ecg_streaming_UsbConfig *cfg) {
 
     apply_runtime_config();
 
+#ifdef CONFIG_ALLOW_USB_CONFIG_PERSIST
     if (cfg->persist) {
         persist_usb_config_to_nvs();
     }
+#else
+    if (cfg->persist) {
+        ESP_LOGW(TAG, "Config persist requested but CONFIG_ALLOW_USB_CONFIG_PERSIST disabled");
+    }
+#endif
 
     g_config_required = false;
 

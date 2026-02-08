@@ -104,7 +104,14 @@ void config_store_init(void) {
     g_device_id[0] = '\0';
     format_esp_id(g_esp_id, sizeof(g_esp_id));
 
+#ifdef CONFIG_ALLOW_USB_CONFIG_PERSIST
     load_usb_config_from_nvs();
     apply_runtime_config();
     g_config_required = !g_has_persisted_config || !has_target_device();
+#else
+    // Persistence disabled - always require config from collector
+    g_has_persisted_config = false;
+    apply_runtime_config();
+    g_config_required = true;
+#endif
 }

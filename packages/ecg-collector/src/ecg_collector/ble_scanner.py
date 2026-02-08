@@ -18,7 +18,8 @@ logger = get_logger(__name__)
 class PolarDeviceInfo:
     """Information about a discovered Polar device."""
 
-    device_id: str  # Polar device ID (e.g., "A1B2C3D4" from "Polar H10 A1B2C3D4")
+    device_id: str  # Full device name (e.g., "Polar H10 A1B2C3D4")
+    short_id: str  # Short device ID suffix (e.g., "A1B2C3D4")
     name: str  # Full device name (e.g., "Polar H10 A1B2C3D4")
     address: str  # BLE MAC address
     rssi: int | None  # Signal strength
@@ -40,8 +41,8 @@ async def scan_polar_devices(timeout: float = 5.0) -> list[PolarDeviceInfo]:
     polar_devices = []
     for device in devices:
         if device.name and "Polar" in device.name:
-            # Extract device ID from name (e.g., "Polar H10 A1B2C3D4" -> "A1B2C3D4")
-            device_id = device.name.split()[-1] if len(device.name.split()) > 1 else device.name
+            # Extract short ID from name (e.g., "Polar H10 A1B2C3D4" -> "A1B2C3D4")
+            short_id = device.name.split()[-1] if len(device.name.split()) > 1 else device.name
 
             # Get RSSI if available
             rssi = None
@@ -50,7 +51,8 @@ async def scan_polar_devices(timeout: float = 5.0) -> list[PolarDeviceInfo]:
 
             polar_devices.append(
                 PolarDeviceInfo(
-                    device_id=device_id,
+                    device_id=device.name,
+                    short_id=short_id,
                     name=device.name,
                     address=device.address,
                     rssi=rssi,

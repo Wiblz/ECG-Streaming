@@ -1,5 +1,16 @@
 menu "ECG Collector Configuration"
 
+    config ALLOW_USB_CONFIG_PERSIST
+        bool "Allow USB configuration persistence to NVS flash"
+        default n
+        help
+            When enabled, ESP32 can persist USB configuration (target device,
+            sample rates) to NVS flash when collector sends persist=true.
+
+            When disabled (default), ESP32 ignores persist requests and never
+            reads or writes config to flash. Config is always required from
+            collector on every boot. This ensures collector remains source of truth.
+
     config LOG_STREAM_USB_CDC
         bool "Route logs over USB CDC log channel"
         default y

@@ -46,6 +46,9 @@ devices:
   "Polar H10 0787323A":
     esp_id: "24EC4A2E7404"
 
+  "Polar H10 14944E39":
+    esp_id: "B43A45ADA8BC"
+
 # BLE configuration
 ble:
   max_devices_per_adapter: 7    # Maximum devices per BLE adapter

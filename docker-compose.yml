@@ -25,7 +25,7 @@ services:
       - ./packages/ecg-common:/app/packages/ecg-common
       - ./packages/ecg-aggregator:/app/packages/ecg-aggregator
       - ./ecg_data.db:/app/ecg_data.db
-      - ./packages/ecg-aggregator/config.default.yaml:/app/config.yaml:ro
+      - ./packages/ecg-aggregator/config.yaml:/app/config.yaml:ro
       - ./logs:/tmp:rw  # Mount logs directory for persistence
     environment:
       - PYTHONUNBUFFERED=1
@@ -56,7 +56,7 @@ services:
     volumes:
       - ./packages/ecg-common:/app/packages/ecg-common
       - ./packages/ecg-collector:/app/packages/ecg-collector
-      - ./packages/ecg-collector/config.default.yaml:/app/config.yaml:ro
+      - ./packages/ecg-collector/config.yaml:/app/config.yaml:ro
       - /var/run/dbus:/var/run/dbus:ro
       - ./logs:/tmp:rw  # Mount logs directory for persistence
     environment:
@@ -82,7 +82,7 @@ services:
     volumes:
       - ./packages/ecg-common:/app/packages/ecg-common
       - ./packages/ecg-collector:/app/packages/ecg-collector
-      - ./packages/ecg-collector/config.default.yaml:/app/config.yaml:ro
+      - ./packages/ecg-collector/config.yaml:/app/config.yaml:ro
       - /dev:/dev  # Mount all devices
       - /run/udev:/run/udev:ro  # For udev device detection
       - ./logs:/tmp:rw  # Mount logs directory for persistence

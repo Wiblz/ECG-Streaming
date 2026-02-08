@@ -12,6 +12,8 @@
 #include "driver/rmt_tx.h"
 #include "driver/rmt_encoder.h"
 
+#include "state.h"
+
 static const char *TAG = "LED_STATUS";
 
 #define LED_PIN 21
@@ -19,7 +21,7 @@ static const char *TAG = "LED_STATUS";
 
 // Timing
 static const uint32_t FRAME_MS = 15;
-static const uint32_t STREAM_ACTIVE_MS = 500;
+static const uint32_t STREAM_ACTIVE_MS = 1000;
 
 // Brightness shaping (0..1)
 static const float BRIGHTNESS = 0.08f;
@@ -32,6 +34,7 @@ typedef struct {
 
 static const rgb_u8_t k_yellow = {255, 120, 0};
 static const rgb_u8_t k_green = {0, 255, 0};
+static const rgb_u8_t k_blue = {0, 0, 255};
 
 static rmt_channel_handle_t s_tx_chan = NULL;
 static rmt_encoder_handle_t s_encoder = NULL;
@@ -94,15 +97,23 @@ static void led_task(void *param) {
         rgb_u8_t c = {0, 0, 0};
 
         if (streaming_active) {
+            // Streaming: solid green (data received in last 500ms)
             c = scale_color(k_green, BRIGHTNESS);
-        } else if (!polar_connected) {
-            // Yellow blink every 500ms
+        } else if (polar_connected) {
+            // Connected but no recent data: blink green every 1000ms
+            uint32_t t = now_ms % 1000;
+            if (t < 100) {
+                c = scale_color(k_green, BRIGHTNESS);
+            }
+        } else if (!g_config_required) {
+            // Configured but not connected: solid blue
+            c = scale_color(k_blue, BRIGHTNESS);
+        } else {
+            // Not configured: blink yellow every 500ms
             uint32_t t = now_ms % 500;
             if (t < 80) {
                 c = scale_color(k_yellow, BRIGHTNESS);
             }
-        } else {
-            c = (rgb_u8_t){0, 0, 0};
         }
 
         set_led(c);

@@ -16,7 +16,7 @@ services:
       - "7999:7999"
     volumes:
       - aggregator-data:/data
-      - ./packages/ecg-aggregator/config.default.yaml:/app/config.yaml:ro
+      - ./packages/ecg-aggregator/config.yaml:/app/config.yaml:ro
       - ./logs:/tmp:rw  # Mount logs directory for persistence
     environment:
       - PYTHONUNBUFFERED=1
@@ -43,7 +43,7 @@ services:
     network_mode: host
     privileged: true
     volumes:
-      - ./packages/ecg-collector/config.default.yaml:/app/config.yaml:ro
+      - ./packages/ecg-collector/config.yaml:/app/config.yaml:ro
       - /var/run/dbus:/var/run/dbus:ro
       - ./logs:/tmp:rw  # Mount logs directory for persistence
     environment:
@@ -69,7 +69,7 @@ services:
       - /dev/ttyACM2:/dev/ttyACM2
       - /dev/ttyACM3:/dev/ttyACM3
     volumes:
-      - ./packages/ecg-collector/config.default.yaml:/app/config.yaml:ro
+      - ./packages/ecg-collector/config.yaml:/app/config.yaml:ro
       - /run/udev:/run/udev:ro
       - ./logs:/tmp:rw  # Mount logs directory for persistence
     environment:

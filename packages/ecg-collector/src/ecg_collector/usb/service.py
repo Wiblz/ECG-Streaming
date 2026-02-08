@@ -349,7 +349,7 @@ class MultiUsbCollectorService(DataCollector):
             target_device_id=desired_target,
             ecg_sample_rate=ecg_rate,
             acc_sample_rate=acc_rate,
-            persist=False,  # Stateless ESPs - config not persisted
+            persist=self.persist_config,
         )
         collector_to_esp_msg = esp_collector_pb2.CollectorToEspMessage()
         collector_to_esp_msg.config.CopyFrom(config_msg)

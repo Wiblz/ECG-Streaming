@@ -51,8 +51,6 @@ logs/
 .env.local
 
 # Project specific
-config.yaml
-config.yml
 *.db
 *.sqlite
 data/
