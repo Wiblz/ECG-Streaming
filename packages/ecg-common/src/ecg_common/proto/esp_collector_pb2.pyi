@@ -74,20 +74,26 @@ class SensorFrame(_message.Message):
 class UsbDeviceInfo(_message.Message):
     __slots__ = (
         "esp_id",
-        "firmware_version",
+        "app_version",
+        "idf_version",
+        "protocol_version",
         "config_required",
         "polar_connected",
         "polar_status",
         "targets",
     )
     ESP_ID_FIELD_NUMBER: _ClassVar[int]
-    FIRMWARE_VERSION_FIELD_NUMBER: _ClassVar[int]
+    APP_VERSION_FIELD_NUMBER: _ClassVar[int]
+    IDF_VERSION_FIELD_NUMBER: _ClassVar[int]
+    PROTOCOL_VERSION_FIELD_NUMBER: _ClassVar[int]
     CONFIG_REQUIRED_FIELD_NUMBER: _ClassVar[int]
     POLAR_CONNECTED_FIELD_NUMBER: _ClassVar[int]
     POLAR_STATUS_FIELD_NUMBER: _ClassVar[int]
     TARGETS_FIELD_NUMBER: _ClassVar[int]
     esp_id: str
-    firmware_version: str
+    app_version: str
+    idf_version: str
+    protocol_version: int
     config_required: bool
     polar_connected: bool
     polar_status: _common_pb2.DeviceStatus
@@ -96,7 +102,9 @@ class UsbDeviceInfo(_message.Message):
     def __init__(
         self,
         esp_id: str | None = ...,
-        firmware_version: str | None = ...,
+        app_version: str | None = ...,
+        idf_version: str | None = ...,
+        protocol_version: int | None = ...,
         config_required: bool = ...,
         polar_connected: bool = ...,
         polar_status: _common_pb2.DeviceStatus | str | None = ...,

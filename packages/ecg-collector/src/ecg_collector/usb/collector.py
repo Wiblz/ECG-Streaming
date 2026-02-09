@@ -555,7 +555,9 @@ async def probe_usb_device(
                     )
                     device_info = EspDeviceInfo(
                         esp_id=info.esp_id,
-                        firmware_version=info.firmware_version,
+                        app_version=info.app_version,
+                        idf_version=info.idf_version,
+                        protocol_version=info.protocol_version,
                         current_targets=target_ids,
                         target_status=target_status,
                         config_required=info.config_required,

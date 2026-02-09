@@ -4,6 +4,7 @@
 
 #include "esp_log.h"
 #include "esp_system.h"
+#include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "host/ble_gap.h"
@@ -22,7 +23,9 @@ static void send_usb_device_info(void) {
     ecg_streaming_EspMessage msg = ecg_streaming_EspMessage_init_zero;
 
     strlcpy(info.esp_id, g_esp_id, sizeof(info.esp_id));
-    strlcpy(info.firmware_version, esp_get_idf_version(), sizeof(info.firmware_version));
+    strlcpy(info.app_version, CONFIG_ECG_APP_VERSION, sizeof(info.app_version));
+    strlcpy(info.idf_version, esp_get_idf_version(), sizeof(info.idf_version));
+    info.protocol_version = CONFIG_ECG_PROTOCOL_VERSION;
     info.config_required = g_config_required;
     bool any_connected = false;
     for (int i = 0; i < MAX_POLAR_LINKS; i++) {

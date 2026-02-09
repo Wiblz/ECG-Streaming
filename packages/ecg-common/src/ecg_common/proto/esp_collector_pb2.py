@@ -13,30 +13,30 @@ _sym_db = _symbol_database.Default()
 from . import common_pb2 as common__pb2
 
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(
-    b'\n\x13esp_collector.proto\x12\recg_streaming\x1a\x0ccommon.proto"\xed\x01\n\nEspMessage\x122\n\x0csensor_frame\x18\x01 \x01(\x0b2\x1a.ecg_streaming.SensorFrameH\x00\x123\n\x0bdevice_info\x18\x02 \x01(\x0b2\x1c.ecg_streaming.UsbDeviceInfoH\x00\x121\n\nconfig_ack\x18\x03 \x01(\x0b2\x1b.ecg_streaming.UsbConfigAckH\x00\x128\n\tble_debug\x18\x04 \x01(\x0b2#.ecg_streaming.BleNotificationDebugH\x00B\t\n\x07message"\xaa\x01\n\x0bSensorFrame\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12.\n\x0bsensor_type\x18\x02 \x01(\x0e2\x19.ecg_streaming.SensorType\x12\x16\n\x0epolar_clock_us\x18\x03 \x01(\x04\x12\x19\n\x11receiver_clock_us\x18\x04 \x01(\x04\x12\x13\n\x0bsample_rate\x18\x05 \x01(\x05\x12\x10\n\x08raw_data\x18\x06 \x01(\x0c"\xcd\x01\n\rUsbDeviceInfo\x12\x0e\n\x06esp_id\x18\x01 \x01(\t\x12\x18\n\x10firmware_version\x18\x02 \x01(\t\x12\x17\n\x0fconfig_required\x18\x03 \x01(\x08\x12\x17\n\x0fpolar_connected\x18\x04 \x01(\x08\x121\n\x0cpolar_status\x18\x05 \x01(\x0e2\x1b.ecg_streaming.DeviceStatus\x12-\n\x07targets\x18\x06 \x03(\x0b2\x1c.ecg_streaming.UsbTargetInfo"[\n\x0cUsbConfigAck\x12\x0e\n\x06esp_id\x18\x01 \x01(\t\x12\x10\n\x08accepted\x18\x02 \x01(\x08\x12\x0f\n\x07message\x18\x03 \x01(\t\x12\x18\n\x10target_device_id\x18\x04 \x01(\t"\xe8\x01\n\x14BleNotificationDebug\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12\x12\n\nframe_type\x18\x02 \x01(\r\x12\x10\n\x08pmd_type\x18\x03 \x01(\r\x12\x11\n\tnotif_len\x18\x04 \x01(\r\x12\x14\n\x0csample_count\x18\x05 \x01(\r\x12\x16\n\x0epolar_clock_us\x18\x06 \x01(\x04\x12\x13\n\x0binterval_us\x18\x07 \x01(\r\x12\x1a\n\x12notification_index\x18\x08 \x01(\x04\x12\x18\n\x10conn_interval_ms\x18\t \x01(\r\x12\x0b\n\x03mtu\x18\n \x01(\r"N\n\x15CollectorToEspMessage\x12*\n\x06config\x18\x01 \x01(\x0b2\x18.ecg_streaming.UsbConfigH\x00B\t\n\x07message"]\n\x0fUsbTargetConfig\x12\x18\n\x10target_device_id\x18\x01 \x01(\t\x12\x17\n\x0fecg_sample_rate\x18\x02 \x01(\x05\x12\x17\n\x0facc_sample_rate\x18\x03 \x01(\x05"\xa7\x01\n\rUsbTargetInfo\x12\x18\n\x10target_device_id\x18\x01 \x01(\t\x12\x17\n\x0fpolar_connected\x18\x02 \x01(\x08\x121\n\x0cpolar_status\x18\x03 \x01(\x0e2\x1b.ecg_streaming.DeviceStatus\x12\x17\n\x0fecg_sample_rate\x18\x04 \x01(\x05\x12\x17\n\x0facc_sample_rate\x18\x05 \x01(\x05"]\n\tUsbConfig\x12\x0e\n\x06esp_id\x18\x01 \x01(\t\x12/\n\x07targets\x18\x02 \x03(\x0b2\x1e.ecg_streaming.UsbTargetConfig\x12\x0f\n\x07persist\x18\x03 \x01(\x08*@\n\nSensorType\x12\x13\n\x0fSENSOR_TYPE_ECG\x10\x00\x12\x1d\n\x19SENSOR_TYPE_ACCELEROMETER\x10\x01b\x06proto3'
+    b'\n\x13esp_collector.proto\x12\recg_streaming\x1a\x0ccommon.proto"\xed\x01\n\nEspMessage\x122\n\x0csensor_frame\x18\x01 \x01(\x0b2\x1a.ecg_streaming.SensorFrameH\x00\x123\n\x0bdevice_info\x18\x02 \x01(\x0b2\x1c.ecg_streaming.UsbDeviceInfoH\x00\x121\n\nconfig_ack\x18\x03 \x01(\x0b2\x1b.ecg_streaming.UsbConfigAckH\x00\x128\n\tble_debug\x18\x04 \x01(\x0b2#.ecg_streaming.BleNotificationDebugH\x00B\t\n\x07message"\xaa\x01\n\x0bSensorFrame\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12.\n\x0bsensor_type\x18\x02 \x01(\x0e2\x19.ecg_streaming.SensorType\x12\x16\n\x0epolar_clock_us\x18\x03 \x01(\x04\x12\x19\n\x11receiver_clock_us\x18\x04 \x01(\x04\x12\x13\n\x0bsample_rate\x18\x05 \x01(\x05\x12\x10\n\x08raw_data\x18\x06 \x01(\x0c"\xf7\x01\n\rUsbDeviceInfo\x12\x0e\n\x06esp_id\x18\x01 \x01(\t\x12\x13\n\x0bapp_version\x18\x02 \x01(\t\x12\x13\n\x0bidf_version\x18\x03 \x01(\t\x12\x18\n\x10protocol_version\x18\x04 \x01(\r\x12\x17\n\x0fconfig_required\x18\x05 \x01(\x08\x12\x17\n\x0fpolar_connected\x18\x06 \x01(\x08\x121\n\x0cpolar_status\x18\x07 \x01(\x0e2\x1b.ecg_streaming.DeviceStatus\x12-\n\x07targets\x18\x08 \x03(\x0b2\x1c.ecg_streaming.UsbTargetInfo"[\n\x0cUsbConfigAck\x12\x0e\n\x06esp_id\x18\x01 \x01(\t\x12\x10\n\x08accepted\x18\x02 \x01(\x08\x12\x0f\n\x07message\x18\x03 \x01(\t\x12\x18\n\x10target_device_id\x18\x04 \x01(\t"\xe8\x01\n\x14BleNotificationDebug\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12\x12\n\nframe_type\x18\x02 \x01(\r\x12\x10\n\x08pmd_type\x18\x03 \x01(\r\x12\x11\n\tnotif_len\x18\x04 \x01(\r\x12\x14\n\x0csample_count\x18\x05 \x01(\r\x12\x16\n\x0epolar_clock_us\x18\x06 \x01(\x04\x12\x13\n\x0binterval_us\x18\x07 \x01(\r\x12\x1a\n\x12notification_index\x18\x08 \x01(\x04\x12\x18\n\x10conn_interval_ms\x18\t \x01(\r\x12\x0b\n\x03mtu\x18\n \x01(\r"N\n\x15CollectorToEspMessage\x12*\n\x06config\x18\x01 \x01(\x0b2\x18.ecg_streaming.UsbConfigH\x00B\t\n\x07message"]\n\x0fUsbTargetConfig\x12\x18\n\x10target_device_id\x18\x01 \x01(\t\x12\x17\n\x0fecg_sample_rate\x18\x02 \x01(\x05\x12\x17\n\x0facc_sample_rate\x18\x03 \x01(\x05"\xa7\x01\n\rUsbTargetInfo\x12\x18\n\x10target_device_id\x18\x01 \x01(\t\x12\x17\n\x0fpolar_connected\x18\x02 \x01(\x08\x121\n\x0cpolar_status\x18\x03 \x01(\x0e2\x1b.ecg_streaming.DeviceStatus\x12\x17\n\x0fecg_sample_rate\x18\x04 \x01(\x05\x12\x17\n\x0facc_sample_rate\x18\x05 \x01(\x05"]\n\tUsbConfig\x12\x0e\n\x06esp_id\x18\x01 \x01(\t\x12/\n\x07targets\x18\x02 \x03(\x0b2\x1e.ecg_streaming.UsbTargetConfig\x12\x0f\n\x07persist\x18\x03 \x01(\x08*@\n\nSensorType\x12\x13\n\x0fSENSOR_TYPE_ECG\x10\x00\x12\x1d\n\x19SENSOR_TYPE_ACCELEROMETER\x10\x01b\x06proto3'
 )
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, "esp_collector_pb2", _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
     DESCRIPTOR._loaded_options = None
-    _globals["_SENSORTYPE"]._serialized_start = 1441
-    _globals["_SENSORTYPE"]._serialized_end = 1505
+    _globals["_SENSORTYPE"]._serialized_start = 1483
+    _globals["_SENSORTYPE"]._serialized_end = 1547
     _globals["_ESPMESSAGE"]._serialized_start = 53
     _globals["_ESPMESSAGE"]._serialized_end = 290
     _globals["_SENSORFRAME"]._serialized_start = 293
     _globals["_SENSORFRAME"]._serialized_end = 463
     _globals["_USBDEVICEINFO"]._serialized_start = 466
-    _globals["_USBDEVICEINFO"]._serialized_end = 671
-    _globals["_USBCONFIGACK"]._serialized_start = 673
-    _globals["_USBCONFIGACK"]._serialized_end = 764
-    _globals["_BLENOTIFICATIONDEBUG"]._serialized_start = 767
-    _globals["_BLENOTIFICATIONDEBUG"]._serialized_end = 999
-    _globals["_COLLECTORTOESPMESSAGE"]._serialized_start = 1001
-    _globals["_COLLECTORTOESPMESSAGE"]._serialized_end = 1079
-    _globals["_USBTARGETCONFIG"]._serialized_start = 1081
-    _globals["_USBTARGETCONFIG"]._serialized_end = 1174
-    _globals["_USBTARGETINFO"]._serialized_start = 1177
-    _globals["_USBTARGETINFO"]._serialized_end = 1344
-    _globals["_USBCONFIG"]._serialized_start = 1346
-    _globals["_USBCONFIG"]._serialized_end = 1439
+    _globals["_USBDEVICEINFO"]._serialized_end = 713
+    _globals["_USBCONFIGACK"]._serialized_start = 715
+    _globals["_USBCONFIGACK"]._serialized_end = 806
+    _globals["_BLENOTIFICATIONDEBUG"]._serialized_start = 809
+    _globals["_BLENOTIFICATIONDEBUG"]._serialized_end = 1041
+    _globals["_COLLECTORTOESPMESSAGE"]._serialized_start = 1043
+    _globals["_COLLECTORTOESPMESSAGE"]._serialized_end = 1121
+    _globals["_USBTARGETCONFIG"]._serialized_start = 1123
+    _globals["_USBTARGETCONFIG"]._serialized_end = 1216
+    _globals["_USBTARGETINFO"]._serialized_start = 1219
+    _globals["_USBTARGETINFO"]._serialized_end = 1386
+    _globals["_USBCONFIG"]._serialized_start = 1388
+    _globals["_USBCONFIG"]._serialized_end = 1481

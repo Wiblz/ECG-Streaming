@@ -233,7 +233,8 @@ def usb_scan(
             table.add_column("Status", style="white")
             table.add_column("ESP ID", style="cyan")
             table.add_column("Target", style="magenta")
-            table.add_column("FW", style="yellow")
+            table.add_column("App", style="yellow")
+            table.add_column("Proto", style="yellow")
             table.add_column("Polar", style="blue")
             table.add_column("Config", style="red")
             return table
@@ -275,7 +276,8 @@ def usb_scan(
                     physical_device_display = "Unknown"
                 esp_id = ""
                 target = ""
-                fw = ""
+                app = ""
+                proto = ""
                 polar = ""
                 config = ""
 
@@ -286,7 +288,8 @@ def usb_scan(
                         target = ", ".join(group.device_info.current_targets)
                     else:
                         target = "<unassigned>"
-                    fw = group.device_info.firmware_version
+                    app = group.device_info.app_version
+                    proto = str(group.device_info.protocol_version)
                     polar = "Connected" if group.device_info.polar_connected else "Disconnected"
                     config = "Unconfigured" if group.device_info.config_required else "Configured"
 
@@ -302,7 +305,8 @@ def usb_scan(
                         status_display,
                         esp_id,
                         target,
-                        fw,
+                        app,
+                        proto,
                         polar,
                         config,
                     )
@@ -322,6 +326,7 @@ def usb_scan(
                         "",
                         "",
                         "",
+                        "",
                     )
 
             return table
@@ -332,6 +337,16 @@ def usb_scan(
                 device_groups,
                 timeout_s=timeout,
                 on_update=lambda group_key, group: live.update(update_table()),
+            )
+
+        app_versions = {
+            g.device_info.app_version
+            for g in device_groups.values()
+            if g.device_info and g.device_info.app_version
+        }
+        if len(app_versions) > 1:
+            console.print(
+                f"[yellow]Warning: multiple ESP app versions detected: {', '.join(sorted(app_versions))}[/yellow]"
             )
 
         # Final summary
@@ -598,6 +613,8 @@ def usb_auto_pair(
             esp_table = Table(title=f"ESP Devices ({len(device_groups)} found)")
             esp_table.add_column("ESP ID", style="cyan")
             esp_table.add_column("Current Targets", style="magenta")
+            esp_table.add_column("App", style="yellow")
+            esp_table.add_column("Proto", style="yellow")
             esp_table.add_column("Polar Status", style="white")
             esp_table.add_column("Probe Status", style="yellow")
 
@@ -637,6 +654,8 @@ def usb_auto_pair(
                         )
                     else:
                         target = "[dim]<unassigned>[/dim]"
+                    app = group.device_info.app_version
+                    proto = str(group.device_info.protocol_version)
                     polar_status = (
                         "[green]Connected[/green]"
                         if group.device_info.polar_connected
@@ -645,9 +664,11 @@ def usb_auto_pair(
                 else:
                     esp_id = f"[dim]{group.data_interface.device_path}[/dim]"
                     target = "[dim]—[/dim]"
+                    app = "[dim]—[/dim]"
+                    proto = "[dim]—[/dim]"
                     polar_status = "[dim]—[/dim]"
 
-                esp_table.add_row(esp_id, target, polar_status, probe_status)
+                esp_table.add_row(esp_id, target, app, proto, polar_status, probe_status)
 
             return Group(polar_table, "", esp_table)
 
@@ -704,6 +725,16 @@ def usb_auto_pair(
         console.print(f"[yellow]• {discovered_count} discovered but not connected[/yellow]")
         console.print(f"[red]• {not_discovered_count} not discovered[/red]")
 
+        app_versions = {
+            g.device_info.app_version
+            for g in device_groups.values()
+            if g.device_info and g.device_info.app_version
+        }
+        if len(app_versions) > 1:
+            console.print(
+                f"[yellow]Warning: multiple ESP app versions detected: {', '.join(sorted(app_versions))}[/yellow]"
+            )
+
         # Dry-run pairing suggestion based on current state
         esp_inventory: dict[str, EspInventoryEntry] = {}
         now = time.time()
@@ -719,7 +750,9 @@ def usb_auto_pair(
                 target_status=info.target_status,
                 polar_connected=info.polar_connected,
                 config_required=info.config_required,
-                firmware_version=info.firmware_version,
+                app_version=info.app_version,
+                idf_version=info.idf_version,
+                protocol_version=info.protocol_version,
             )
 
         available_polars = {p: object() for p in discovered_polar_ids}

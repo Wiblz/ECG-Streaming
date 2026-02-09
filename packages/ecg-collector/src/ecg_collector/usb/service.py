@@ -18,6 +18,7 @@ from ecg_collector.usb.pairing import PairingManager
 
 logger = get_logger(__name__)
 ble_debug_logger = get_logger("ecg_collector.ble_debug")
+EXPECTED_PROTOCOL_VERSION = 1
 
 
 class MultiUsbCollectorService(DataCollector):
@@ -81,6 +82,7 @@ class MultiUsbCollectorService(DataCollector):
         self._configured_esp_ids: set[str] = set()
         self._unmapped_esp_ids: set[str] = set()
         self._last_frame_ts: dict[tuple[str, SensorType], int] = {}
+        self._seen_app_versions: set[str] = set()
 
         # Initialize auto-pairing modules
         self._inventory_manager = EspInventoryManager()
@@ -335,12 +337,28 @@ class MultiUsbCollectorService(DataCollector):
             return
 
         logger.info(
-            "USB device_info from %s: polar_connected=%s config_required=%s fw=%s",
+            "USB device_info from %s: polar_connected=%s config_required=%s app=%s idf=%s proto=%s",
             esp_id,
             info.polar_connected,
             info.config_required,
-            info.firmware_version,
+            info.app_version,
+            info.idf_version,
+            info.protocol_version,
         )
+        if info.protocol_version != EXPECTED_PROTOCOL_VERSION:
+            logger.warning(
+                "ESP %s protocol version mismatch: expected=%s got=%s",
+                esp_id,
+                EXPECTED_PROTOCOL_VERSION,
+                info.protocol_version,
+            )
+        if info.app_version:
+            self._seen_app_versions.add(info.app_version)
+            if len(self._seen_app_versions) > 1:
+                logger.warning(
+                    "Multiple ESP app versions detected: %s",
+                    ", ".join(sorted(self._seen_app_versions)),
+                )
         if info.targets:
             target_summary = ", ".join(
                 f"{t.target_device_id or '(none)'}{' (connected)' if t.polar_connected else ''}"
