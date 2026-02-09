@@ -1,13 +1,18 @@
 """Configuration management for ECG Collector."""
 
 from pathlib import Path
+from typing import cast
 
-from pydantic import Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings.sources.base import PydanticBaseSettingsSource
+from pydantic_settings.sources.providers.yaml import YamlConfigSettingsSource
 
 
-class DeviceConfig(BaseSettings):
+class DeviceConfig(BaseModel):
     """Configuration for a single device."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     nickname: str | None = Field(
         default=None,
@@ -35,8 +40,10 @@ class DeviceConfig(BaseSettings):
     )
 
 
-class BLEConfig(BaseSettings):
+class BLEConfig(BaseModel):
     """BLE connection configuration."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     max_devices_per_adapter: int = Field(
         default=7,
@@ -48,8 +55,10 @@ class BLEConfig(BaseSettings):
     )
 
 
-class AggregatorConfig(BaseSettings):
+class AggregatorConfig(BaseModel):
     """Aggregator connection configuration."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     host: str = Field(
         default="localhost",
@@ -69,8 +78,10 @@ class AggregatorConfig(BaseSettings):
     )
 
 
-class LoggingConfig(BaseSettings):
+class LoggingConfig(BaseModel):
     """Logging configuration."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     level: str = Field(
         default="INFO",
@@ -90,11 +101,12 @@ class LoggingConfig(BaseSettings):
     )
 
 
-class USBConfig(BaseSettings):
+class USBConfig(BaseModel):
     """USB collector configuration."""
 
-    model_config = SettingsConfigDict(
+    model_config = ConfigDict(
         extra="ignore",  # Ignore old fields like allowed_device_ids, device_map
+        frozen=True,
     )
 
     auto_discover: bool = Field(
@@ -129,7 +141,8 @@ class CollectorSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="ECG_COLLECTOR_",
         env_nested_delimiter="__",
-        extra="ignore",  # Ignore extra fields for backward compatibility
+        extra="forbid",
+        frozen=True,
     )
 
     collector_id: str = Field(
@@ -167,6 +180,23 @@ class CollectorSettings(BaseSettings):
         default_factory=USBConfig,
         description="USB collector settings",
     )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            YamlConfigSettingsSource(settings_cls),
+            file_secret_settings,
+        )
 
     @field_validator("devices", mode="before")
     @classmethod
@@ -233,54 +263,10 @@ class CollectorSettings(BaseSettings):
             Environment variables override YAML values.
             Use ECG_COLLECTOR_* prefix (e.g., ECG_COLLECTOR_AGGREGATOR__HOST).
         """
-        import os
 
-        import yaml
-
-        with open(config_path) as f:
-            config_data = yaml.safe_load(f) or {}
-
-        # Check which env vars are actually set
-        env_prefix = "ECG_COLLECTOR_"
-        env_delimiter = "__"
-
-        # Collect env var overrides
-        import json
-        from typing import Any
-
-        env_overrides: dict[str, Any] = {}
-        for env_key, env_value in os.environ.items():
-            if env_key.startswith(env_prefix):
-                # Remove prefix and convert to nested dict structure
-                key_path = env_key[len(env_prefix) :].lower().split(env_delimiter)
-
-                # Try to parse value as JSON for complex types (lists, dicts, bools, numbers)
-                # If it fails, keep as string
-                try:
-                    parsed_value = json.loads(env_value)
-                except (json.JSONDecodeError, ValueError):
-                    parsed_value = env_value
-
-                # Build nested dict
-                current = env_overrides
-                for key in key_path[:-1]:
-                    if key not in current:
-                        current[key] = {}
-                    current = current[key]
-
-                # Set the final value
-                current[key_path[-1]] = parsed_value
-
-        # Merge: YAML provides base, env_overrides take precedence
-        def deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
-            """Recursively merge overrides into base."""
-            result = base.copy()
-            for key, value in overrides.items():
-                if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-                    result[key] = deep_merge(result[key], value)
-                else:
-                    result[key] = value
-            return result
-
-        merged_data = deep_merge(config_data, env_overrides)
-        return cls(**merged_data)
+        settings_type = type(
+            f"{cls.__name__}WithYaml",
+            (cls,),
+            {"model_config": cls.model_config | {"yaml_file": config_path}},
+        )
+        return cast("CollectorSettings", settings_type())

@@ -467,16 +467,20 @@ def usb_run(
         console.print(f"  Display Name: {display_name}")
 
     async def _run() -> None:
-        # Override settings if CLI args provided
-        effective_settings = settings
+        # Override settings if CLI args provided (immutable settings)
+        settings_update: dict[str, object] = {}
         if collector_id:
-            effective_settings.collector_id = collector_id
+            settings_update["collector_id"] = collector_id
         if display_name:
-            effective_settings.display_name = display_name
-        if host != settings.aggregator.host:
-            effective_settings.aggregator.host = host
-        if port != settings.aggregator.port:
-            effective_settings.aggregator.port = port
+            settings_update["display_name"] = display_name
+        if host != settings.aggregator.host or port != settings.aggregator.port:
+            settings_update["aggregator"] = settings.aggregator.model_copy(
+                update={"host": host, "port": port}
+            )
+
+        effective_settings = (
+            settings.model_copy(update=settings_update) if settings_update else settings
+        )
 
         # Create service with unified settings
         service = MultiUsbCollectorService(
@@ -738,7 +742,7 @@ def usb_auto_pair(
                 protocol_version=info.protocol_version,
             )
 
-        available_polars = {p: object() for p in discovered_polar_ids}
+        available_polars = set(discovered_polar_ids)
 
         console.print()
         console.print("[bold]Dry-run pairing suggestion:[/bold]")

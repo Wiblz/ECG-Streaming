@@ -40,7 +40,7 @@ class EspInventoryManager:
         self._device_path_last_seen: dict[
             str, float
         ] = {}  # device_path -> last_seen_ts (for unknown ESPs)
-        self._available_polars: dict[str, object] = {}  # device_id -> PolarDeviceInfo
+        self._available_polars: set[str] = set()  # device_id set
         self._running = False
         self._discovery_task: asyncio.Task | None = None
         self._ble_scan_task: asyncio.Task | None = None
@@ -51,7 +51,7 @@ class EspInventoryManager:
         return self._esp_inventory
 
     @property
-    def available_polars(self) -> dict[str, object]:
+    def available_polars(self) -> set[str]:
         """Get available Polar devices (read-only access)."""
         return self._available_polars
 
@@ -187,12 +187,12 @@ class EspInventoryManager:
             try:
                 logger.info("Running BLE scan for Polar devices")
                 polar_devices = await scan_polar_devices(timeout=5.0)
-                self._available_polars = {p.device_id: p for p in polar_devices}
+                self._available_polars = {p.device_id for p in polar_devices}
                 if self._available_polars:
                     logger.info(
                         "BLE scan found %d Polar devices: %s",
                         len(self._available_polars),
-                        ", ".join(sorted(self._available_polars.keys())),
+                        ", ".join(sorted(self._available_polars)),
                     )
                 else:
                     logger.info("BLE scan found 0 Polar devices")

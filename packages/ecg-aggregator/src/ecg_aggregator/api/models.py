@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class DeviceNicknameUpdate(BaseModel):
@@ -16,9 +16,9 @@ class CollectorInfo(BaseModel):
 
     collector_id: str
     display_name: str | None = None
-    device_ids: list[str] = []
+    device_ids: list[str] = Field(default_factory=list)
     version: str | None = None
-    metadata: dict[str, Any] = {}
+    metadata: dict[str, Any] = Field(default_factory=dict)
     first_seen: float | None = None
     last_seen: float | None = None
     connected_at: float | None = None

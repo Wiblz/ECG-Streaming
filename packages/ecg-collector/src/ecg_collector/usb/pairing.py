@@ -65,13 +65,13 @@ class PairingManager:
     def compute_pairings(
         self,
         esp_inventory: dict[str, EspInventoryEntry],
-        available_polars: dict[str, object],
+        available_polars: set[str],
     ) -> dict[str, str]:
         """Compute ESP→Polar pairings (manual mappings first, then preserve existing, then lexicographic).
 
         Args:
             esp_inventory: ESP inventory dict
-            available_polars: Available Polar devices dict
+            available_polars: Available Polar device IDs
 
         Returns:
             Dict mapping esp_id to polar_id
@@ -80,7 +80,7 @@ class PairingManager:
 
         # Get available ESPs and Polars
         available_esps = list(esp_inventory.keys())
-        available_polar_ids = list(available_polars.keys())
+        available_polar_ids = list(available_polars)
 
         # Step 1: Apply manual ESP→device mappings from config (highest priority)
         used_polars = set()
@@ -118,14 +118,14 @@ class PairingManager:
     async def _pairing_loop(
         self,
         get_inventory: Callable[[], dict[str, EspInventoryEntry]],
-        get_polars: Callable[[], dict[str, object]],
+        get_polars: Callable[[], set[str]],
         send_config: Callable[[str, str, str, int, int], Awaitable[None]],
     ) -> None:
         """Match ESPs with Polars and apply configs.
 
         Args:
             get_inventory: Function to get current ESP inventory
-            get_polars: Function to get current available Polars
+            get_polars: Function to get current available Polar device IDs
             send_config: Async function to send config (esp_id, device_path, target, ecg, acc)
         """
         pairing_interval = 10.0  # seconds
@@ -187,14 +187,14 @@ class PairingManager:
     def start(
         self,
         get_inventory: Callable[[], dict[str, EspInventoryEntry]],
-        get_polars: Callable[[], dict[str, object]],
+        get_polars: Callable[[], set[str]],
         send_config: Callable[[str, str, str, int, int], Awaitable[None]],
     ) -> None:
         """Start pairing loop.
 
         Args:
             get_inventory: Function to get current ESP inventory
-            get_polars: Function to get current available Polars
+            get_polars: Function to get current available Polar device IDs
             send_config: Async function to send config (esp_id, device_path, target, ecg, acc)
         """
         if self._running:

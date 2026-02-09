@@ -1,13 +1,18 @@
 """Configuration management for ECG Aggregator."""
 
 from pathlib import Path
+from typing import cast
 
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings.sources.base import PydanticBaseSettingsSource
+from pydantic_settings.sources.providers.yaml import YamlConfigSettingsSource
 
 
-class GRPCConfig(BaseSettings):
+class GRPCConfig(BaseModel):
     """gRPC server configuration."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     port: int = Field(
         default=50051,
@@ -15,8 +20,10 @@ class GRPCConfig(BaseSettings):
     )
 
 
-class SyncConfig(BaseSettings):
+class SyncConfig(BaseModel):
     """Time synchronization configuration."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     window_size: int = Field(
         default=100,
@@ -32,8 +39,10 @@ class SyncConfig(BaseSettings):
     )
 
 
-class APIConfig(BaseSettings):
+class APIConfig(BaseModel):
     """API server configuration."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     port: int = Field(
         default=8000,
@@ -49,8 +58,10 @@ class APIConfig(BaseSettings):
     )
 
 
-class StorageConfig(BaseSettings):
+class StorageConfig(BaseModel):
     """Database storage configuration."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     database_path: Path = Field(
         default=Path("ecg_data.db"),
@@ -62,8 +73,10 @@ class StorageConfig(BaseSettings):
     )
 
 
-class BufferConfig(BaseSettings):
+class BufferConfig(BaseModel):
     """Data buffer configuration."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     duration_seconds: int = Field(
         default=30,
@@ -75,8 +88,10 @@ class BufferConfig(BaseSettings):
     )
 
 
-class LoggingConfig(BaseSettings):
+class LoggingConfig(BaseModel):
     """Logging configuration."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     level: str = Field(
         default="INFO",
@@ -102,7 +117,8 @@ class AggregatorSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="ECG_AGGREGATOR_",
         env_nested_delimiter="__",
-        extra="ignore",
+        extra="forbid",
+        frozen=True,
     )
 
     grpc: GRPCConfig = Field(
@@ -136,6 +152,23 @@ class AggregatorSettings(BaseSettings):
     )
 
     @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            YamlConfigSettingsSource(settings_cls),
+            file_secret_settings,
+        )
+
+    @classmethod
     def from_yaml(cls, config_path: Path) -> AggregatorSettings:
         """Load configuration from a YAML file.
 
@@ -149,54 +182,10 @@ class AggregatorSettings(BaseSettings):
             Environment variables override YAML values.
             Use ECG_AGGREGATOR_* prefix (e.g., ECG_AGGREGATOR_STORAGE__DATABASE_PATH).
         """
-        import os
 
-        import yaml
-
-        with open(config_path) as f:
-            config_data = yaml.safe_load(f) or {}
-
-        # Check which env vars are actually set
-        env_prefix = "ECG_AGGREGATOR_"
-        env_delimiter = "__"
-
-        # Collect env var overrides
-        import json
-        from typing import Any
-
-        env_overrides: dict[str, Any] = {}
-        for env_key, env_value in os.environ.items():
-            if env_key.startswith(env_prefix):
-                # Remove prefix and convert to nested dict structure
-                key_path = env_key[len(env_prefix) :].lower().split(env_delimiter)
-
-                # Try to parse value as JSON for complex types (lists, dicts, bools, numbers)
-                # If it fails, keep as string
-                try:
-                    parsed_value = json.loads(env_value)
-                except (json.JSONDecodeError, ValueError):
-                    parsed_value = env_value
-
-                # Build nested dict
-                current = env_overrides
-                for key in key_path[:-1]:
-                    if key not in current:
-                        current[key] = {}
-                    current = current[key]
-
-                # Set the final value
-                current[key_path[-1]] = parsed_value
-
-        # Merge: YAML provides base, env_overrides take precedence
-        def deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
-            """Recursively merge overrides into base."""
-            result = base.copy()
-            for key, value in overrides.items():
-                if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-                    result[key] = deep_merge(result[key], value)
-                else:
-                    result[key] = value
-            return result
-
-        merged_data = deep_merge(config_data, env_overrides)
-        return cls(**merged_data)
+        settings_type = type(
+            f"{cls.__name__}WithYaml",
+            (cls,),
+            {"model_config": cls.model_config | {"yaml_file": config_path}},
+        )
+        return cast("AggregatorSettings", settings_type())
