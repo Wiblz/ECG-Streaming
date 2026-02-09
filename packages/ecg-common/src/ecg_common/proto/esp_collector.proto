@@ -44,11 +44,13 @@ message SensorFrame {
 // Sent by ESP32 on connection or when status changes
 message UsbDeviceInfo {
   string esp_id = 1;                  // Unique ESP32 identifier (e.g., MAC address)
-  string firmware_version = 2;        // ESP32 firmware version
-  string current_target = 3;          // Currently configured Polar device ID (empty if none)
-  bool config_required = 4;           // True if ESP needs configuration before starting
-  bool polar_connected = 5;           // True if currently connected to Polar device
-  DeviceStatus polar_status = 6;      // Status of Polar device connection
+  string app_version = 2;             // Firmware app version (our code)
+  string idf_version = 3;             // ESP-IDF version
+  uint32 protocol_version = 4;        // USB protocol version
+  string current_target = 5;          // Currently configured Polar device ID (empty if none)
+  bool config_required = 6;           // True if ESP needs configuration before starting
+  bool polar_connected = 7;           // True if currently connected to Polar device
+  DeviceStatus polar_status = 8;      // Status of Polar device connection
 }
 
 // Configuration acknowledgment from ESP32

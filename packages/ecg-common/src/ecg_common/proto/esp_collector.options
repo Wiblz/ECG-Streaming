@@ -7,7 +7,8 @@ ecg_streaming.SensorFrame.raw_data max_length:512
 
 # UsbDeviceInfo
 ecg_streaming.UsbDeviceInfo.esp_id max_length:64
-ecg_streaming.UsbDeviceInfo.firmware_version max_length:32
+ecg_streaming.UsbDeviceInfo.app_version max_length:32
+ecg_streaming.UsbDeviceInfo.idf_version max_length:32
 ecg_streaming.UsbDeviceInfo.current_target max_length:64
 
 # UsbConfig

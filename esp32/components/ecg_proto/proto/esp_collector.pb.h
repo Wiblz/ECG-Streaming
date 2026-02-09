@@ -34,7 +34,9 @@ typedef struct _ecg_streaming_SensorFrame {
  Sent by ESP32 on connection or when status changes */
 typedef struct _ecg_streaming_UsbDeviceInfo {
     char esp_id[65]; /* Unique ESP32 identifier (e.g., MAC address) */
-    char firmware_version[33]; /* ESP32 firmware version */
+    char app_version[33]; /* Firmware app version (our code) */
+    char idf_version[33]; /* ESP-IDF version */
+    uint32_t protocol_version; /* USB protocol version */
     char current_target[65]; /* Currently configured Polar device ID (empty if none) */
     bool config_required; /* True if ESP needs configuration before starting */
     bool polar_connected; /* True if currently connected to Polar device */
@@ -115,14 +117,14 @@ extern "C" {
 /* Initializer values for message structs */
 #define ecg_streaming_EspMessage_init_default    {0, {ecg_streaming_SensorFrame_init_default}}
 #define ecg_streaming_SensorFrame_init_default   {"", _ecg_streaming_SensorType_MIN, 0, 0, 0, {{NULL}, NULL}}
-#define ecg_streaming_UsbDeviceInfo_init_default {"", "", "", 0, 0, _ecg_streaming_DeviceStatus_MIN}
+#define ecg_streaming_UsbDeviceInfo_init_default {"", "", "", 0, "", 0, 0, _ecg_streaming_DeviceStatus_MIN}
 #define ecg_streaming_UsbConfigAck_init_default  {"", 0, "", ""}
 #define ecg_streaming_BleNotificationDebug_init_default {"", 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define ecg_streaming_CollectorToEspMessage_init_default {0, {ecg_streaming_UsbConfig_init_default}}
 #define ecg_streaming_UsbConfig_init_default     {"", "", 0, 0, 0}
 #define ecg_streaming_EspMessage_init_zero       {0, {ecg_streaming_SensorFrame_init_zero}}
 #define ecg_streaming_SensorFrame_init_zero      {"", _ecg_streaming_SensorType_MIN, 0, 0, 0, {{NULL}, NULL}}
-#define ecg_streaming_UsbDeviceInfo_init_zero    {"", "", "", 0, 0, _ecg_streaming_DeviceStatus_MIN}
+#define ecg_streaming_UsbDeviceInfo_init_zero    {"", "", "", 0, "", 0, 0, _ecg_streaming_DeviceStatus_MIN}
 #define ecg_streaming_UsbConfigAck_init_zero     {"", 0, "", ""}
 #define ecg_streaming_BleNotificationDebug_init_zero {"", 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define ecg_streaming_CollectorToEspMessage_init_zero {0, {ecg_streaming_UsbConfig_init_zero}}
@@ -136,11 +138,13 @@ extern "C" {
 #define ecg_streaming_SensorFrame_sample_rate_tag 5
 #define ecg_streaming_SensorFrame_raw_data_tag   6
 #define ecg_streaming_UsbDeviceInfo_esp_id_tag   1
-#define ecg_streaming_UsbDeviceInfo_firmware_version_tag 2
-#define ecg_streaming_UsbDeviceInfo_current_target_tag 3
-#define ecg_streaming_UsbDeviceInfo_config_required_tag 4
-#define ecg_streaming_UsbDeviceInfo_polar_connected_tag 5
-#define ecg_streaming_UsbDeviceInfo_polar_status_tag 6
+#define ecg_streaming_UsbDeviceInfo_app_version_tag 2
+#define ecg_streaming_UsbDeviceInfo_idf_version_tag 3
+#define ecg_streaming_UsbDeviceInfo_protocol_version_tag 4
+#define ecg_streaming_UsbDeviceInfo_current_target_tag 5
+#define ecg_streaming_UsbDeviceInfo_config_required_tag 6
+#define ecg_streaming_UsbDeviceInfo_polar_connected_tag 7
+#define ecg_streaming_UsbDeviceInfo_polar_status_tag 8
 #define ecg_streaming_UsbConfigAck_esp_id_tag    1
 #define ecg_streaming_UsbConfigAck_accepted_tag  2
 #define ecg_streaming_UsbConfigAck_message_tag   3
@@ -191,11 +195,13 @@ X(a, CALLBACK, SINGULAR, BYTES,    raw_data,          6)
 
 #define ecg_streaming_UsbDeviceInfo_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, STRING,   esp_id,            1) \
-X(a, STATIC,   SINGULAR, STRING,   firmware_version,   2) \
-X(a, STATIC,   SINGULAR, STRING,   current_target,    3) \
-X(a, STATIC,   SINGULAR, BOOL,     config_required,   4) \
-X(a, STATIC,   SINGULAR, BOOL,     polar_connected,   5) \
-X(a, STATIC,   SINGULAR, UENUM,    polar_status,      6)
+X(a, STATIC,   SINGULAR, STRING,   app_version,       2) \
+X(a, STATIC,   SINGULAR, STRING,   idf_version,       3) \
+X(a, STATIC,   SINGULAR, UINT32,   protocol_version,   4) \
+X(a, STATIC,   SINGULAR, STRING,   current_target,    5) \
+X(a, STATIC,   SINGULAR, BOOL,     config_required,   6) \
+X(a, STATIC,   SINGULAR, BOOL,     polar_connected,   7) \
+X(a, STATIC,   SINGULAR, UENUM,    polar_status,      8)
 #define ecg_streaming_UsbDeviceInfo_CALLBACK NULL
 #define ecg_streaming_UsbDeviceInfo_DEFAULT NULL
 
@@ -261,7 +267,7 @@ extern const pb_msgdesc_t ecg_streaming_UsbConfig_msg;
 #define ecg_streaming_CollectorToEspMessage_size 159
 #define ecg_streaming_UsbConfigAck_size          265
 #define ecg_streaming_UsbConfig_size             156
-#define ecg_streaming_UsbDeviceInfo_size         172
+#define ecg_streaming_UsbDeviceInfo_size         212
 
 #ifdef __cplusplus
 } /* extern "C" */

@@ -26,7 +26,9 @@ class EspInventoryEntry:
     current_target: str | None
     polar_connected: bool
     config_required: bool
-    firmware_version: str
+    app_version: str
+    idf_version: str
+    protocol_version: int
 
 
 class EspInventoryManager:
@@ -73,7 +75,9 @@ class EspInventoryManager:
                 current_target=info.current_target,
                 polar_connected=info.polar_connected,
                 config_required=info.config_required,
-                firmware_version=info.firmware_version,
+                app_version=info.app_version,
+                idf_version=info.idf_version,
+                protocol_version=info.protocol_version,
             )
         elif msg_type in ["sensor_frame"]:
             # Update timestamp for active streaming ESPs
@@ -156,7 +160,9 @@ class EspInventoryManager:
                                 current_target=group.device_info.current_target,
                                 polar_connected=group.device_info.polar_connected,
                                 config_required=group.device_info.config_required,
-                                firmware_version=group.device_info.firmware_version,
+                                app_version=group.device_info.app_version,
+                                idf_version=group.device_info.idf_version,
+                                protocol_version=group.device_info.protocol_version,
                             )
 
                 logger.info(

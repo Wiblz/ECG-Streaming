@@ -73,6 +73,22 @@ menu "ECG Collector Configuration"
             depends on DEBUG_PMD_PROTO_ENABLE
             help
                 Emit one debug message every N PMD notifications.
-    endmenu
+endmenu
+
+menu "ECG Versioning"
+
+config ECG_APP_VERSION
+    string "Firmware app version"
+    default "0.1.0"
+    help
+        Firmware app version string reported to the collector.
+
+config ECG_PROTOCOL_VERSION
+    int "USB protocol version"
+    default 1
+    help
+        Increment when USB protocol fields or semantics change.
+
+endmenu
 
 endmenu

@@ -612,6 +612,13 @@ CONFIG_ACC_SAMPLE_RATE=100
 #
 # CONFIG_DEBUG_PMD_PROTO_ENABLE is not set
 # end of BLE PMD debug over USB
+
+#
+# ECG Versioning
+#
+CONFIG_ECG_APP_VERSION="0.1.0"
+CONFIG_ECG_PROTOCOL_VERSION=1
+# end of ECG Versioning
 # end of ECG Collector Configuration
 
 #

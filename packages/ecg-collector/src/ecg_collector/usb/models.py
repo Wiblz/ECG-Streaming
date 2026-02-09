@@ -66,7 +66,9 @@ class EspDeviceInfo:
     """Information about an ESP32 device."""
 
     esp_id: str
-    firmware_version: str
+    app_version: str
+    idf_version: str
+    protocol_version: int
     current_target: str | None  # None when unassigned
     config_required: bool
     polar_connected: bool
