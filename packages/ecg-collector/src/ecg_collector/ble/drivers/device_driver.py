@@ -1,6 +1,7 @@
 """Abstract device driver interface for ECG devices."""
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 
 from ecg_common.models import DeviceStatus, SensorFrame
 
@@ -79,7 +80,7 @@ class DeviceDriver(ABC):
         pass
 
     @abstractmethod
-    async def get_device_info(self) -> dict:
+    async def get_device_info(self) -> Mapping[str, object]:
         """Get device information.
 
         Returns:

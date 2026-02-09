@@ -1,9 +1,12 @@
 """Server-Sent Events (SSE) broadcaster for status updates."""
 
 import asyncio
-from typing import Literal, TypedDict
+from typing import Literal
 
 from ecg_common.logging import get_logger
+from pydantic import BaseModel, ConfigDict
+
+from ecg_aggregator.api.models import BufferStats
 
 logger = get_logger(__name__)
 
@@ -17,49 +20,65 @@ SSEEventType = Literal[
 CollectorStatus = Literal["CONNECTED", "HEALTHY", "DISCONNECTED"]
 
 # Device status values
-DeviceStatus = Literal["UNKNOWN", "DISCONNECTED", "CONNECTING", "CONNECTED", "STREAMING", "ERROR"]
+DeviceStatus = Literal[
+    "UNKNOWN",
+    "DISCONNECTED",
+    "CONNECTING",
+    "CONNECTED",
+    "STREAMING",
+    "ERROR",
+]
 
 
-class ConnectedEventData(TypedDict):
+class ConnectedEventData(BaseModel):
     """Data for connected event (sent on initial connection)."""
 
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
     timestamp: float
 
 
-class CollectorUpdateData(TypedDict, total=False):
+class CollectorUpdateData(BaseModel):
     """Data for collector_update events."""
 
-    collector_id: str  # Required
-    display_name: str
-    status: CollectorStatus
-    device_count: int
-    samples_sent: int
-    active_devices: int
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    collector_id: str
+    display_name: str | None = None
+    status: CollectorStatus | None = None
+    device_count: int | None = None
+    samples_sent: int | None = None
+    active_devices: int | None = None
 
 
-class DeviceUpdateData(TypedDict, total=False):
+class DeviceUpdateData(BaseModel):
     """Data for device_update events."""
 
-    device_id: str  # Required
-    collector_id: str  # Required
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    device_id: str
+    collector_id: str
     status: DeviceStatus
-    battery_level: int | None
+    battery_level: int | None = None
 
 
-class BufferStatsData(TypedDict):
+class BufferStatsData(BaseModel):
     """Data for buffer_stats events."""
 
-    ecg_buffer: dict[str, object]
-    acc_buffer: dict[str, object]
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    ecg_buffer: BufferStats
+    acc_buffer: BufferStats
 
 
-class HeartbeatEventData(TypedDict):
+class HeartbeatEventData(BaseModel):
     """Data for heartbeat event (keepalive)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     timestamp: float
 
 
-# Union of all event data types
 SSEEventData = (
     ConnectedEventData
     | CollectorUpdateData
@@ -99,7 +118,7 @@ class SSEBroadcaster:
             self._clients.discard(client_queue)
         logger.info(f"SSE client disconnected. Total clients: {len(self._clients)}")
 
-    async def broadcast(self, event: str, data: SSEEventData) -> None:
+    async def broadcast(self, event: SSEEventType, data: SSEEventData) -> None:
         """Broadcast an event to all connected SSE clients.
 
         Args:
@@ -109,7 +128,7 @@ class SSEBroadcaster:
         if not self._clients:
             return  # No clients connected, skip broadcasting
 
-        message = {"event": event, "data": data}
+        message = {"event": event, "data": data.model_dump()}
 
         # Create list of clients to avoid modifying set during iteration
         async with self._lock:

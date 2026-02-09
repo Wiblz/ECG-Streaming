@@ -9,6 +9,7 @@ from ecg_common.logging import get_logger
 from ecg_common.models import DeviceStatus
 
 from ecg_collector.ble.drivers import DeviceDriver
+from ecg_collector.ble.types import DeviceStateInfo, DeviceStateStats
 
 logger = get_logger(__name__)
 
@@ -273,9 +274,9 @@ class DeviceStateManager:
         device.retry_count = 0  # Reset retry counter for disconnections
         logger.info(f"Device {device.device_id} will attempt reconnection")
 
-    def get_stats(self) -> dict[str, object]:
+    def get_stats(self) -> DeviceStateStats:
         """Get device state statistics."""
-        stats: dict[str, object] = {
+        stats: DeviceStateStats = {
             "total_devices": len(self._devices),
             "connected": sum(1 for d in self._devices.values() if d.is_connected),
             "streaming": sum(
@@ -287,23 +288,24 @@ class DeviceStateManager:
             "disconnected": sum(
                 1 for d in self._devices.values() if d.state == DeviceConnectionState.DISCONNECTED
             ),
+            "devices": [],
         }
 
-        devices_info = []
+        devices_info: list[DeviceStateInfo] = []
         for device in self._devices.values():
-            devices_info.append(
-                {
-                    "device_id": device.device_id,
-                    "state": device.state.value,
-                    "retry_count": device.retry_count,
-                    "next_retry_seconds": (
-                        device.get_retry_delay() - (time.time() - device.last_connection_attempt)
-                        if device.state
-                        in (DeviceConnectionState.FAILED, DeviceConnectionState.DISCONNECTED)
-                        else None
-                    ),
-                }
-            )
+            device_info: DeviceStateInfo = {
+                "device_id": device.device_id,
+                "state": device.state.value,
+                "retry_count": device.retry_count,
+            }
+            if device.state in (
+                DeviceConnectionState.FAILED,
+                DeviceConnectionState.DISCONNECTED,
+            ):
+                device_info["next_retry_seconds"] = device.get_retry_delay() - (
+                    time.time() - device.last_connection_attempt
+                )
+            devices_info.append(device_info)
 
         stats["devices"] = devices_info
         return stats

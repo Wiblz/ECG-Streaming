@@ -262,15 +262,17 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
 
                     # Broadcast collector connection via SSE
                     if self.sse_broadcaster:
+                        from ecg_aggregator.api.sse_broadcaster import CollectorUpdateData
+
                         asyncio.create_task(
                             self.sse_broadcaster.broadcast(
                                 "collector_update",
-                                {
-                                    "collector_id": collector_id,
-                                    "display_name": display_name,
-                                    "status": "CONNECTED",
-                                    "device_count": len(device_ids),
-                                },
+                                CollectorUpdateData(
+                                    collector_id=collector_id,
+                                    display_name=display_name,
+                                    status="CONNECTED",
+                                    device_count=len(device_ids),
+                                ),
                             )
                         )
 
@@ -439,13 +441,14 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                     if self.sse_broadcaster and collector_id:
                         from ecg_aggregator.api.sse_broadcaster import DeviceUpdateData
 
-                        device_update: DeviceUpdateData = {
-                            "device_id": device_id,
-                            "collector_id": collector_id,
-                            "status": status_str,  # type: ignore[typeddict-item]
-                        }
-                        if status.HasField("battery_level"):
-                            device_update["battery_level"] = status.battery_level
+                        device_update = DeviceUpdateData(
+                            device_id=device_id,
+                            collector_id=collector_id,
+                            status=status_str,  # type: ignore[arg-type]
+                            battery_level=status.battery_level
+                            if status.HasField("battery_level")
+                            else None,
+                        )
 
                         asyncio.create_task(
                             self.sse_broadcaster.broadcast("device_update", device_update)
@@ -493,26 +496,30 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
 
                         # Broadcast device disconnection via SSE
                         if self.sse_broadcaster:
+                            from ecg_aggregator.api.sse_broadcaster import DeviceUpdateData
+
                             asyncio.create_task(
                                 self.sse_broadcaster.broadcast(
                                     "device_update",
-                                    {
-                                        "device_id": _device_id,
-                                        "collector_id": collector_id,
-                                        "status": "DISCONNECTED",
-                                    },
+                                    DeviceUpdateData(
+                                        device_id=_device_id,
+                                        collector_id=collector_id,
+                                        status="DISCONNECTED",
+                                    ),
                                 )
                             )
 
                 # Broadcast collector disconnection via SSE
                 if self.sse_broadcaster:
+                    from ecg_aggregator.api.sse_broadcaster import CollectorUpdateData
+
                     asyncio.create_task(
                         self.sse_broadcaster.broadcast(
                             "collector_update",
-                            {
-                                "collector_id": collector_id,
-                                "status": "DISCONNECTED",
-                            },
+                            CollectorUpdateData(
+                                collector_id=collector_id,
+                                status="DISCONNECTED",
+                            ),
                         )
                     )
 

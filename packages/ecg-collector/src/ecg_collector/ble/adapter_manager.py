@@ -5,6 +5,7 @@ import asyncio
 from ecg_common.logging import get_logger
 
 from ecg_collector.ble.drivers import DeviceDriver, PolarH10Driver
+from ecg_collector.ble.types import AdapterStats
 
 logger = get_logger(__name__)
 
@@ -130,13 +131,13 @@ class BLEAdapterManager:
         """
         return self._adapters.get(adapter_id, [])
 
-    def get_adapter_stats(self) -> dict[str, dict[str, object]]:
+    def get_adapter_stats(self) -> dict[str, AdapterStats]:
         """Get statistics for all adapters.
 
         Returns:
             Dictionary mapping adapter IDs to their stats
         """
-        stats = {}
+        stats: dict[str, AdapterStats] = {}
         for adapter_id, devices in self._adapters.items():
             stats[adapter_id] = {
                 "device_count": len(devices),

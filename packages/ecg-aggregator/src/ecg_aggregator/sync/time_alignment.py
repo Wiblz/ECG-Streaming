@@ -6,6 +6,8 @@ from dataclasses import dataclass
 import numpy as np
 from ecg_common.logging import get_logger
 
+from ecg_aggregator.sync.types import DeviceSyncStats, SyncStats
+
 logger = get_logger(__name__)
 
 
@@ -303,21 +305,21 @@ class TimeAlignmentService:
         """
         return {device_id: model.model for device_id, model in self._device_models.items()}
 
-    def get_sync_stats(self) -> dict[str, object]:
+    def get_sync_stats(self) -> SyncStats:
         """Get synchronization statistics for all devices.
 
         Returns:
             Dictionary with sync statistics
         """
-        devices_dict: dict[str, dict[str, object]] = {}
-        stats: dict[str, object] = {
+        devices_dict: dict[str, DeviceSyncStats] = {}
+        stats: SyncStats = {
             "total_devices": len(self._device_models),
             "ready_devices": sum(1 for m in self._device_models.values() if m.is_ready),
             "devices": devices_dict,
         }
 
         for device_id, model in self._device_models.items():
-            device_stats: dict[str, object] = {
+            device_stats: DeviceSyncStats = {
                 "ready": model.is_ready,
                 "dropouts": model.dropout_count,
             }

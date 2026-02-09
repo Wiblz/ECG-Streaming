@@ -13,41 +13,62 @@ from ecg_common.logging import get_logger
 from fastapi import FastAPI, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, TypeAdapter
 from sse_starlette.sse import EventSourceResponse
 
 from ecg_aggregator.api.data_buffer import AccelerometerDataBuffer, ECGDataBuffer
 from ecg_aggregator.api.models import (
+    AccelerometerSessionSampleModel,
+    ActiveSessionResponse,
+    BackfillResponse,
+    BufferedAccelerometerSampleModel,
+    BufferedECGSampleModel,
+    BufferStats,
     CollectorInfo,
     CollectorsResponse,
+    DebugConnectionInfo,
+    DebugConnectionsResponse,
+    DeleteSessionResponse,
+    DeviceInfo,
     DeviceNicknameUpdate,
+    DevicesAllResponse,
+    DevicesStatusResponse,
+    DevicesSummaryResponse,
+    DeviceStatusInfo,
+    DeviceSummary,
+    ECGSessionSampleModel,
+    ImportSessionResponse,
+    RootEndpoints,
+    RootResponse,
+    SessionAccelerometerSamplesResponse,
+    SessionActionResponse,
+    SessionInfo,
+    SessionSamplesResponse,
+    SessionsResponse,
+    StatsResponse,
+    SyncInfo,
+    UpdateNicknameResponse,
+    VersionResponse,
 )
 from ecg_aggregator.api.sse_broadcaster import SSEBroadcaster
+from ecg_aggregator.api.utils import group_samples_by_device
+from ecg_aggregator.api.ws_models import (
+    DevicesStatusMessage,
+    ErrorMessage,
+    FlashRecordedMessage,
+    InboundMessage,
+    InitMessage,
+    NoActiveSessionMessage,
+    SessionActiveMessage,
+    SessionStartedMessage,
+    SessionStoppedMessage,
+)
 from ecg_aggregator.grpc_server import ECGStreamingServicer
 from ecg_aggregator.storage.persistence import ECGDatabase
 from ecg_aggregator.sync.calibration_manager import CalibrationManager
 from ecg_aggregator.sync.time_alignment import TimeAlignmentService
 
 logger = get_logger(__name__)
-
-
-def group_samples_by_device(samples: list[dict]) -> dict[str, list[dict]]:
-    """Group samples by device_id for bandwidth-efficient transmission.
-
-    Args:
-        samples: List of sample dictionaries, each containing a 'device_id' field
-
-    Returns:
-        Dictionary mapping device_id to list of samples (with device_id removed)
-    """
-    devices_data: dict[str, list[dict]] = {}
-    for sample in samples:
-        device_id = sample["device_id"]
-        if device_id not in devices_data:
-            devices_data[device_id] = []
-        # Remove device_id from sample dict since it's in the key
-        sample_without_device_id = {k: v for k, v in sample.items() if k != "device_id"}
-        devices_data[device_id].append(sample_without_device_id)
-    return devices_data
 
 
 class ECGStreamingServer:
@@ -125,60 +146,62 @@ class ECGStreamingServer:
     def _register_routes(self) -> None:
         """Register API routes."""
 
-        @self.app.get("/")
-        async def root() -> dict[str, object]:
+        @self.app.get("/", response_model=RootResponse)
+        async def root() -> RootResponse:
             """Root endpoint."""
-            return {
-                "service": "ECG Streaming API",
-                "version": "0.1.0",
-                "endpoints": {
-                    "websocket_ecg": "/ws/ecg",
-                    "websocket_accelerometer": "/ws/accelerometer",
-                    "devices": "/devices",
-                    "devices_all": "/devices/all",
-                    "devices_status": "/devices/status",
-                    "device_nickname": "/devices/{device_id}/nickname",
-                    "collectors": "/collectors",
-                    "stats": "/stats",
-                    "ecg_buffer": "/buffer/stats",
-                    "ecg_latest": "/buffer/latest",
-                    "accelerometer_buffer": "/accelerometer/buffer/stats",
-                    "accelerometer_latest": "/accelerometer/buffer/latest",
-                    "session_start": "/sessions/start",
-                    "session_stop": "/sessions/stop",
-                    "session_active": "/sessions/active",
-                    "sessions": "/sessions",
-                },
-            }
+            return RootResponse(
+                service="ECG Streaming API",
+                version="0.1.0",
+                endpoints=RootEndpoints(
+                    websocket_ecg="/ws/ecg",
+                    websocket_accelerometer="/ws/accelerometer",
+                    devices="/devices",
+                    devices_all="/devices/all",
+                    devices_status="/devices/status",
+                    device_nickname="/devices/{device_id}/nickname",
+                    collectors="/collectors",
+                    stats="/stats",
+                    ecg_buffer="/buffer/stats",
+                    ecg_latest="/buffer/latest",
+                    accelerometer_buffer="/accelerometer/buffer/stats",
+                    accelerometer_latest="/accelerometer/buffer/latest",
+                    session_start="/sessions/start",
+                    session_stop="/sessions/stop",
+                    session_active="/sessions/active",
+                    sessions="/sessions",
+                ),
+            )
 
-        @self.app.get("/devices")
-        async def list_devices() -> dict[str, object]:
+        @self.app.get("/devices", response_model=DevicesSummaryResponse)
+        async def list_devices() -> DevicesSummaryResponse:
             """List all devices and their sync status."""
-            devices = []
+            devices: list[DeviceSummary] = []
 
             for device_id in self.time_alignment.get_all_models():
                 sync_model = self.time_alignment.get_device_model(device_id)
 
-                device_info = {
-                    "device_id": device_id,
-                    "sync_ready": self.time_alignment.is_device_ready(device_id),
-                }
-
+                sync_info = None
                 if sync_model:
-                    device_info["sync"] = {
-                        "confidence": sync_model.confidence,
-                        "drift_ppm": (sync_model.drift - 1.0) * 1_000_000,
-                        "sample_count": sync_model.sample_count,
-                    }
+                    sync_info = SyncInfo(
+                        confidence=sync_model.confidence,
+                        drift_ppm=(sync_model.drift - 1.0) * 1_000_000,
+                        sample_count=sync_model.sample_count,
+                    )
 
-                devices.append(device_info)
+                devices.append(
+                    DeviceSummary(
+                        device_id=device_id,
+                        sync_ready=self.time_alignment.is_device_ready(device_id),
+                        sync=sync_info,
+                    )
+                )
 
-            return {"devices": devices, "count": len(devices)}
+            return DevicesSummaryResponse(devices=devices, count=len(devices))
 
-        @self.app.get("/version")
-        async def get_version() -> dict[str, str]:
+        @self.app.get("/version", response_model=VersionResponse)
+        async def get_version() -> VersionResponse:
             """Get API version information."""
-            return {"version": __version__}
+            return VersionResponse(version=__version__)
 
         @self.app.get("/events/status")
         async def status_events(request: Request) -> EventSourceResponse:
@@ -199,15 +222,23 @@ class ECGStreamingServer:
                 client_queue = await self.sse_broadcaster.connect()
 
                 try:
+                    from ecg_aggregator.api.sse_broadcaster import ConnectedEventData
+
                     # Send initial connected event
-                    yield {"event": "connected", "data": json.dumps({"timestamp": time.time()})}
+                    connected = ConnectedEventData(timestamp=time.time())
+                    yield {"event": "connected", "data": json.dumps(connected.model_dump())}
 
                     # Send initial buffer stats immediately
-                    initial_stats = {
-                        "ecg_buffer": self.ecg_buffer.get_stats(),
-                        "acc_buffer": self.acc_buffer.get_stats(),
+                    from ecg_aggregator.api.sse_broadcaster import BufferStatsData
+
+                    initial_stats = BufferStatsData(
+                        ecg_buffer=BufferStats.model_validate(self.ecg_buffer.get_stats()),
+                        acc_buffer=BufferStats.model_validate(self.acc_buffer.get_stats()),
+                    )
+                    yield {
+                        "event": "buffer_stats",
+                        "data": json.dumps(initial_stats.model_dump()),
                     }
-                    yield {"event": "buffer_stats", "data": json.dumps(initial_stats)}
 
                     # Keepalive interval
                     last_heartbeat = time.time()
@@ -227,9 +258,14 @@ class ECGStreamingServer:
                         except TimeoutError:
                             # No events, check if we need to send heartbeat
                             if time.time() - last_heartbeat > 30:
+                                from ecg_aggregator.api.sse_broadcaster import (
+                                    HeartbeatEventData,
+                                )
+
+                                heartbeat = HeartbeatEventData(timestamp=time.time())
                                 yield {
                                     "event": "heartbeat",
-                                    "data": json.dumps({"timestamp": time.time()}),
+                                    "data": json.dumps(heartbeat.model_dump()),
                                 }
                                 last_heartbeat = time.time()
 
@@ -333,38 +369,40 @@ class ECGStreamingServer:
 
             return CollectorsResponse(collectors=collectors_data, count=len(collectors_data))
 
-        @self.app.get("/devices/status")
-        async def get_device_status() -> dict[str, Any]:
+        @self.app.get("/devices/status", response_model=DevicesStatusResponse)
+        async def get_device_status() -> DevicesStatusResponse:
             """Get status of all configured devices (from collectors)."""
             if not self.grpc_servicer:
-                return {"devices": [], "count": 0, "error": "gRPC servicer not available"}
+                return DevicesStatusResponse(
+                    devices=[], count=0, error="gRPC servicer not available"
+                )
 
             # Build collector lookup for display names
             collector_names = {
                 cid: cinfo.display_name for cid, cinfo in self.grpc_servicer.collectors.items()
             }
 
-            devices_status = []
+            devices_status: list[DeviceStatusInfo] = []
             for device_id, status_info in self.grpc_servicer.device_statuses.items():
                 collector_id = status_info.collector_id
                 devices_status.append(
-                    {
-                        "device_id": device_id,
-                        "collector_id": collector_id,
-                        "collector_name": collector_names.get(collector_id, collector_id)
+                    DeviceStatusInfo(
+                        device_id=device_id,
+                        collector_id=collector_id,
+                        collector_name=collector_names.get(collector_id, collector_id)
                         if collector_id
                         else None,
-                        "status": status_info.status,
-                        "last_update": status_info.last_update,
-                        "battery_level": status_info.battery_level,
-                        "error_message": status_info.error_message,
-                    }
+                        status=status_info.status,
+                        last_update=status_info.last_update,
+                        battery_level=status_info.battery_level,
+                        error_message=status_info.error_message,
+                    )
                 )
 
-            return {"devices": devices_status, "count": len(devices_status)}
+            return DevicesStatusResponse(devices=devices_status, count=len(devices_status))
 
-        @self.app.get("/devices/all")
-        async def get_all_devices() -> dict[str, Any]:
+        @self.app.get("/devices/all", response_model=DevicesAllResponse)
+        async def get_all_devices() -> DevicesAllResponse:
             """Get all known devices from database, including disconnected ones.
 
             Returns both currently connected devices and previously seen devices from database.
@@ -389,7 +427,7 @@ class ECGStreamingServer:
                 set(db_devices.keys()) | set(sync_devices.keys()) | set(device_statuses.keys())
             )
 
-            devices = []
+            devices: list[DeviceInfo] = []
             for device_id in all_device_ids:
                 device_info: dict[str, Any] = {"device_id": device_id}
 
@@ -409,11 +447,11 @@ class ECGStreamingServer:
                     sync_model = sync_devices[device_id]
                     device_info["sync_ready"] = self.time_alignment.is_device_ready(device_id)
                     if sync_model:
-                        device_info["sync"] = {
-                            "confidence": sync_model.confidence,
-                            "drift_ppm": (sync_model.drift - 1.0) * 1_000_000,
-                            "sample_count": sync_model.sample_count,
-                        }
+                        device_info["sync"] = SyncInfo(
+                            confidence=sync_model.confidence,
+                            drift_ppm=(sync_model.drift - 1.0) * 1_000_000,
+                            sample_count=sync_model.sample_count,
+                        )
                 else:
                     device_info["sync_ready"] = False
 
@@ -432,17 +470,17 @@ class ECGStreamingServer:
                 else:
                     device_info["status"] = "DISCONNECTED"
 
-                devices.append(device_info)
+                devices.append(DeviceInfo(**device_info))
 
             # Sort by last_seen (most recent first), then by device_id
-            devices.sort(key=lambda d: (-(d.get("last_seen", 0)), d["device_id"]))
+            devices.sort(key=lambda d: (-(d.last_seen or 0), d.device_id))
 
-            return {"devices": devices, "count": len(devices)}
+            return DevicesAllResponse(devices=devices, count=len(devices))
 
-        @self.app.put("/devices/{device_id}/nickname")
+        @self.app.put("/devices/{device_id}/nickname", response_model=UpdateNicknameResponse)
         async def update_device_nickname(
             device_id: str, update: DeviceNicknameUpdate
-        ) -> dict[str, Any]:
+        ) -> UpdateNicknameResponse:
             """Update a device's nickname.
 
             Args:
@@ -455,83 +493,96 @@ class ECGStreamingServer:
             success = self.database.update_device_nickname(device_id, update.nickname)
 
             if success:
-                return {
-                    "success": True,
-                    "device_id": device_id,
-                    "nickname": update.nickname,
-                }
+                return UpdateNicknameResponse(
+                    success=True,
+                    device_id=device_id,
+                    nickname=update.nickname,
+                )
             else:
                 raise HTTPException(
                     status_code=404,
                     detail=f"Device {device_id} not found. Device must have sent samples before nickname can be set.",
                 )
 
-        @self.app.get("/stats")
-        async def get_stats() -> dict[str, object]:
+        @self.app.get("/stats", response_model=StatsResponse)
+        async def get_stats() -> StatsResponse:
             """Get synchronization statistics."""
             sync_stats = self.time_alignment.get_sync_stats()
             grpc_stats = self.grpc_servicer.get_stats() if self.grpc_servicer else {}
 
-            return {
-                "sync": sync_stats,
-                "grpc": grpc_stats,
-                "ecg_websocket_connections": len(self.ecg_connections),
-                "acc_websocket_connections": len(self.acc_connections),
-                "ecg_buffer": self.ecg_buffer.get_stats(),
-                "acc_buffer": self.acc_buffer.get_stats(),
-            }
+            return StatsResponse(
+                sync=sync_stats,
+                grpc=grpc_stats,
+                ecg_websocket_connections=len(self.ecg_connections),
+                acc_websocket_connections=len(self.acc_connections),
+                ecg_buffer=BufferStats.model_validate(self.ecg_buffer.get_stats()),
+                acc_buffer=BufferStats.model_validate(self.acc_buffer.get_stats()),
+            )
 
-        @self.app.get("/debug/connections")
-        @self.app.get("/debug/connections/")
-        async def debug_connections() -> dict[str, Any]:
+        @self.app.get("/debug/connections", response_model=DebugConnectionsResponse)
+        @self.app.get("/debug/connections/", response_model=DebugConnectionsResponse)
+        async def debug_connections() -> DebugConnectionsResponse:
             """Debug endpoint to inspect active WebSocket connections."""
-            return {
-                "ecg_count": len(self.ecg_connections),
-                "acc_count": len(self.acc_connections),
-                "ecg_connections": [
-                    {
-                        "id": id(conn),
-                        "client": getattr(conn, "client", None),
-                        "headers": dict(conn.headers) if hasattr(conn, "headers") else {},
-                    }
-                    for conn in self.ecg_connections
-                ],
-                "acc_connections": [
-                    {
-                        "id": id(conn),
-                        "client": getattr(conn, "client", None),
-                        "headers": dict(conn.headers) if hasattr(conn, "headers") else {},
-                    }
-                    for conn in self.acc_connections
-                ],
-            }
+            ecg_connections = [
+                DebugConnectionInfo(
+                    id=id(conn),
+                    client=getattr(conn, "client", None),
+                    headers=dict(conn.headers) if hasattr(conn, "headers") else {},
+                )
+                for conn in self.ecg_connections
+            ]
+            acc_connections = [
+                DebugConnectionInfo(
+                    id=id(conn),
+                    client=getattr(conn, "client", None),
+                    headers=dict(conn.headers) if hasattr(conn, "headers") else {},
+                )
+                for conn in self.acc_connections
+            ]
+            return DebugConnectionsResponse(
+                ecg_count=len(self.ecg_connections),
+                acc_count=len(self.acc_connections),
+                ecg_connections=ecg_connections,
+                acc_connections=acc_connections,
+            )
 
-        @self.app.get("/buffer/stats")
-        async def get_buffer_stats() -> dict:
+        @self.app.get("/buffer/stats", response_model=BufferStats)
+        async def get_buffer_stats() -> BufferStats:
             """Get ECG buffer statistics."""
-            return self.ecg_buffer.get_stats()
+            return BufferStats.model_validate(self.ecg_buffer.get_stats())
 
-        @self.app.get("/buffer/latest")
-        async def get_latest_samples() -> dict[str, dict]:
+        @self.app.get("/buffer/latest", response_model=dict[str, BufferedECGSampleModel])
+        async def get_latest_samples() -> dict[str, BufferedECGSampleModel]:
             """Get latest ECG sample for each device."""
-            return self.ecg_buffer.get_latest_by_device()
+            latest = self.ecg_buffer.get_latest_by_device()
+            return {
+                device_id: BufferedECGSampleModel.model_validate(sample)
+                for device_id, sample in latest.items()
+            }
 
         # Accelerometer buffer endpoints
 
-        @self.app.get("/accelerometer/buffer/stats")
-        async def get_acc_buffer_stats() -> dict:
+        @self.app.get("/accelerometer/buffer/stats", response_model=BufferStats)
+        async def get_acc_buffer_stats() -> BufferStats:
             """Get accelerometer buffer statistics."""
-            return self.acc_buffer.get_stats()
+            return BufferStats.model_validate(self.acc_buffer.get_stats())
 
-        @self.app.get("/accelerometer/buffer/latest")
-        async def get_acc_latest_samples() -> dict[str, dict]:
+        @self.app.get(
+            "/accelerometer/buffer/latest",
+            response_model=dict[str, BufferedAccelerometerSampleModel],
+        )
+        async def get_acc_latest_samples() -> dict[str, BufferedAccelerometerSampleModel]:
             """Get latest accelerometer sample for each device."""
-            return self.acc_buffer.get_latest_by_device()
+            latest = self.acc_buffer.get_latest_by_device()
+            return {
+                device_id: BufferedAccelerometerSampleModel.model_validate(sample)
+                for device_id, sample in latest.items()
+            }
 
         # Session endpoints
 
-        @self.app.post("/sessions/start")
-        async def start_session(notes: str | None = None) -> dict[str, Any]:
+        @self.app.post("/sessions/start", response_model=SessionActionResponse)
+        async def start_session(notes: str | None = None) -> SessionActionResponse:
             """Start a new recording session and begin persisting samples.
 
             Args:
@@ -554,14 +605,14 @@ class ECGStreamingServer:
                     detail=f"Cannot start session: session {active_id} is already active",
                 )
 
-            return {
-                "success": True,
-                "session_id": session_id,
-                "message": f"Session {session_id} started. Samples will now be persisted to database.",
-            }
+            return SessionActionResponse(
+                success=True,
+                session_id=session_id,
+                message=f"Session {session_id} started. Samples will now be persisted to database.",
+            )
 
-        @self.app.post("/sessions/stop")
-        async def stop_session() -> dict[str, Any]:
+        @self.app.post("/sessions/stop", response_model=SessionActionResponse)
+        async def stop_session() -> SessionActionResponse:
             """Stop the currently active recording session.
 
             Returns:
@@ -577,47 +628,53 @@ class ECGStreamingServer:
             if session_id is None:
                 raise HTTPException(status_code=400, detail="No active session to stop")
 
-            return {
-                "success": True,
-                "session_id": session_id,
-                "message": f"Session {session_id} stopped. Samples will no longer be persisted.",
-            }
+            return SessionActionResponse(
+                success=True,
+                session_id=session_id,
+                message=f"Session {session_id} stopped. Samples will no longer be persisted.",
+            )
 
-        @self.app.get("/sessions/active")
-        async def get_active_session() -> dict[str, Any]:
+        @self.app.get("/sessions/active", response_model=ActiveSessionResponse)
+        async def get_active_session() -> ActiveSessionResponse:
             """Get the currently active session, if any.
 
             Returns:
                 Active session ID and details, or null if no session is active
             """
             if not self.grpc_servicer:
-                return {"active": False, "session_id": None, "error": "gRPC servicer not available"}
+                return ActiveSessionResponse(
+                    active=False,
+                    session_id=None,
+                    error="gRPC servicer not available",
+                )
 
             session_id = self.grpc_servicer.get_active_session_id()
 
             if session_id is None:
-                return {"active": False, "session_id": None}
+                return ActiveSessionResponse(active=False, session_id=None)
 
             # Get session details from database
             session = self.database.get_session(session_id)
 
-            return {"active": True, "session_id": session_id, "session": session}
+            session_info = SessionInfo.model_validate(session) if session else None
+            return ActiveSessionResponse(active=True, session_id=session_id, session=session_info)
 
-        @self.app.get("/sessions")
-        async def list_sessions(limit: int | None = None, offset: int = 0) -> dict[str, Any]:
+        @self.app.get("/sessions", response_model=SessionsResponse)
+        async def list_sessions(limit: int | None = None, offset: int = 0) -> SessionsResponse:
             """List all recording sessions."""
             sessions = self.database.get_sessions(limit=limit, offset=offset)
-            return {"sessions": sessions, "count": len(sessions)}
+            session_models = [SessionInfo.model_validate(s) for s in sessions]
+            return SessionsResponse(sessions=session_models, count=len(session_models))
 
-        @self.app.get("/sessions/{session_id}")
-        async def get_session_detail(session_id: int) -> dict[str, Any]:
+        @self.app.get("/sessions/{session_id}", response_model=SessionInfo)
+        async def get_session_detail(session_id: int) -> SessionInfo:
             """Get details for a specific session."""
             session = self.database.get_session(session_id)
             if not session:
                 raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
-            return session
+            return SessionInfo.model_validate(session)
 
-        @self.app.get("/sessions/{session_id}/samples")
+        @self.app.get("/sessions/{session_id}/samples", response_model=SessionSamplesResponse)
         async def get_session_samples_endpoint(
             session_id: int,
             device_id: str | None = None,
@@ -625,7 +682,7 @@ class ECGStreamingServer:
             end_time: float | None = None,
             limit: int | None = None,
             offset: int = 0,
-        ) -> dict[str, Any]:
+        ) -> SessionSamplesResponse:
             """Get ECG samples for a specific session.
 
             Args:
@@ -645,13 +702,17 @@ class ECGStreamingServer:
                 offset=offset,
             )
 
-            return {
-                "session_id": session_id,
-                "devices": group_samples_by_device(samples),
-                "count": len(samples),
-            }
+            devices = group_samples_by_device(samples, ECGSessionSampleModel)
+            return SessionSamplesResponse(
+                session_id=session_id,
+                devices=devices,
+                count=len(samples),
+            )
 
-        @self.app.get("/sessions/{session_id}/accelerometer")
+        @self.app.get(
+            "/sessions/{session_id}/accelerometer",
+            response_model=SessionAccelerometerSamplesResponse,
+        )
         async def get_session_accelerometer_endpoint(
             session_id: int,
             device_id: str | None = None,
@@ -659,7 +720,7 @@ class ECGStreamingServer:
             end_time: float | None = None,
             limit: int | None = None,
             offset: int = 0,
-        ) -> dict[str, Any]:
+        ) -> SessionAccelerometerSamplesResponse:
             """Get accelerometer samples for a specific session.
 
             Args:
@@ -679,16 +740,17 @@ class ECGStreamingServer:
                 offset=offset,
             )
 
-            return {
-                "session_id": session_id,
-                "devices": group_samples_by_device(samples),
-                "count": len(samples),
-            }
+            devices = group_samples_by_device(samples, AccelerometerSessionSampleModel)
+            return SessionAccelerometerSamplesResponse(
+                session_id=session_id,
+                devices=devices,
+                count=len(samples),
+            )
 
-        @self.app.post("/sessions/backfill")
+        @self.app.post("/sessions/backfill", response_model=BackfillResponse)
         async def backfill_sessions(
             gap_threshold: float = 300.0, min_duration: float = 30.0
-        ) -> dict[str, Any]:
+        ) -> BackfillResponse:
             """Backfill sessions from existing samples.
 
             Args:
@@ -698,19 +760,19 @@ class ECGStreamingServer:
             sessions_created = self.database.create_sessions_from_samples(
                 gap_threshold=gap_threshold, min_duration=min_duration
             )
-            return {
-                "success": True,
-                "sessions_created": sessions_created,
-                "message": f"Created {sessions_created} sessions from existing samples",
-            }
+            return BackfillResponse(
+                success=True,
+                sessions_created=sessions_created,
+                message=f"Created {sessions_created} sessions from existing samples",
+            )
 
-        @self.app.delete("/sessions/{session_id}")
-        async def delete_session_endpoint(session_id: int) -> dict[str, Any]:
+        @self.app.delete("/sessions/{session_id}", response_model=DeleteSessionResponse)
+        async def delete_session_endpoint(session_id: int) -> DeleteSessionResponse:
             """Delete a session."""
             success = self.database.delete_session(session_id)
             if success:
-                return {"success": True, "message": f"Session {session_id} deleted"}
-            return {"success": False, "error": "Failed to delete session"}
+                return DeleteSessionResponse(success=True, message=f"Session {session_id} deleted")
+            return DeleteSessionResponse(success=False, error="Failed to delete session")
 
         @self.app.get("/sessions/{session_id}/export", response_model=None)
         async def export_session_csv(session_id: int) -> FileResponse:
@@ -743,8 +805,8 @@ class ECGStreamingServer:
                 filename=f"session_{session_id}.csv",
             )
 
-        @self.app.post("/sessions/import")
-        async def import_session_csv(file: UploadFile) -> dict[str, Any]:
+        @self.app.post("/sessions/import", response_model=ImportSessionResponse)
+        async def import_session_csv(file: UploadFile) -> ImportSessionResponse:
             """Import a session from CSV format.
 
             Args:
@@ -777,11 +839,11 @@ class ECGStreamingServer:
                 if session_id is None:
                     raise HTTPException(status_code=400, detail="Failed to import session from CSV")
 
-                return {
-                    "success": True,
-                    "session_id": session_id,
-                    "message": f"Successfully imported session {session_id}",
-                }
+                return ImportSessionResponse(
+                    success=True,
+                    session_id=session_id,
+                    message=f"Successfully imported session {session_id}",
+                )
 
             except HTTPException:
                 raise
@@ -820,11 +882,7 @@ class ECGStreamingServer:
             # Send initial state
             devices = self.ecg_buffer.get_device_list()
             await websocket.send_json(
-                {
-                    "type": "init",
-                    "devices": devices,
-                    "timestamp": time.time(),
-                }
+                InitMessage(devices=devices, timestamp=time.time()).model_dump()
             )
 
             # Keep connection alive and listen for messages
@@ -863,11 +921,7 @@ class ECGStreamingServer:
             # Send initial state
             devices = self.acc_buffer.get_device_list()
             await websocket.send_json(
-                {
-                    "type": "init",
-                    "devices": devices,
-                    "timestamp": time.time(),
-                }
+                InitMessage(devices=devices, timestamp=time.time()).model_dump()
             )
 
             # Keep connection alive and listen for messages
@@ -912,19 +966,15 @@ class ECGStreamingServer:
 
             if active_session:
                 await websocket.send_json(
-                    {
-                        "type": "session_active",
-                        "session_id": active_session.session_id,
-                        "devices": active_session.get_all_device_status(),
-                        "stats": active_session.get_stats(),
-                    }
+                    SessionActiveMessage(
+                        session_id=active_session.session_id,
+                        devices=active_session.get_all_device_status(),
+                        stats=active_session.get_stats(),
+                    ).model_dump()
                 )
             else:
                 await websocket.send_json(
-                    {
-                        "type": "no_active_session",
-                        "timestamp": time.time(),
-                    }
+                    NoActiveSessionMessage(timestamp=time.time()).model_dump()
                 )
 
             # Listen for messages from client
@@ -934,13 +984,13 @@ class ECGStreamingServer:
                     message = json.loads(data)
 
                     # Handle client messages
-                    response = await self._handle_calibration_message(message)
+                    response, broadcast = await self._handle_calibration_message(message)
 
                     if response:
-                        await websocket.send_json(response)
+                        await websocket.send_json(response.model_dump())
 
                         # Broadcast to other calibration clients
-                        if response.get("broadcast", False):
+                        if broadcast:
                             await self._broadcast_calibration_message(response, exclude=websocket)
 
                 except TimeoutError:
@@ -948,7 +998,9 @@ class ECGStreamingServer:
                     pass
                 except json.JSONDecodeError as e:
                     logger.error(f"Invalid JSON from calibration client: {e}")
-                    await websocket.send_json({"type": "error", "message": "Invalid JSON format"})
+                    await websocket.send_json(
+                        ErrorMessage(message="Invalid JSON format").model_dump()
+                    )
 
         except WebSocketDisconnect:
             logger.info("Calibration WebSocket disconnected")
@@ -961,7 +1013,9 @@ class ECGStreamingServer:
                 f"Calibration WebSocket closed. Active connections: {len(self.calibration_connections)}"
             )
 
-    async def _handle_calibration_message(self, message: dict[str, Any]) -> dict[str, Any] | None:
+    async def _handle_calibration_message(
+        self, message: dict[str, Any]
+    ) -> tuple[BaseModel | None, bool]:
         """Handle incoming calibration WebSocket message.
 
         Args:
@@ -971,35 +1025,35 @@ class ECGStreamingServer:
             Response to send back (or None)
         """
         if not self.calibration_manager:
-            return {"type": "error", "message": "Calibration manager not available"}
+            return ErrorMessage(message="Calibration manager not available"), False
 
-        msg_type = message.get("type")
+        try:
+            request: InboundMessage = TypeAdapter(InboundMessage).validate_python(message)
+        except Exception as e:
+            return ErrorMessage(message=f"Invalid message: {e}"), False
 
-        if msg_type == "start_session":
+        if request.type == "start_session":
             # Start new calibration session
-            target_devices = message.get("target_devices", [])
-            name = message.get("name")
-            notes = message.get("notes")
-
             try:
                 session = self.calibration_manager.start_session(
-                    target_devices=target_devices,
-                    name=name,
-                    notes=notes,
+                    target_devices=request.target_devices,
+                    name=request.name,
+                    notes=request.notes,
                 )
 
-                return {
-                    "type": "session_started",
-                    "session_id": session.session_id,
-                    "target_devices": list(session.target_devices),
-                    "start_time": session.start_time,
-                    "broadcast": True,
-                }
+                return (
+                    SessionStartedMessage(
+                        session_id=session.session_id,
+                        target_devices=list(session.target_devices),
+                        start_time=session.start_time,
+                    ),
+                    True,
+                )
 
             except RuntimeError as e:
-                return {"type": "error", "message": str(e)}
+                return ErrorMessage(message=str(e)), False
 
-        elif msg_type == "stop_session":
+        elif request.type == "stop_session":
             # Stop active session
             # Get offset versions from TimeAlignmentService
             offset_versions = {}
@@ -1012,19 +1066,15 @@ class ECGStreamingServer:
             session_id = self.calibration_manager.stop_session(offset_versions=offset_versions)
 
             if session_id is None:
-                return {"type": "error", "message": "No active session to stop"}
+                return ErrorMessage(message="No active session to stop"), False
 
-            return {
-                "type": "session_stopped",
-                "session_id": session_id,
-                "broadcast": True,
-            }
+            return SessionStoppedMessage(session_id=session_id), True
 
-        elif msg_type == "flash_event":
+        elif request.type == "flash_event":
             # Record flash event
-            flash_timestamp = message.get("timestamp", time.time())
-            event_type = message.get("event_type", "visual")
-            pattern_id = message.get("pattern_id")
+            flash_timestamp = request.timestamp or time.time()
+            event_type = request.event_type or "visual"
+            pattern_id = request.pattern_id
 
             flash_event = self.calibration_manager.add_flash_event(
                 flash_timestamp=flash_timestamp,
@@ -1033,39 +1083,37 @@ class ECGStreamingServer:
             )
 
             if flash_event is None:
-                return {"type": "error", "message": "No active calibration session"}
+                return ErrorMessage(message="No active calibration session"), False
 
             active_session = self.calibration_manager.active_session
             flash_count = len(active_session.flash_events) if active_session else 0
 
-            return {
-                "type": "flash_recorded",
-                "flash_id": flash_event.flash_id,
-                "timestamp": flash_event.flash_timestamp,
-                "flash_count": flash_count,
-                "broadcast": True,
-            }
+            return (
+                FlashRecordedMessage(
+                    flash_id=flash_event.flash_id,
+                    timestamp=flash_event.flash_timestamp,
+                    flash_count=flash_count,
+                ),
+                True,
+            )
 
-        elif msg_type == "get_status":
+        elif request.type == "get_status":
             # Get current session status
             active_session = self.calibration_manager.get_active_session()
 
             if active_session is None:
-                return {
-                    "type": "no_active_session",
-                    "timestamp": time.time(),
-                }
+                return NoActiveSessionMessage(timestamp=time.time()), False
 
-            return {
-                "type": "devices_status",
-                "devices": active_session.get_all_device_status(),
-                "stats": active_session.get_stats(),
-            }
-
-        return None
+            return (
+                DevicesStatusMessage(
+                    devices=active_session.get_all_device_status(),
+                    stats=active_session.get_stats(),
+                ),
+                False,
+            )
 
     async def _broadcast_calibration_message(
-        self, message: dict[str, Any], exclude: WebSocket | None = None
+        self, message: BaseModel, exclude: WebSocket | None = None
     ) -> None:
         """Broadcast message to all calibration WebSocket clients.
 
@@ -1073,8 +1121,7 @@ class ECGStreamingServer:
             message: Message to broadcast
             exclude: WebSocket to exclude from broadcast
         """
-        # Remove broadcast flag before sending
-        broadcast_msg = {k: v for k, v in message.items() if k != "broadcast"}
+        broadcast_msg = message.model_dump()
 
         disconnected = []
         for connection in self.calibration_connections:
@@ -1130,7 +1177,9 @@ class ECGStreamingServer:
                     continue
 
                 # Group samples by device_id for bandwidth efficiency
-                devices_data = group_samples_by_device(all_samples)
+                devices_data: dict[str, list[ECGSessionSampleModel]] = group_samples_by_device(
+                    all_samples, ECGSessionSampleModel
+                )
 
                 broadcast_count += 1
                 logger.debug(
@@ -1189,7 +1238,9 @@ class ECGStreamingServer:
                     continue
 
                 # Group samples by device_id for bandwidth efficiency
-                devices_data = group_samples_by_device(all_samples)
+                devices_data: dict[str, list[AccelerometerSessionSampleModel]] = (
+                    group_samples_by_device(all_samples, AccelerometerSessionSampleModel)
+                )
 
                 # Broadcast to all connections - grouped by device_id
                 message = {
@@ -1226,12 +1277,18 @@ class ECGStreamingServer:
                 if self.sse_broadcaster.get_client_count() == 0:
                     continue  # No clients, skip
 
-                stats = {
-                    "ecg_buffer": self.ecg_buffer.get_stats(consume_rate=True),
-                    "acc_buffer": self.acc_buffer.get_stats(consume_rate=True),
-                }
+                from ecg_aggregator.api.sse_broadcaster import BufferStatsData
 
-                await self.sse_broadcaster.broadcast("buffer_stats", stats)  # type: ignore[arg-type]
+                stats = BufferStatsData(
+                    ecg_buffer=BufferStats.model_validate(
+                        self.ecg_buffer.get_stats(consume_rate=True)
+                    ),
+                    acc_buffer=BufferStats.model_validate(
+                        self.acc_buffer.get_stats(consume_rate=True)
+                    ),
+                )
+
+                await self.sse_broadcaster.broadcast("buffer_stats", stats)
 
             except asyncio.CancelledError:
                 logger.info("Buffer stats broadcast task cancelled")

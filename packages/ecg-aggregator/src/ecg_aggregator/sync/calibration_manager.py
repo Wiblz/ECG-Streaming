@@ -12,6 +12,7 @@ from ecg_aggregator.sync.calibration import (
     FlashEvent,
 )
 from ecg_aggregator.sync.spike_detector import AccSample, SpikeDetector, TapEvent
+from ecg_aggregator.sync.types import CalibrationSessionStats, DeviceCalibrationStatus
 
 if TYPE_CHECKING:
     from ecg_aggregator.storage.persistence import ECGDatabase
@@ -160,7 +161,7 @@ class CalibrationSession:
 
         return tap_event, updated_alignment
 
-    def get_device_status(self, device_id: str) -> dict[str, object]:
+    def get_device_status(self, device_id: str) -> DeviceCalibrationStatus:
         """Get current calibration status for a device.
 
         Args:
@@ -222,7 +223,7 @@ class CalibrationSession:
             if self.is_device_ready(device_id, min_confidence)
         ]
 
-    def get_all_device_status(self) -> dict[str, dict[str, object]]:
+    def get_all_device_status(self) -> dict[str, DeviceCalibrationStatus]:
         """Get calibration status for all target devices.
 
         Returns:
@@ -272,7 +273,7 @@ class CalibrationSession:
 
         return self.device_alignments
 
-    def get_stats(self) -> dict[str, object]:
+    def get_stats(self) -> CalibrationSessionStats:
         """Get session statistics.
 
         Returns:
@@ -417,7 +418,7 @@ class CalibrationManager:
 
         return self.active_session.add_flash_event(flash_timestamp, event_type, pattern_id)
 
-    def get_session_stats(self) -> dict[str, object] | None:
+    def get_session_stats(self) -> CalibrationSessionStats | None:
         """Get statistics for active session.
 
         Returns:

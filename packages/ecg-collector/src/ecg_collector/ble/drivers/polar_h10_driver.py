@@ -3,6 +3,7 @@
 import asyncio
 import struct
 import time
+from collections.abc import Mapping
 
 from bleak import BleakClient
 from bleak.backends.characteristic import BleakGATTCharacteristic
@@ -11,6 +12,7 @@ from ecg_common.logging import get_logger
 from ecg_common.models import DeviceStatus, SensorFrame, SensorType
 
 from ecg_collector.ble.drivers.device_driver import DeviceDriver
+from ecg_collector.ble.types import BleDeviceInfo
 
 logger = get_logger(__name__)
 
@@ -304,13 +306,14 @@ class PolarH10Driver(DeviceDriver):
             logger.error(f"Error reading battery level from {self.device_id}: {e}")
             return None
 
-    async def get_device_info(self) -> dict[str, object]:
+    async def get_device_info(self) -> Mapping[str, object]:
         """Get device information."""
-        info: dict[str, object] = {
+        info: BleDeviceInfo = {
             "device_id": self.device_id,
             "address": self.address,
             "adapter": self.adapter_id,
             "status": self._status.value,
+            "connected": False,
         }
 
         try:

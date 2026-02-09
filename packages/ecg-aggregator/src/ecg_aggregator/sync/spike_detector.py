@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 from ecg_common.logging import get_logger
 
+from ecg_aggregator.sync.types import DeviceSpikeStats, SpikeDetectorStats
+
 logger = get_logger(__name__)
 
 
@@ -188,13 +190,13 @@ class SpikeDetector:
 
         logger.info(f"Reset spike detector for device {device_id}")
 
-    def get_stats(self) -> dict[str, object]:
+    def get_stats(self) -> SpikeDetectorStats:
         """Get detector statistics.
 
         Returns:
             Dictionary with detector stats
         """
-        device_stats = {}
+        device_stats: dict[str, DeviceSpikeStats] = {}
         for device_id, buffer in self.device_buffers.items():
             device_stats[device_id] = {
                 "buffer_size": len(buffer),

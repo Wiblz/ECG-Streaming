@@ -18,36 +18,57 @@ devices:
   # ble_adapter: "hci0"          # Optional: Pin to specific BLE adapter
   # enabled: true                # Optional: Enable/disable device (default: true)
 
-  "Polar H10 1496B436":
-#    esp_id: "24EC4A30020C"         # For USB mode: ESP32 ID that streams this device
-#
-  "Polar H10 14BB0531":
-#    esp_id: "B43A45AD6D6C"
-#
-  "Polar H10 14BCDA3E":
-#    esp_id: "B43A45AD6CD8"
-#
-  "Polar H10 14BC513D":
-#    esp_id: "B43A45ADA8BC"
-#
-  "Polar H10 1492FB35":
-#    esp_id: "B43A45AD6534"
-#
-  "Polar H10 1496933F":
-#    esp_id: "B43A45AD6D00"
-#
-  "Polar H10 1497B538":
-#    esp_id: "B43A45ADA858"
-    nickname: "Collector set nickname"
-#
   "Polar H10 0781CC39":
-#    esp_id: "B43A45AD6518"
-#
+  #    esp_id: "B43A45AD6518"
+
   "Polar H10 0787323A":
-#    esp_id: "24EC4A2E7404"
-#
+  #    esp_id: "24EC4A2E7404"
+
+  "Polar H10 1490A43D":
+  #    esp_id: "24EC4A2E7404"
+
+  "Polar H10 1490CE3D":
+  #    esp_id: "24EC4A2E7404"
+
+  "Polar H10 1492FB35":
+  #    esp_id: "B43A45AD6534"
+
   "Polar H10 14944E39":
 #    esp_id: "B43A45ADA8BC"
+
+  "Polar H10 1496933F":
+  #    esp_id: "B43A45AD6D00"
+
+  "Polar H10 1496B436":
+  #    esp_id: "24EC4A30020C"         # For USB mode: ESP32 ID that streams this device
+
+  "Polar H10 1496BC3E":
+  #    esp_id: "24EC4A2E7404"
+
+  "Polar H10 1497A030":
+  #    esp_id: "24EC4A2E7404"
+
+  "Polar H10 1497B538":
+    #    esp_id: "B43A45ADA858"
+    nickname: "Collector set nickname"
+
+  "Polar H10 14BA8D30":
+  #    esp_id: "24EC4A2E7404"
+
+  "Polar H10 14BB0531":
+  #    esp_id: "B43A45AD6D6C"
+
+  "Polar H10 14BB6F3D":
+  #    esp_id: "24EC4A2E7404"
+
+  "Polar H10 14BC513D":
+  #    esp_id: "B43A45ADA8BC"
+
+  "Polar H10 14BC5834":
+  #    esp_id: "24EC4A2E7404"
+
+  "Polar H10 14BCDA3E":
+  #    esp_id: "B43A45AD6CD8"
 
 # BLE configuration
 ble:
@@ -63,7 +84,7 @@ aggregator:
 
 # Logging
 logging:
-#  level: "DEBUG"                 # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  #  level: "DEBUG"                 # DEBUG, INFO, WARNING, ERROR, CRITICAL
   level: "INFO"                 # DEBUG, INFO, WARNING, ERROR, CRITICAL
   format: "detailed"             # simple or detailed
   file: "/tmp/ecg-collector.log" # Optional log file path
