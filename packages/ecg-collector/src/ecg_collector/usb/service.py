@@ -13,6 +13,8 @@ from ecg_collector.base import DataCollector
 from ecg_collector.config import CollectorSettings
 from ecg_collector.grpc_client import CollectorGrpcClient
 from ecg_collector.usb.collector import UsbCollector, discover_and_group_usb_interfaces
+from ecg_collector.usb.inventory import EspInventoryManager
+from ecg_collector.usb.pairing import PairingManager
 
 logger = get_logger(__name__)
 ble_debug_logger = get_logger("ecg_collector.ble_debug")
@@ -78,8 +80,16 @@ class MultiUsbCollectorService(DataCollector):
         self._rejected_device_ids: set[str] = set()
         self._configured_esp_ids: set[str] = set()
         self._unmapped_esp_ids: set[str] = set()
-        self._last_usb_config: dict[str, tuple[str, int, int]] = {}
         self._last_frame_ts: dict[tuple[str, SensorType], int] = {}
+
+        # Initialize auto-pairing modules
+        self._inventory_manager = EspInventoryManager()
+        self._pairing_manager = PairingManager(
+            devices=settings.devices,
+            default_ecg_sample_rate=settings.usb.ecg_sample_rate,
+            default_acc_sample_rate=settings.usb.acc_sample_rate,
+            esp_to_device_map=settings.get_esp_to_device_map(),
+        )
 
     def _esp_message_device_id(self, esp_msg: esp_collector_pb2.EspMessage) -> str | None:
         """Extract device ID from ESP message."""
@@ -137,6 +147,7 @@ class MultiUsbCollectorService(DataCollector):
         self,
         esp_msg: esp_collector_pb2.EspMessage,
         usb_collector: UsbCollector | None = None,
+        device_path: str | None = None,
     ) -> None:
         """Handle ESP message from USB device."""
         if not self.grpc_client:
@@ -144,7 +155,11 @@ class MultiUsbCollectorService(DataCollector):
             return
 
         msg_type = esp_msg.WhichOneof("message")
-        logger.info("Received ESP message type: %s", msg_type)
+        logger.debug("Received ESP message type: %s", msg_type)
+
+        # Update ESP inventory cache
+        if device_path and msg_type in ["device_info", "sensor_frame"]:
+            self._inventory_manager.update_cache_from_message(esp_msg, device_path)
 
         # Handle device info
         if msg_type == "device_info":
@@ -199,7 +214,7 @@ class MultiUsbCollectorService(DataCollector):
 
         # Convert sensor frame: proto → Python dataclass → batch message
         if msg_type == "sensor_frame":
-            logger.info(
+            logger.debug(
                 "Received sensor_frame: device_id=%s sensor_type=%s sample_rate=%d",
                 esp_msg.sensor_frame.device_id,
                 esp_msg.sensor_frame.sensor_type,
@@ -306,67 +321,36 @@ class MultiUsbCollectorService(DataCollector):
     async def _handle_usb_device_info(
         self,
         esp_msg: esp_collector_pb2.EspMessage,
-        usb_collector: UsbCollector | None,
+        usb_collector: UsbCollector | None,  # noqa: ARG002
     ) -> None:
-        """Handle USB device info message from ESP32."""
+        """Handle USB device info message from ESP32.
+
+        Note: This method only logs device info. All configuration is handled
+        by PairingManager to avoid conflicts between manual and auto-pairing.
+        """
         info = esp_msg.device_info
         esp_id = info.esp_id
         if not esp_id:
             return
 
         logger.info(
-            "USB device_info from %s: current_target=%s polar_connected=%s config_required=%s",
+            "USB device_info from %s: current_target=%s polar_connected=%s config_required=%s fw=%s",
             esp_id,
             info.current_target or "(none)",
             info.polar_connected,
             info.config_required,
+            info.firmware_version,
         )
 
-        desired_target, ecg_rate, acc_rate = self._resolve_device_config(esp_id)
-        if not desired_target:
-            if esp_id not in self._unmapped_esp_ids:
-                logger.info(
-                    "USB device %s has no mapping; add esp_id to device config in devices section",
-                    esp_id,
-                )
-                self._unmapped_esp_ids.add(esp_id)
-            return
-
-        desired_config = (desired_target, ecg_rate, acc_rate)
-        if (
-            esp_id in self._configured_esp_ids
-            and info.current_target == desired_target
-            and self._last_usb_config.get(esp_id) == desired_config
-        ):
-            return
-
-        if not usb_collector:
-            logger.warning("No USB collector available to configure %s", esp_id)
-            return
-
-        config_msg = esp_collector_pb2.UsbConfig(
-            esp_id=esp_id,
-            target_device_id=desired_target,
-            ecg_sample_rate=ecg_rate,
-            acc_sample_rate=acc_rate,
-            persist=self.persist_config,
-        )
-        collector_to_esp_msg = esp_collector_pb2.CollectorToEspMessage()
-        collector_to_esp_msg.config.CopyFrom(config_msg)
-
-        try:
-            await usb_collector.send_collector_to_esp_message(collector_to_esp_msg)
-            self._configured_esp_ids.add(esp_id)
-            self._last_usb_config[esp_id] = desired_config
+        # Check if ESP has a manual mapping (for informational purposes only)
+        # Actual configuration is handled by PairingManager
+        desired_target, _ecg_rate, _acc_rate = self._resolve_device_config(esp_id)
+        if not desired_target and esp_id not in self._unmapped_esp_ids:
             logger.info(
-                "Sent USB config to %s -> %s (ecg_rate=%d acc_rate=%d persist=False)",
+                "USB device %s has no manual mapping - will use auto-pairing",
                 esp_id,
-                desired_target,
-                ecg_rate,
-                acc_rate,
             )
-        except Exception as e:
-            logger.error("Failed sending USB config to %s: %s", esp_id, e)
+            self._unmapped_esp_ids.add(esp_id)
 
     async def _run_usb_device(self, device_path: str) -> None:
         first_message = asyncio.Event()
@@ -380,7 +364,7 @@ class MultiUsbCollectorService(DataCollector):
                     device_id = self._esp_message_device_id(msg)
                     if self._device_id_allowed(device_id):
                         first_message.set()
-            await self._handle_message(msg, usb_collector)
+            await self._handle_message(msg, usb_collector, device_path)
 
         usb_collector = UsbCollector(device_path=device_path, message_callback=_callback)
         self.usb_collectors[device_path] = usb_collector
@@ -405,6 +389,41 @@ class MultiUsbCollectorService(DataCollector):
         except Exception as e:
             logger.error("USB collector task error for %s: %s", device_path, e, exc_info=True)
 
+    async def _send_esp_config(
+        self,
+        esp_id: str,
+        device_path: str,
+        target_device_id: str,
+        ecg_rate: int,
+        acc_rate: int,
+    ) -> None:
+        """Send USB config to an ESP (used by pairing manager).
+
+        Raises:
+            ValueError: If no collector found for device_path
+            Exception: If config send fails
+        """
+        # Find the collector for this device path
+        usb_collector = self.usb_collectors.get(device_path)
+        if not usb_collector:
+            raise ValueError(f"No collector for {device_path}")
+
+        config_msg = esp_collector_pb2.UsbConfig(
+            esp_id=esp_id,
+            target_device_id=target_device_id,
+            ecg_sample_rate=ecg_rate,
+            acc_sample_rate=acc_rate,
+            persist=self.persist_config,
+        )
+
+        collector_to_esp_msg = esp_collector_pb2.CollectorToEspMessage()
+        collector_to_esp_msg.config.CopyFrom(config_msg)
+
+        # This may raise - let caller handle
+        await usb_collector.send_collector_to_esp_message(collector_to_esp_msg)
+        self._configured_esp_ids.add(esp_id)
+        logger.info(f"Sent config to ESP {esp_id}: target={target_device_id}")
+
     async def start(self) -> None:
         logger.info("Starting multi-USB collector: %s", self.collector_id)
         self.running = True
@@ -417,6 +436,15 @@ class MultiUsbCollectorService(DataCollector):
 
             # Start gRPC client
             grpc_task = asyncio.create_task(self.grpc_client.run())
+
+            # Start auto-pairing modules
+            self._inventory_manager.start()
+            self._pairing_manager.start(
+                get_inventory=lambda: self._inventory_manager.esp_inventory,
+                get_polars=lambda: self._inventory_manager.available_polars,
+                send_config=self._send_esp_config,
+            )
+            logger.info("Started auto-pairing background loops")
 
             for device_path in device_paths:
                 self._usb_tasks[device_path] = asyncio.create_task(
@@ -433,6 +461,11 @@ class MultiUsbCollectorService(DataCollector):
 
     async def stop(self) -> None:
         logger.info("Stopping multi-USB collector")
+
+        # Stop auto-pairing modules
+        await self._inventory_manager.stop()
+        await self._pairing_manager.stop()
+        logger.info("Stopped auto-pairing background loops")
 
         for task in self._usb_tasks.values():
             task.cancel()
