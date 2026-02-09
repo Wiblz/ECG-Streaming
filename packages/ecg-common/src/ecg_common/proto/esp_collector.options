@@ -8,11 +8,17 @@ ecg_streaming.SensorFrame.raw_data max_length:512
 # UsbDeviceInfo
 ecg_streaming.UsbDeviceInfo.esp_id max_length:64
 ecg_streaming.UsbDeviceInfo.firmware_version max_length:32
-ecg_streaming.UsbDeviceInfo.current_target max_length:64
+ecg_streaming.UsbDeviceInfo.targets max_count:2
 
 # UsbConfig
 ecg_streaming.UsbConfig.esp_id max_length:64
-ecg_streaming.UsbConfig.target_device_id max_length:64
+ecg_streaming.UsbConfig.targets max_count:2
+
+# UsbTargetConfig
+ecg_streaming.UsbTargetConfig.target_device_id max_length:64
+
+# UsbTargetInfo
+ecg_streaming.UsbTargetInfo.target_device_id max_length:64
 
 # UsbConfigAck
 ecg_streaming.UsbConfigAck.esp_id max_length:64

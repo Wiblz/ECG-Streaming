@@ -1,3 +1,4 @@
+from collections.abc import Iterable as _Iterable
 from collections.abc import Mapping as _Mapping
 from typing import (
     ClassVar as _ClassVar,
@@ -6,6 +7,7 @@ from typing import (
 import common_pb2 as _common_pb2
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
+from google.protobuf.internal import containers as _containers
 from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 
 DESCRIPTOR: _descriptor.FileDescriptor
@@ -73,32 +75,32 @@ class UsbDeviceInfo(_message.Message):
     __slots__ = (
         "esp_id",
         "firmware_version",
-        "current_target",
         "config_required",
         "polar_connected",
         "polar_status",
+        "targets",
     )
     ESP_ID_FIELD_NUMBER: _ClassVar[int]
     FIRMWARE_VERSION_FIELD_NUMBER: _ClassVar[int]
-    CURRENT_TARGET_FIELD_NUMBER: _ClassVar[int]
     CONFIG_REQUIRED_FIELD_NUMBER: _ClassVar[int]
     POLAR_CONNECTED_FIELD_NUMBER: _ClassVar[int]
     POLAR_STATUS_FIELD_NUMBER: _ClassVar[int]
+    TARGETS_FIELD_NUMBER: _ClassVar[int]
     esp_id: str
     firmware_version: str
-    current_target: str
     config_required: bool
     polar_connected: bool
     polar_status: _common_pb2.DeviceStatus
+    targets: _containers.RepeatedCompositeFieldContainer[UsbTargetInfo]
 
     def __init__(
         self,
         esp_id: str | None = ...,
         firmware_version: str | None = ...,
-        current_target: str | None = ...,
         config_required: bool = ...,
         polar_connected: bool = ...,
         polar_status: _common_pb2.DeviceStatus | str | None = ...,
+        targets: _Iterable[UsbTargetInfo | _Mapping] | None = ...,
     ) -> None: ...
 
 class UsbConfigAck(_message.Message):
@@ -175,24 +177,62 @@ class CollectorToEspMessage(_message.Message):
 
     def __init__(self, config: UsbConfig | _Mapping | None = ...) -> None: ...
 
-class UsbConfig(_message.Message):
-    __slots__ = ("esp_id", "target_device_id", "ecg_sample_rate", "acc_sample_rate", "persist")
-    ESP_ID_FIELD_NUMBER: _ClassVar[int]
+class UsbTargetConfig(_message.Message):
+    __slots__ = ("target_device_id", "ecg_sample_rate", "acc_sample_rate")
     TARGET_DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
     ECG_SAMPLE_RATE_FIELD_NUMBER: _ClassVar[int]
     ACC_SAMPLE_RATE_FIELD_NUMBER: _ClassVar[int]
-    PERSIST_FIELD_NUMBER: _ClassVar[int]
-    esp_id: str
     target_device_id: str
     ecg_sample_rate: int
     acc_sample_rate: int
+
+    def __init__(
+        self,
+        target_device_id: str | None = ...,
+        ecg_sample_rate: int | None = ...,
+        acc_sample_rate: int | None = ...,
+    ) -> None: ...
+
+class UsbTargetInfo(_message.Message):
+    __slots__ = (
+        "target_device_id",
+        "polar_connected",
+        "polar_status",
+        "ecg_sample_rate",
+        "acc_sample_rate",
+    )
+    TARGET_DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
+    POLAR_CONNECTED_FIELD_NUMBER: _ClassVar[int]
+    POLAR_STATUS_FIELD_NUMBER: _ClassVar[int]
+    ECG_SAMPLE_RATE_FIELD_NUMBER: _ClassVar[int]
+    ACC_SAMPLE_RATE_FIELD_NUMBER: _ClassVar[int]
+    target_device_id: str
+    polar_connected: bool
+    polar_status: _common_pb2.DeviceStatus
+    ecg_sample_rate: int
+    acc_sample_rate: int
+
+    def __init__(
+        self,
+        target_device_id: str | None = ...,
+        polar_connected: bool = ...,
+        polar_status: _common_pb2.DeviceStatus | str | None = ...,
+        ecg_sample_rate: int | None = ...,
+        acc_sample_rate: int | None = ...,
+    ) -> None: ...
+
+class UsbConfig(_message.Message):
+    __slots__ = ("esp_id", "targets", "persist")
+    ESP_ID_FIELD_NUMBER: _ClassVar[int]
+    TARGETS_FIELD_NUMBER: _ClassVar[int]
+    PERSIST_FIELD_NUMBER: _ClassVar[int]
+    esp_id: str
+    targets: _containers.RepeatedCompositeFieldContainer[UsbTargetConfig]
     persist: bool
 
     def __init__(
         self,
         esp_id: str | None = ...,
-        target_device_id: str | None = ...,
-        ecg_sample_rate: int | None = ...,
-        acc_sample_rate: int | None = ...,
+        targets: _Iterable[UsbTargetConfig | _Mapping] | None = ...,
         persist: bool = ...,
     ) -> None: ...

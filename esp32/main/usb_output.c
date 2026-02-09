@@ -20,6 +20,7 @@ static ecg_streaming_EspMessage g_esp_msg;
 static uint8_t g_sensor_data_buf[512];
 
 void output_sensor_frame(
+    const char *device_id,
     ecg_streaming_SensorType sensor_type,
     int32_t sample_rate,
     uint64_t polar_clock_us,
@@ -42,7 +43,11 @@ void output_sensor_frame(
     g_sensor_frame = (ecg_streaming_SensorFrame)ecg_streaming_SensorFrame_init_zero;
     g_esp_msg = (ecg_streaming_EspMessage)ecg_streaming_EspMessage_init_zero;
 
-    strlcpy(g_sensor_frame.device_id, g_device_id, sizeof(g_sensor_frame.device_id));
+    if (device_id) {
+        strlcpy(g_sensor_frame.device_id, device_id, sizeof(g_sensor_frame.device_id));
+    } else {
+        g_sensor_frame.device_id[0] = '\0';
+    }
 
     // Sensor type
     g_sensor_frame.sensor_type = sensor_type;

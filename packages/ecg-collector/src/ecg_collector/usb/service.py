@@ -89,6 +89,7 @@ class MultiUsbCollectorService(DataCollector):
             default_ecg_sample_rate=settings.usb.ecg_sample_rate,
             default_acc_sample_rate=settings.usb.acc_sample_rate,
             esp_to_device_map=settings.get_esp_to_device_map(),
+            max_targets_per_esp=settings.usb.max_targets_per_esp,
         )
 
     def _esp_message_device_id(self, esp_msg: esp_collector_pb2.EspMessage) -> str | None:
@@ -334,13 +335,18 @@ class MultiUsbCollectorService(DataCollector):
             return
 
         logger.info(
-            "USB device_info from %s: current_target=%s polar_connected=%s config_required=%s fw=%s",
+            "USB device_info from %s: polar_connected=%s config_required=%s fw=%s",
             esp_id,
-            info.current_target or "(none)",
             info.polar_connected,
             info.config_required,
             info.firmware_version,
         )
+        if info.targets:
+            target_summary = ", ".join(
+                f"{t.target_device_id or '(none)'}{' (connected)' if t.polar_connected else ''}"
+                for t in info.targets
+            )
+            logger.info("USB device_info targets from %s: %s", esp_id, target_summary)
 
         # Check if ESP has a manual mapping (for informational purposes only)
         # Actual configuration is handled by PairingManager
@@ -393,9 +399,7 @@ class MultiUsbCollectorService(DataCollector):
         self,
         esp_id: str,
         device_path: str,
-        target_device_id: str,
-        ecg_rate: int,
-        acc_rate: int,
+        targets: list[tuple[str, int, int]],
     ) -> None:
         """Send USB config to an ESP (used by pairing manager).
 
@@ -408,11 +412,17 @@ class MultiUsbCollectorService(DataCollector):
         if not usb_collector:
             raise ValueError(f"No collector for {device_path}")
 
+        target_cfgs = [
+            esp_collector_pb2.UsbTargetConfig(
+                target_device_id=target_device_id,
+                ecg_sample_rate=ecg_rate,
+                acc_sample_rate=acc_rate,
+            )
+            for target_device_id, ecg_rate, acc_rate in targets
+        ]
         config_msg = esp_collector_pb2.UsbConfig(
             esp_id=esp_id,
-            target_device_id=target_device_id,
-            ecg_sample_rate=ecg_rate,
-            acc_sample_rate=acc_rate,
+            targets=target_cfgs,
             persist=self.persist_config,
         )
 
@@ -422,7 +432,11 @@ class MultiUsbCollectorService(DataCollector):
         # This may raise - let caller handle
         await usb_collector.send_collector_to_esp_message(collector_to_esp_msg)
         self._configured_esp_ids.add(esp_id)
-        logger.info(f"Sent config to ESP {esp_id}: target={target_device_id}")
+        logger.info(
+            "Sent config to ESP %s: %s",
+            esp_id,
+            ", ".join(target for target, _, _ in targets),
+        )
 
     async def start(self) -> None:
         logger.info("Starting multi-USB collector: %s", self.collector_id)

@@ -12,7 +12,7 @@ PB_BIND(ecg_streaming_EspMessage, ecg_streaming_EspMessage, 2)
 PB_BIND(ecg_streaming_SensorFrame, ecg_streaming_SensorFrame, AUTO)
 
 
-PB_BIND(ecg_streaming_UsbDeviceInfo, ecg_streaming_UsbDeviceInfo, AUTO)
+PB_BIND(ecg_streaming_UsbDeviceInfo, ecg_streaming_UsbDeviceInfo, 2)
 
 
 PB_BIND(ecg_streaming_UsbConfigAck, ecg_streaming_UsbConfigAck, 2)
@@ -22,6 +22,12 @@ PB_BIND(ecg_streaming_BleNotificationDebug, ecg_streaming_BleNotificationDebug, 
 
 
 PB_BIND(ecg_streaming_CollectorToEspMessage, ecg_streaming_CollectorToEspMessage, AUTO)
+
+
+PB_BIND(ecg_streaming_UsbTargetConfig, ecg_streaming_UsbTargetConfig, AUTO)
+
+
+PB_BIND(ecg_streaming_UsbTargetInfo, ecg_streaming_UsbTargetInfo, AUTO)
 
 
 PB_BIND(ecg_streaming_UsbConfig, ecg_streaming_UsbConfig, AUTO)

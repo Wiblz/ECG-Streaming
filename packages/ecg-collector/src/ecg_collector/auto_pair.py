@@ -21,7 +21,7 @@ class EspDeviceState:
 
     esp_id: str
     device_path: str
-    current_target: str | None
+    current_targets: list[str]
     polar_connected: bool
     config_required: bool
 
@@ -69,13 +69,14 @@ async def discover_esp_states(timeout: float = 12.0) -> list[EspDeviceState]:
                     EspDeviceState(
                         esp_id=device_info.esp_id,
                         device_path=device_path,
-                        current_target=device_info.current_target,
+                        current_targets=device_info.current_targets,
                         polar_connected=device_info.polar_connected,
                         config_required=device_info.config_required,
                     )
                 )
                 logger.info(
-                    f"  ESP {device_info.esp_id}: target={device_info.current_target or '<unassigned>'}, "
+                    f"  ESP {device_info.esp_id}: targets="
+                    f"{', '.join(device_info.current_targets) if device_info.current_targets else '<unassigned>'}, "
                     f"polar={'connected' if device_info.polar_connected else 'disconnected'}"
                 )
             else:
@@ -94,7 +95,7 @@ async def discover_esp_states(timeout: float = 12.0) -> list[EspDeviceState]:
                     EspDeviceState(
                         esp_id=fallback_id,
                         device_path=device_path,
-                        current_target=None,
+                        current_targets=[],
                         polar_connected=False,
                         config_required=True,
                     )
@@ -106,7 +107,7 @@ async def discover_esp_states(timeout: float = 12.0) -> list[EspDeviceState]:
                 EspDeviceState(
                     esp_id=fallback_id,
                     device_path=device_path,
-                    current_target=None,
+                    current_targets=[],
                     polar_connected=False,
                     config_required=True,
                 )
@@ -148,17 +149,24 @@ async def auto_pair_devices(
     unassigned_esps = []
 
     for esp in esp_states:
-        if esp.current_target and esp.polar_connected:
+        if esp.current_targets and esp.polar_connected:
             # Already connected - keep this pairing
+            if len(esp.current_targets) > 1:
+                logger.warning(
+                    "ESP %s has multiple targets; keeping first for legacy auto_pair: %s",
+                    esp.esp_id,
+                    ", ".join(esp.current_targets),
+                )
+            target = esp.current_targets[0]
             connected_pairings.append(
                 PairingResult(
                     esp_id=esp.esp_id,
-                    polar_id=esp.current_target,
+                    polar_id=target,
                     device_path=esp.device_path,
                     reason="already_connected",
                 )
             )
-            logger.info(f"Keeping existing pairing: ESP {esp.esp_id} -> Polar {esp.current_target}")
+            logger.info(f"Keeping existing pairing: ESP {esp.esp_id} -> Polar {target}")
         else:
             # Unassigned or disconnected
             unassigned_esps.append(esp)

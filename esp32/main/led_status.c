@@ -35,22 +35,28 @@ typedef struct {
 static const rgb_u8_t k_yellow = {255, 120, 0};
 static const rgb_u8_t k_green = {0, 255, 0};
 static const rgb_u8_t k_blue = {0, 0, 255};
+static const rgb_u8_t k_cyan = {0, 255, 255};
 
 static rmt_channel_handle_t s_tx_chan = NULL;
 static rmt_encoder_handle_t s_encoder = NULL;
 static uint8_t s_pixel_buf[NUM_LEDS * 3];
 static volatile bool s_polar_connected = false;
-static volatile TickType_t s_last_stream_tick = 0;
+static volatile TickType_t s_last_stream_tick[MAX_POLAR_LINKS] = {0};
 
 void led_status_set_polar_connected(bool connected) {
     s_polar_connected = connected;
     if (!connected) {
-        s_last_stream_tick = 0;
+        for (int i = 0; i < MAX_POLAR_LINKS; i++) {
+            s_last_stream_tick[i] = 0;
+        }
     }
 }
 
-void led_status_mark_stream_activity(void) {
-    s_last_stream_tick = xTaskGetTickCount();
+void led_status_mark_stream_activity(int link_index) {
+    if (link_index < 0 || link_index >= MAX_POLAR_LINKS) {
+        return;
+    }
+    s_last_stream_tick[link_index] = xTaskGetTickCount();
 }
 
 static rgb_u8_t scale_color(rgb_u8_t c, float scale) {
@@ -88,16 +94,30 @@ static void set_led(rgb_u8_t c) {
 static void led_task(void *param) {
     while (1) {
         uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
-        uint32_t since_stream_ms = (uint32_t)(xTaskGetTickCount() - s_last_stream_tick) * portTICK_PERIOD_MS;
-        bool streaming_active = s_polar_connected &&
-                                s_last_stream_tick != 0 &&
-                                since_stream_ms < STREAM_ACTIVE_MS;
-        bool polar_connected = s_polar_connected;
+        int active_streams = 0;
+        int connected_streams = 0;
+        for (int i = 0; i < MAX_POLAR_LINKS; i++) {
+            if (g_links[i].connected) {
+                connected_streams++;
+            }
+            if (s_last_stream_tick[i] != 0) {
+                uint32_t since_stream_ms =
+                    (uint32_t)(xTaskGetTickCount() - s_last_stream_tick[i]) *
+                    portTICK_PERIOD_MS;
+                if (since_stream_ms < STREAM_ACTIVE_MS) {
+                    active_streams++;
+                }
+            }
+        }
+        bool polar_connected = s_polar_connected || connected_streams > 0;
 
         rgb_u8_t c = {0, 0, 0};
 
-        if (streaming_active) {
-            // Streaming: solid green (data received in last 500ms)
+        if (active_streams >= 2) {
+            // Streaming from two Polars: solid cyan
+            c = scale_color(k_cyan, BRIGHTNESS);
+        } else if (active_streams == 1) {
+            // Streaming from one Polar: solid green
             c = scale_color(k_green, BRIGHTNESS);
         } else if (polar_connected) {
             // Connected but no recent data: blink green every 1000ms
@@ -173,6 +193,8 @@ void led_status_init(void) {
     }
 
     memset(s_pixel_buf, 0, sizeof(s_pixel_buf));
-    s_last_stream_tick = 0;
+    for (int i = 0; i < MAX_POLAR_LINKS; i++) {
+        s_last_stream_tick[i] = 0;
+    }
     xTaskCreate(led_task, "led_status", 3072, NULL, tskIDLE_PRIORITY + 1, NULL);
 }

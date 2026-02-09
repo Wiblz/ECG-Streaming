@@ -45,10 +45,10 @@ message SensorFrame {
 message UsbDeviceInfo {
   string esp_id = 1;                  // Unique ESP32 identifier (e.g., MAC address)
   string firmware_version = 2;        // ESP32 firmware version
-  string current_target = 3;          // Currently configured Polar device ID (empty if none)
-  bool config_required = 4;           // True if ESP needs configuration before starting
-  bool polar_connected = 5;           // True if currently connected to Polar device
-  DeviceStatus polar_status = 6;      // Status of Polar device connection
+  bool config_required = 3;           // True if ESP needs configuration before starting
+  bool polar_connected = 4;           // True if currently connected to Polar device
+  DeviceStatus polar_status = 5;      // Status of Polar device connection
+  repeated UsbTargetInfo targets = 6; // Per-target status (one entry per configured target)
 }
 
 // Configuration acknowledgment from ESP32
@@ -85,12 +85,26 @@ message CollectorToEspMessage {
   }
 }
 
+// Configuration for a single Polar target
+message UsbTargetConfig {
+  string target_device_id = 1;        // Polar device ID to connect to
+  int32 ecg_sample_rate = 2;          // Requested ECG sample rate (Hz)
+  int32 acc_sample_rate = 3;          // Requested accelerometer sample rate (Hz)
+}
+
+// Per-target status info reported by ESP32
+message UsbTargetInfo {
+  string target_device_id = 1;        // Polar device ID configured on this link
+  bool polar_connected = 2;           // True if link is connected
+  DeviceStatus polar_status = 3;      // Connection status for this target
+  int32 ecg_sample_rate = 4;          // Effective ECG sample rate (Hz)
+  int32 acc_sample_rate = 5;          // Effective ACC sample rate (Hz)
+}
+
 // Configuration command for ESP32
 // Tells ESP32 which Polar device to connect to and streaming parameters
 message UsbConfig {
   string esp_id = 1;                  // Target ESP32 identifier
-  string target_device_id = 2;        // Polar device ID to connect to
-  int32 ecg_sample_rate = 3;          // Requested ECG sample rate (Hz)
-  int32 acc_sample_rate = 4;          // Requested accelerometer sample rate (Hz)
-  bool persist = 5;                   // If true, save config to ESP32 flash
+  repeated UsbTargetConfig targets = 2; // One or more target devices to connect to
+  bool persist = 3;                   // If true, save config to ESP32 flash
 }

@@ -23,7 +23,8 @@ class EspInventoryEntry:
     esp_id: str
     device_path: str
     last_seen_ts: float  # Updated on ANY message
-    current_target: str | None
+    current_targets: list[str]
+    target_status: dict[str, bool]
     polar_connected: bool
     config_required: bool
     firmware_version: str
@@ -66,11 +67,16 @@ class EspInventoryManager:
 
         if msg_type == "device_info":
             info = esp_msg.device_info
+            target_ids = [t.target_device_id for t in info.targets if t.target_device_id]
+            target_status = {
+                t.target_device_id: t.polar_connected for t in info.targets if t.target_device_id
+            }
             self._esp_inventory[info.esp_id] = EspInventoryEntry(
                 esp_id=info.esp_id,
                 device_path=device_path,
                 last_seen_ts=time.time(),
-                current_target=info.current_target,
+                current_targets=target_ids,
+                target_status=target_status,
                 polar_connected=info.polar_connected,
                 config_required=info.config_required,
                 firmware_version=info.firmware_version,
@@ -153,7 +159,8 @@ class EspInventoryManager:
                                 esp_id=group.device_info.esp_id,
                                 device_path=group.data_interface.device_path,
                                 last_seen_ts=now,
-                                current_target=group.device_info.current_target,
+                                current_targets=group.device_info.current_targets,
+                                target_status=group.device_info.target_status,
                                 polar_connected=group.device_info.polar_connected,
                                 config_required=group.device_info.config_required,
                                 firmware_version=group.device_info.firmware_version,

@@ -5,6 +5,7 @@
 #include "esp_collector.pb.h"
 
 void output_sensor_frame(
+    const char *device_id,
     ecg_streaming_SensorType sensor_type,
     int32_t sample_rate,
     uint64_t polar_clock_us,

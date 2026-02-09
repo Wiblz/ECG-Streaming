@@ -23,11 +23,36 @@ static void send_usb_device_info(void) {
 
     strlcpy(info.esp_id, g_esp_id, sizeof(info.esp_id));
     strlcpy(info.firmware_version, esp_get_idf_version(), sizeof(info.firmware_version));
-    strlcpy(info.current_target, g_target_device_name, sizeof(info.current_target));
     info.config_required = g_config_required;
-    info.polar_connected = g_connected;
-    info.polar_status = g_connected ? ecg_streaming_DeviceStatus_DEVICE_STATUS_STREAMING :
+    bool any_connected = false;
+    for (int i = 0; i < MAX_POLAR_LINKS; i++) {
+        if (g_links[i].connected) {
+            any_connected = true;
+            break;
+        }
+    }
+    info.polar_connected = any_connected;
+    info.polar_status = any_connected ? ecg_streaming_DeviceStatus_DEVICE_STATUS_STREAMING :
                                       ecg_streaming_DeviceStatus_DEVICE_STATUS_DISCONNECTED;
+
+    info.targets_count = 0;
+    for (int i = 0; i < MAX_POLAR_LINKS; i++) {
+        if (!g_links[i].in_use && !g_links[i].connected) {
+            continue;
+        }
+        ecg_streaming_UsbTargetInfo *target = &info.targets[info.targets_count++];
+        target->target_device_id[0] = '\0';
+        if (g_links[i].target_device_name[0] != '\0') {
+            strlcpy(target->target_device_id, g_links[i].target_device_name,
+                    sizeof(target->target_device_id));
+        }
+        target->polar_connected = g_links[i].connected;
+        target->polar_status = g_links[i].connected
+                                   ? ecg_streaming_DeviceStatus_DEVICE_STATUS_STREAMING
+                                   : ecg_streaming_DeviceStatus_DEVICE_STATUS_DISCONNECTED;
+        target->ecg_sample_rate = g_links[i].ecg_sample_rate_hz;
+        target->acc_sample_rate = g_links[i].acc_sample_rate_hz;
+    }
 
     msg.which_message = ecg_streaming_EspMessage_device_info_tag;
     msg.message.device_info = info;
@@ -56,24 +81,47 @@ static void send_usb_config_ack(bool accepted, const char *message, const char *
 
 static void apply_usb_config(const ecg_streaming_UsbConfig *cfg) {
     bool changed = false;
-    int prev_ecg_rate = g_ecg_sample_rate_hz;
-    int prev_acc_rate = g_acc_sample_rate_hz;
-
-    if (cfg->target_device_id[0] != '\0' &&
-        strcmp(cfg->target_device_id, g_target_device_name) != 0) {
-        strlcpy(g_target_device_name, cfg->target_device_id, sizeof(g_target_device_name));
-        changed = true;
+    int prev_ecg_rate[MAX_POLAR_LINKS];
+    int prev_acc_rate[MAX_POLAR_LINKS];
+    char prev_targets[MAX_POLAR_LINKS][DEVICE_ID_MAX_LEN];
+    for (int i = 0; i < MAX_POLAR_LINKS; i++) {
+        prev_ecg_rate[i] = g_links[i].ecg_sample_rate_hz;
+        prev_acc_rate[i] = g_links[i].acc_sample_rate_hz;
+        strlcpy(prev_targets[i], g_links[i].target_device_name, sizeof(prev_targets[i]));
     }
 
-    if (cfg->ecg_sample_rate >= 0) {
-        g_ecg_sample_rate_hz = cfg->ecg_sample_rate;
-    }
-    if (cfg->acc_sample_rate >= 0) {
-        g_acc_sample_rate_hz = cfg->acc_sample_rate;
+    for (int i = 0; i < MAX_POLAR_LINKS; i++) {
+        if (i < (int)cfg->targets_count) {
+            const ecg_streaming_UsbTargetConfig *target = &cfg->targets[i];
+            if (target->target_device_id[0] != '\0' &&
+                strcmp(target->target_device_id, g_links[i].target_device_name) != 0) {
+                strlcpy(g_links[i].target_device_name, target->target_device_id,
+                        sizeof(g_links[i].target_device_name));
+                changed = true;
+            }
+            if (target->ecg_sample_rate >= 0) {
+                g_links[i].ecg_sample_rate_hz = target->ecg_sample_rate;
+            }
+            if (target->acc_sample_rate >= 0) {
+                g_links[i].acc_sample_rate_hz = target->acc_sample_rate;
+            }
+            g_links[i].in_use = g_links[i].target_device_name[0] != '\0';
+        } else {
+            if (g_links[i].target_device_name[0] != '\0') {
+                g_links[i].target_device_name[0] = '\0';
+                g_links[i].in_use = false;
+                changed = true;
+            }
+        }
     }
 
-    if (g_ecg_sample_rate_hz != prev_ecg_rate || g_acc_sample_rate_hz != prev_acc_rate) {
-        changed = true;
+    for (int i = 0; i < MAX_POLAR_LINKS; i++) {
+        if (g_links[i].ecg_sample_rate_hz != prev_ecg_rate[i]
+            || g_links[i].acc_sample_rate_hz != prev_acc_rate[i]
+            || strcmp(g_links[i].target_device_name, prev_targets[i]) != 0) {
+            changed = true;
+            break;
+        }
     }
 
     apply_runtime_config();
@@ -91,20 +139,14 @@ static void apply_usb_config(const ecg_streaming_UsbConfig *cfg) {
     g_config_required = false;
 
     if (changed) {
-        if (g_connected) {
-            ble_gap_terminate(g_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
-        } else {
-            ble_gap_disc_cancel();
-            start_scan();
+        for (int i = 0; i < MAX_POLAR_LINKS; i++) {
+            if (g_links[i].connected) {
+                ble_gap_terminate(g_links[i].conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+            }
         }
+        ble_gap_disc_cancel();
+        start_scan();
         return;
-    }
-
-    if (g_connected && !g_ecg_started && g_ecg_sample_rate_hz > 0) {
-        pmd_start_ecg(g_conn_handle, g_pmd_ctrl_handle);
-    }
-    if (g_connected && !g_acc_started && g_acc_sample_rate_hz > 0) {
-        pmd_start_acc(g_conn_handle, g_pmd_ctrl_handle);
     }
 }
 
@@ -128,7 +170,11 @@ void usb_rx_task(void *param) {
                 continue;
             }
             apply_usb_config(cfg);
-            send_usb_config_ack(true, "config applied", cfg->target_device_id);
+            const char *target_id = NULL;
+            if (cfg->targets_count > 0) {
+                target_id = cfg->targets[0].target_device_id;
+            }
+            send_usb_config_ack(true, "config applied", target_id);
         }
     }
 }

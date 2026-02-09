@@ -541,15 +541,23 @@ async def probe_usb_device(
 
                 if msg_type == "device_info":
                     info = esp_msg.device_info
+                    target_ids = [t.target_device_id for t in info.targets if t.target_device_id]
+                    target_status = {
+                        t.target_device_id: t.polar_connected
+                        for t in info.targets
+                        if t.target_device_id
+                    }
                     logger.info(
-                        f"Probed {device_path}: ESP_ID={info.esp_id}, target={info.current_target or '<unassigned>'}, "
+                        f"Probed {device_path}: ESP_ID={info.esp_id}, target="
+                        f"{', '.join(target_ids) if target_ids else '<unassigned>'}, "
                         f"polar={'connected' if info.polar_connected else 'disconnected'}, "
                         f"config={'required' if info.config_required else 'ok'}"
                     )
                     device_info = EspDeviceInfo(
                         esp_id=info.esp_id,
                         firmware_version=info.firmware_version,
-                        current_target=info.current_target if info.current_target else None,
+                        current_targets=target_ids,
+                        target_status=target_status,
                         config_required=info.config_required,
                         polar_connected=info.polar_connected,
                     )

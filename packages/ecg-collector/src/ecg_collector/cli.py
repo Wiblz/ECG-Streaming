@@ -2,6 +2,7 @@
 
 import asyncio
 import sys
+import time
 from pathlib import Path
 from typing import Annotated
 
@@ -281,7 +282,10 @@ def usb_scan(
                 # Extract device info if received
                 if group.device_info:
                     esp_id = group.device_info.esp_id
-                    target = group.device_info.current_target or "<unassigned>"
+                    if group.device_info.current_targets:
+                        target = ", ".join(group.device_info.current_targets)
+                    else:
+                        target = "<unassigned>"
                     fw = group.device_info.firmware_version
                     polar = "Connected" if group.device_info.polar_connected else "Disconnected"
                     config = "Unconfigured" if group.device_info.config_required else "Configured"
@@ -542,7 +546,9 @@ def usb_auto_pair(
         from rich.console import Group
 
         from ecg_collector.usb.collector import discover_and_group_usb_interfaces, probe_usb_groups
+        from ecg_collector.usb.inventory import EspInventoryEntry
         from ecg_collector.usb.models import EspDeviceGroup, ProbeStatus
+        from ecg_collector.usb.pairing import PairingManager
 
         # Discover USB devices first
         device_groups = await discover_and_group_usb_interfaces()
@@ -591,7 +597,7 @@ def usb_auto_pair(
             # ESP table
             esp_table = Table(title=f"ESP Devices ({len(device_groups)} found)")
             esp_table.add_column("ESP ID", style="cyan")
-            esp_table.add_column("Current Target", style="magenta")
+            esp_table.add_column("Current Targets", style="magenta")
             esp_table.add_column("Polar Status", style="white")
             esp_table.add_column("Probe Status", style="yellow")
 
@@ -620,7 +626,17 @@ def usb_auto_pair(
                 # Get device info if available
                 if group.device_info:
                     esp_id = group.device_info.esp_id
-                    target = group.device_info.current_target or "[dim]<unassigned>[/dim]"
+                    if group.device_info.current_targets:
+                        target = ", ".join(
+                            f"[green]{t}[/green]"
+                            if group.device_info.target_status.get(
+                                t, group.device_info.polar_connected
+                            )
+                            else f"[dim]{t}[/dim]"
+                            for t in group.device_info.current_targets
+                        )
+                    else:
+                        target = "[dim]<unassigned>[/dim]"
                     polar_status = (
                         "[green]Connected[/green]"
                         if group.device_info.polar_connected
@@ -643,12 +659,15 @@ def usb_auto_pair(
                 # Rebuild ESP -> Polar mapping from current device_info
                 esp_by_polar.clear()
                 for g in device_groups.values():
-                    if (
-                        g.device_info
-                        and g.device_info.current_target
-                        and g.device_info.polar_connected
-                    ):
-                        esp_by_polar[g.device_info.current_target] = g.device_info.esp_id
+                    if not g.device_info:
+                        continue
+                    if g.device_info.current_targets:
+                        for target in g.device_info.current_targets:
+                            connected = g.device_info.target_status.get(
+                                target, g.device_info.polar_connected
+                            )
+                            if connected:
+                                esp_by_polar[target] = g.device_info.esp_id
                 live.update(create_tables())
 
             # Task 1: Probe ESPs
@@ -684,6 +703,48 @@ def usb_auto_pair(
         console.print(f"[green]• {connected_count} connected to ESP[/green]")
         console.print(f"[yellow]• {discovered_count} discovered but not connected[/yellow]")
         console.print(f"[red]• {not_discovered_count} not discovered[/red]")
+
+        # Dry-run pairing suggestion based on current state
+        esp_inventory: dict[str, EspInventoryEntry] = {}
+        now = time.time()
+        for group in device_groups.values():
+            if not group.device_info or not group.data_interface:
+                continue
+            info = group.device_info
+            esp_inventory[info.esp_id] = EspInventoryEntry(
+                esp_id=info.esp_id,
+                device_path=group.data_interface.device_path,
+                last_seen_ts=now,
+                current_targets=info.current_targets,
+                target_status=info.target_status,
+                polar_connected=info.polar_connected,
+                config_required=info.config_required,
+                firmware_version=info.firmware_version,
+            )
+
+        available_polars = {p: object() for p in discovered_polar_ids}
+
+        if esp_inventory and available_polars:
+            pairing_mgr = PairingManager(
+                devices=settings.devices,
+                default_ecg_sample_rate=settings.usb.ecg_sample_rate,
+                default_acc_sample_rate=settings.usb.acc_sample_rate,
+                esp_to_device_map=settings.get_esp_to_device_map(),
+                max_targets_per_esp=settings.usb.max_targets_per_esp,
+            )
+            suggested = pairing_mgr.compute_pairings(esp_inventory, available_polars)
+            console.print()
+            console.print("[bold]Dry-run pairing suggestion:[/bold]")
+            if suggested:
+                for esp_id, targets in sorted(suggested.items()):
+                    target_display = ", ".join(targets) if targets else "<unassigned>"
+                    console.print(f"  {esp_id} -> {target_display}")
+            else:
+                console.print("  (no pairings available)")
+        else:
+            console.print()
+            console.print("[bold]Dry-run pairing suggestion:[/bold]")
+            console.print("  (not enough ESPs or Polars discovered)")
 
     asyncio.run(_auto_pair())
 

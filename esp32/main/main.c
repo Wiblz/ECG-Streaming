@@ -21,17 +21,19 @@ static void watchdog_task(void *param) {
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));
         
-        // Start ACC after first ECG data arrives
-        if (
-            g_connected
-            && g_ecg_started
-            && !g_acc_started
-            && g_ecg_packet_count >= 2
-            && g_acc_sample_rate_hz > 0
-        ) {
-            ESP_LOGI(TAG, "ECG streaming confirmed, starting ACC...");
-            ble_schedule_start_acc();
-            // Note: g_acc_started is set to true in pmd_start_acc() after START command is sent
+        // Start ACC after first ECG data arrives (per link)
+        for (int i = 0; i < MAX_POLAR_LINKS; i++) {
+            polar_link_t *link = &g_links[i];
+            if (
+                link->connected
+                && link->ecg_started
+                && !link->acc_started
+                && link->ecg_packet_count >= 2
+                && link->acc_sample_rate_hz > 0
+            ) {
+                ESP_LOGI(TAG, "Link %d ECG streaming confirmed, starting ACC...", i);
+                ble_schedule_start_acc();
+            }
         }
         
         // Calculate rates
@@ -39,22 +41,41 @@ static void watchdog_task(void *param) {
         float ecg_rate = 0;
         float acc_rate = 0;
         
-        if (g_first_sample_time > 0) {
-            TickType_t elapsed_ticks = xTaskGetTickCount() - g_first_sample_time;
+        TickType_t first_time = 0;
+        for (int i = 0; i < MAX_POLAR_LINKS; i++) {
+            if (g_links[i].first_sample_time > 0) {
+                first_time = g_links[i].first_sample_time;
+                break;
+            }
+        }
+        if (first_time > 0) {
+            TickType_t elapsed_ticks = xTaskGetTickCount() - first_time;
             elapsed_sec = elapsed_ticks * portTICK_PERIOD_MS / 1000.0f;
             
             if (elapsed_sec > 0) {
-                ecg_rate = g_total_ecg_samples / elapsed_sec;
-                acc_rate = g_total_acc_samples / elapsed_sec;
+                uint32_t total_ecg = 0;
+                uint32_t total_acc = 0;
+                for (int i = 0; i < MAX_POLAR_LINKS; i++) {
+                    total_ecg += g_links[i].total_ecg_samples;
+                    total_acc += g_links[i].total_acc_samples;
+                }
+                ecg_rate = total_ecg / elapsed_sec;
+                acc_rate = total_acc / elapsed_sec;
             }
         }
         
         // Print status every second
-        if (g_connected) {
-            ESP_LOGI(TAG, "Status: ECG %lu pkt/%lu smp (%.1f Hz) | ACC %lu pkt/%lu smp (%.1f Hz) | Buf: ECG %d ACC %d", 
-                     g_ecg_packet_count, g_total_ecg_samples, ecg_rate,
-                     g_acc_packet_count, g_total_acc_samples, acc_rate,
-                     g_ecg_count, g_acc_count);
+        bool any_connected = false;
+        for (int i = 0; i < MAX_POLAR_LINKS; i++) {
+            if (g_links[i].connected) {
+                any_connected = true;
+                break;
+            }
+        }
+        if (any_connected) {
+            ESP_LOGI(TAG,
+                     "Status: ECG %.1f Hz | ACC %.1f Hz",
+                     ecg_rate, acc_rate);
         }
     }
 }
@@ -68,8 +89,7 @@ static void watchdog_task(void *param) {
 // ============================================================================
 
 void app_main(void) {
-    g_target_device_name[0] = '\0';
-    g_device_id[0] = '\0';
+    g_links[0].target_device_name[0] = '\0';
 
     config_store_init();
     usb_cdc_init();

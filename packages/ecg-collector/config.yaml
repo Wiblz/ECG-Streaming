@@ -77,5 +77,6 @@ usb:
   # Global defaults for USB devices (can be overridden per-device)
   ecg_sample_rate: 130           # Default ECG sample rate for USB devices (Hz)
   acc_sample_rate: 0           # Default ACC sample rate for USB devices (Hz)
+  max_targets_per_esp: 2         # Allow up to 2 Polars per ESP
   persist_config: true           # Persist config on device when supported
   detect_timeout_s: 20.0         # Seconds to detect valid USB data

@@ -113,6 +113,10 @@ class USBConfig(BaseSettings):
         default=100,
         description="Default accelerometer sample rate for USB devices (Hz)",
     )
+    max_targets_per_esp: int = Field(
+        default=1,
+        description="Maximum number of Polar devices to assign per ESP",
+    )
     persist_config: bool = Field(
         default=True,
         description="Persist USB configuration on device when supported",
@@ -121,6 +125,25 @@ class USBConfig(BaseSettings):
         default=20.0,
         description="Timeout to detect valid USB data before skipping a device",
     )
+
+    @field_validator("max_targets_per_esp", mode="before")
+    @classmethod
+    def normalize_max_targets_per_esp(cls, v: object) -> int:
+        """Clamp max_targets_per_esp to a supported range."""
+        if isinstance(v, bool):
+            return 1
+        if isinstance(v, (int, str, bytes, bytearray)):
+            try:
+                value = int(v)
+            except (TypeError, ValueError):
+                return 1
+        else:
+            return 1
+        if value < 1:
+            return 1
+        if value > 2:
+            return 2
+        return value
 
 
 class CollectorSettings(BaseSettings):

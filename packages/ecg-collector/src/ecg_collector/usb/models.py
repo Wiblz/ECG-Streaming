@@ -1,6 +1,6 @@
 """USB collector data models and enums."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 
@@ -67,9 +67,10 @@ class EspDeviceInfo:
 
     esp_id: str
     firmware_version: str
-    current_target: str | None  # None when unassigned
+    current_targets: list[str]
     config_required: bool
     polar_connected: bool
+    target_status: dict[str, bool] = field(default_factory=dict)
 
 
 @dataclass

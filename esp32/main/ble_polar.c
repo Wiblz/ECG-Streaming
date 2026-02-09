@@ -49,28 +49,119 @@ static const ble_uuid128_t UUID_PMD_DATA = BLE_UUID128_INIT(
 #define PMD_TYPE_ECG 0x00
 #define PMD_TYPE_ACC 0x02
 
-static struct ble_npl_event g_start_ecg_ev;
-static struct ble_npl_event g_start_acc_ev;
-static bool g_start_ecg_pending = false;
-static bool g_start_acc_pending = false;
-static bool g_start_ecg_wait_encryption = false;
-static bool g_link_encrypted = false;
-static bool g_cccd_pending = false;
-static bool g_ctrl_cccd_enabled = false;
-static bool g_data_cccd_enabled = false;
-static bool g_waiting_ecg_settings = false;
+static struct ble_npl_event g_start_ecg_ev[MAX_POLAR_LINKS];
+static struct ble_npl_event g_start_acc_ev[MAX_POLAR_LINKS];
+static bool g_start_ecg_pending[MAX_POLAR_LINKS] = {false};
+static bool g_start_acc_pending[MAX_POLAR_LINKS] = {false};
+static bool g_start_ecg_wait_encryption[MAX_POLAR_LINKS] = {false};
+static bool g_link_encrypted[MAX_POLAR_LINKS] = {false};
+static bool g_cccd_pending[MAX_POLAR_LINKS] = {false};
+static int g_link_index[MAX_POLAR_LINKS] = {0, 1};
 #define PMD_SETTINGS_MIN_COMPLETE 8  // Minimum valid ECG settings (sample rate + resolution)
-static bool g_ecg_rate_warned = false;
-static bool g_acc_rate_warned = false;
 
-static void schedule_start_ecg(void);
-static void schedule_start_acc(void);
+static void schedule_start_ecg(polar_link_t *link);
+static void schedule_start_acc(polar_link_t *link);
 static void start_ecg_ev_cb(struct ble_npl_event *ev);
 static void start_acc_ev_cb(struct ble_npl_event *ev);
 void ble_schedule_start_acc(void);
 static void pmd_get_settings(uint16_t conn_handle, uint16_t ctrl_handle, uint8_t pmd_type);
 static void pmd_try_enable_cccds(uint16_t conn_handle);
 static void pmd_try_start_streams(uint16_t conn_handle);
+
+typedef struct {
+    const char *what;
+    uint16_t conn_handle;
+} write_ctx_t;
+
+static write_ctx_t g_write_ctx_ctrl[MAX_POLAR_LINKS];
+static write_ctx_t g_write_ctx_data[MAX_POLAR_LINKS];
+static write_ctx_t g_write_ctx_start_ecg[MAX_POLAR_LINKS];
+static write_ctx_t g_write_ctx_start_acc[MAX_POLAR_LINKS];
+static write_ctx_t g_write_ctx_get_settings[MAX_POLAR_LINKS];
+
+static int link_index(const polar_link_t *link) {
+    if (!link) {
+        return -1;
+    }
+    return (int)(link - g_links);
+}
+static polar_link_t *find_link_by_conn_handle(uint16_t conn_handle) {
+    for (int i = 0; i < MAX_POLAR_LINKS; i++) {
+        if (g_links[i].conn_handle == conn_handle) {
+            return &g_links[i];
+        }
+    }
+    return NULL;
+}
+
+static polar_link_t *find_link_for_target(const char *device_name) {
+    for (int i = 0; i < MAX_POLAR_LINKS; i++) {
+        if (g_links[i].in_use
+            && !g_links[i].connected
+            && !g_links[i].connecting
+            && strcmp(g_links[i].target_device_name, device_name) == 0) {
+            return &g_links[i];
+        }
+    }
+    return NULL;
+}
+
+static bool any_connecting(void) {
+    for (int i = 0; i < MAX_POLAR_LINKS; i++) {
+        if (g_links[i].connecting) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool any_connected(void) {
+    for (int i = 0; i < MAX_POLAR_LINKS; i++) {
+        if (g_links[i].connected) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool has_pending_targets(void) {
+    for (int i = 0; i < MAX_POLAR_LINKS; i++) {
+        if (g_links[i].in_use && !g_links[i].connected && !g_links[i].connecting) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void reset_link_state(polar_link_t *link) {
+    link->pmd_start = 0;
+    link->pmd_end = 0;
+    link->pmd_ctrl_handle = 0;
+    link->pmd_data_handle = 0;
+    link->pmd_cccd_handle = 0;
+    link->pmd_ctrl_cccd_handle = 0;
+    link->ctrl_cccd_enabled = false;
+    link->data_cccd_enabled = false;
+    link->waiting_ecg_settings = false;
+    link->ecg_settings_len = 0;
+    link->acc_settings_len = 0;
+    link->ecg_rate_selected = 0;
+    link->ecg_resolution_selected = 0;
+    link->acc_rate_selected = 0;
+    link->acc_resolution_selected = 0;
+    link->acc_range_selected = 0;
+    link->ecg_rate_warned = false;
+    link->acc_rate_warned = false;
+    link->ecg_packet_count = 0;
+    link->acc_packet_count = 0;
+    link->total_ecg_samples = 0;
+    link->total_acc_samples = 0;
+    link->first_sample_time = 0;
+    link->ecg_count = 0;
+    link->acc_count = 0;
+    link->ecg_started = false;
+    link->acc_started = false;
+}
 
 static void addr_to_str(const ble_addr_t *addr, char *out, size_t out_len) {
     snprintf(out, out_len, "%02x:%02x:%02x:%02x:%02x:%02x",
@@ -108,7 +199,7 @@ static bool parse_adv_name(const uint8_t *adv_data, uint8_t adv_len,
     return false;
 }
 
-static void parse_pmd_response(uint8_t *data, int len) {
+static void parse_pmd_response(polar_link_t *link, uint8_t *data, int len) {
     g_notification_count++;
     uint64_t now_us = (uint64_t)esp_timer_get_time();
     static uint64_t last_notif_us = 0;
@@ -121,10 +212,12 @@ static void parse_pmd_response(uint8_t *data, int len) {
     uint8_t frame_type = data[0];
 
     uint8_t pmd_type = data[1];
-    uint32_t debug_pmd_type =
-        (frame_type == 0xF0 || frame_type == 0x80) ? pmd_type : frame_type;
+    uint32_t debug_pmd_type = 0;
     uint32_t sample_count = 0;
     uint64_t timestamp_ns = 0;
+#if CONFIG_DEBUG_PMD_PROTO_ENABLE
+    debug_pmd_type = (frame_type == 0xF0 || frame_type == 0x80) ? pmd_type : frame_type;
+#endif
 
     switch (frame_type) {
         case 0xF0: { // Control Point Response
@@ -138,6 +231,7 @@ static void parse_pmd_response(uint8_t *data, int len) {
             uint8_t measurement_type = data[2];
             uint8_t status = data[3];
             uint8_t more_flag = data[4];
+            (void)more_flag;
 
             if (opcode == 0x02 && status != 0x00) {
                 ESP_LOGE(TAG, "PMD start failed: type=0x%02X err=0x%02X",
@@ -182,10 +276,12 @@ static void parse_pmd_response(uint8_t *data, int len) {
                             for (int i = 0; i < tlv_count; i++) {
                                 uint16_t candidate = tlv_data[offset + i * 2] |
                                                     (tlv_data[offset + i * 2 + 1] << 8);
-                                if (measurement_type == PMD_TYPE_ECG && candidate == (uint16_t)g_ecg_sample_rate_hz) {
+                                if (measurement_type == PMD_TYPE_ECG
+                                    && candidate == (uint16_t)link->ecg_sample_rate_hz) {
                                     sample_rate = candidate;
                                 }
-                                if (measurement_type == PMD_TYPE_ACC && candidate == (uint16_t)g_acc_sample_rate_hz) {
+                                if (measurement_type == PMD_TYPE_ACC
+                                    && candidate == (uint16_t)link->acc_sample_rate_hz) {
                                     sample_rate = candidate;
                                 }
                             }
@@ -236,27 +332,29 @@ static void parse_pmd_response(uint8_t *data, int len) {
                         break;
                     }
                 }
+                (void)channels;
 
                 // ECG is always on measurement type 0x00 per official PMD spec Table 2
                 // Identify by: sample_rate=130Hz, resolution=14-bit, valid TLV structure
                 if (measurement_type == PMD_TYPE_ECG && tlv_valid) {
                     if (sample_rate == 130 && resolution == 14) {
                         // ECG settings found
-                        if (settings_len > g_ecg_settings_len) {
-                            g_ecg_settings_len = settings_len;
+                        if (settings_len > link->ecg_settings_len) {
+                            link->ecg_settings_len = settings_len;
                             g_ecg_pmd_type = measurement_type;
-                            g_ecg_rate_selected = sample_rate;
-                            g_ecg_resolution_selected = resolution;
-                            if (!g_ecg_rate_warned && g_ecg_rate_selected != (uint16_t)g_ecg_sample_rate_hz) {
+                            link->ecg_rate_selected = sample_rate;
+                            link->ecg_resolution_selected = resolution;
+                            if (!link->ecg_rate_warned
+                                && link->ecg_rate_selected != (uint16_t)link->ecg_sample_rate_hz) {
                                 ESP_LOGW(TAG, "ECG rate %d not supported, using %d",
-                                         g_ecg_sample_rate_hz, g_ecg_rate_selected);
-                                g_ecg_rate_warned = true;
+                                         link->ecg_sample_rate_hz, link->ecg_rate_selected);
+                                link->ecg_rate_warned = true;
                             }
                             // Schedule START if ready
-                            if (g_waiting_ecg_settings && !g_ecg_started &&
-                                g_ecg_settings_len >= PMD_SETTINGS_MIN_COMPLETE) {
-                                g_waiting_ecg_settings = false;
-                                schedule_start_ecg();
+                            if (link->waiting_ecg_settings && !link->ecg_started &&
+                                link->ecg_settings_len >= PMD_SETTINGS_MIN_COMPLETE) {
+                                link->waiting_ecg_settings = false;
+                                schedule_start_ecg(link);
                             }
                         }
                     }
@@ -265,16 +363,17 @@ static void parse_pmd_response(uint8_t *data, int len) {
                 // ACC is always on measurement type 0x02
                 if (measurement_type == PMD_TYPE_ACC) {
                     if (tlv_valid) {
-                        if (settings_len > g_acc_settings_len) {
-                            g_acc_settings_len = settings_len;
+                        if (settings_len > link->acc_settings_len) {
+                            link->acc_settings_len = settings_len;
                             g_acc_pmd_type = measurement_type;
-                            g_acc_rate_selected = sample_rate;
-                            g_acc_resolution_selected = resolution;
-                            g_acc_range_selected = range;
-                            if (!g_acc_rate_warned && g_acc_rate_selected != (uint16_t)g_acc_sample_rate_hz) {
+                            link->acc_rate_selected = sample_rate;
+                            link->acc_resolution_selected = resolution;
+                            link->acc_range_selected = range;
+                            if (!link->acc_rate_warned
+                                && link->acc_rate_selected != (uint16_t)link->acc_sample_rate_hz) {
                                 ESP_LOGW(TAG, "ACC rate %d not supported, using %d",
-                                         g_acc_sample_rate_hz, g_acc_rate_selected);
-                                g_acc_rate_warned = true;
+                                         link->acc_sample_rate_hz, link->acc_rate_selected);
+                                link->acc_rate_warned = true;
                             }
                         }
                     }
@@ -284,26 +383,29 @@ static void parse_pmd_response(uint8_t *data, int len) {
         }
 
         case 0x02: // ACC Measurement data
-            led_status_mark_stream_activity();
+            led_status_mark_stream_activity(link_index(link));
             if (len < 10) break;
 
             uint64_t acc_timestamp_ns = 0;
             memcpy(&acc_timestamp_ns, data + 1, 8);
+#if CONFIG_DEBUG_PMD_PROTO_ENABLE
             timestamp_ns = acc_timestamp_ns;
+#endif
 
             int acc_data_start = 10;
             int acc_data_len = len - acc_data_start;
 
-            g_acc_packet_count++;
+            link->acc_packet_count++;
 
             // ACC is 16-bit per axis (3 axes) = 6 bytes per sample
             int acc_num_samples = acc_data_len / 6;
-            g_total_acc_samples += acc_num_samples;
+            link->total_acc_samples += acc_num_samples;
 
             // Send raw frame data with PMD timestamp (convert ns to us) and ESP timestamp
             output_sensor_frame(
+                link->target_device_name,
                 ecg_streaming_SensorType_SENSOR_TYPE_ACCELEROMETER,
-                g_acc_sample_rate_hz,
+                link->acc_sample_rate_hz,
                 acc_timestamp_ns / 1000,
                 data + acc_data_start,
                 acc_data_len
@@ -311,28 +413,31 @@ static void parse_pmd_response(uint8_t *data, int len) {
             break;
 
         case 0x00: // ECG Measurement data
-            led_status_mark_stream_activity();
+            led_status_mark_stream_activity(link_index(link));
             if (len < 10) break;
 
             uint64_t ecg_timestamp_ns = 0;
             memcpy(&ecg_timestamp_ns, data + 1, 8);
+#if CONFIG_DEBUG_PMD_PROTO_ENABLE
             timestamp_ns = ecg_timestamp_ns;
+#endif
 
             int data_start = 10;
             int data_len = len - data_start;
 
-            g_ecg_packet_count++;
+            link->ecg_packet_count++;
 
             // ECG is 14-bit = 24-bit per 3 samples, packed as 3 bytes per sample
             int num_samples = data_len / 3;
-            g_total_ecg_samples += num_samples;
+            link->total_ecg_samples += num_samples;
 
-            if (g_first_sample_time == 0) g_first_sample_time = xTaskGetTickCount();
+            if (link->first_sample_time == 0) link->first_sample_time = xTaskGetTickCount();
 
             // Send raw frame data with PMD timestamp (convert ns to us) and ESP timestamp
             output_sensor_frame(
+                link->target_device_name,
                 ecg_streaming_SensorType_SENSOR_TYPE_ECG,
-                130,  // ECG sample rate
+                link->ecg_sample_rate_hz > 0 ? link->ecg_sample_rate_hz : 130,
                 ecg_timestamp_ns / 1000,
                 data + data_start,
                 data_len
@@ -356,6 +461,7 @@ static void parse_pmd_response(uint8_t *data, int len) {
             break;
     }
 
+    last_notif_us = now_us;
 #if CONFIG_DEBUG_PMD_PROTO_ENABLE
     notif_index++;
     if (notif_index % CONFIG_DEBUG_PMD_PROTO_EVERY_N == 0) {
@@ -364,7 +470,7 @@ static void parse_pmd_response(uint8_t *data, int len) {
         ecg_streaming_EspMessage msg =
             (ecg_streaming_EspMessage)ecg_streaming_EspMessage_init_zero;
 
-        strlcpy(dbg.device_id, g_device_id, sizeof(dbg.device_id));
+        strlcpy(dbg.device_id, link->target_device_name, sizeof(dbg.device_id));
         dbg.frame_type = frame_type;
         dbg.pmd_type = debug_pmd_type;
         dbg.notif_len = (uint32_t)len;
@@ -379,14 +485,21 @@ static void parse_pmd_response(uint8_t *data, int len) {
         msg.message.ble_debug = dbg;
         usb_send_esp_message(&msg);
     }
+#else
+    (void)sample_count;
+    (void)timestamp_ns;
+    (void)debug_pmd_type;
+    (void)notif_index;
 #endif
-
-    last_notif_us = now_us;
 }
 
 static int write_cb(uint16_t conn_handle, const struct ble_gatt_error *error,
                     struct ble_gatt_attr *attr, void *arg) {
-    const char *what = (const char *)arg;
+    write_ctx_t *ctx = (write_ctx_t *)arg;
+    const char *what = ctx ? ctx->what : NULL;
+    if (ctx) {
+        conn_handle = ctx->conn_handle;
+    }
 
     if (error->status != 0) {
         ESP_LOGE(TAG, "WRITE %s failed: %d", what ? what : "?", error->status);
@@ -399,78 +512,108 @@ static int write_cb(uint16_t conn_handle, const struct ble_gatt_error *error,
     }
 
     if (what && strcmp(what, "CCCD_PMD_CTRL") == 0) {
-        g_ctrl_cccd_enabled = true;
+        polar_link_t *link = find_link_by_conn_handle(conn_handle);
+        if (link) {
+            link->ctrl_cccd_enabled = true;
+        }
         pmd_try_start_streams(conn_handle);
     }
 
     if (what && strcmp(what, "CCCD_PMD") == 0) {
-        g_data_cccd_enabled = true;
+        polar_link_t *link = find_link_by_conn_handle(conn_handle);
+        if (link) {
+            link->data_cccd_enabled = true;
+        }
         pmd_try_start_streams(conn_handle);
     }
 
     return 0;
 }
 
-static void schedule_start_ecg(void) {
-    if (g_start_ecg_pending) {
+static void schedule_start_ecg(polar_link_t *link) {
+    int idx = link_index(link);
+    if (idx < 0) {
         return;
     }
-    g_start_ecg_pending = true;
-    ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &g_start_ecg_ev);
+    if (g_start_ecg_pending[idx]) {
+        return;
+    }
+    g_start_ecg_pending[idx] = true;
+    ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &g_start_ecg_ev[idx]);
 }
 
-static void schedule_start_acc(void) {
-    if (g_start_acc_pending) {
+static void schedule_start_acc(polar_link_t *link) {
+    int idx = link_index(link);
+    if (idx < 0) {
         return;
     }
-    g_start_acc_pending = true;
-    ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &g_start_acc_ev);
+    if (g_start_acc_pending[idx]) {
+        return;
+    }
+    g_start_acc_pending[idx] = true;
+    ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &g_start_acc_ev[idx]);
 }
 
 static void start_ecg_ev_cb(struct ble_npl_event *ev) {
+    int idx = *(int *)ble_npl_event_get_arg(ev);
     struct ble_gap_conn_desc desc;
-    g_start_ecg_pending = false;
+    g_start_ecg_pending[idx] = false;
+    polar_link_t *link = &g_links[idx];
 
-    if (g_conn_handle == BLE_HS_CONN_HANDLE_NONE || g_pmd_ctrl_handle == 0) {
+    if (link->conn_handle == BLE_HS_CONN_HANDLE_NONE || link->pmd_ctrl_handle == 0) {
         ESP_LOGW(TAG, "ECG start skipped: invalid handles");
         return;
     }
-    if (ble_gap_conn_find(g_conn_handle, &desc) != 0) {
+    if (ble_gap_conn_find(link->conn_handle, &desc) != 0) {
         ESP_LOGW(TAG, "ECG start aborted: not connected");
         return;
     }
 
     g_last_command_time = xTaskGetTickCount();
-    if (g_ecg_sample_rate_hz > 0) {
+    if (link->ecg_sample_rate_hz > 0) {
         ESP_LOGI(TAG, "Starting ECG...");
-        pmd_start_ecg(g_conn_handle, g_pmd_ctrl_handle);
+        pmd_start_ecg(link->conn_handle, link->pmd_ctrl_handle);
     }
 }
 
 static void start_acc_ev_cb(struct ble_npl_event *ev) {
+    int idx = *(int *)ble_npl_event_get_arg(ev);
     struct ble_gap_conn_desc desc;
-    g_start_acc_pending = false;
+    g_start_acc_pending[idx] = false;
+    polar_link_t *link = &g_links[idx];
 
-    if (g_conn_handle == BLE_HS_CONN_HANDLE_NONE || g_pmd_ctrl_handle == 0) {
+    if (link->conn_handle == BLE_HS_CONN_HANDLE_NONE || link->pmd_ctrl_handle == 0) {
         ESP_LOGW(TAG, "ACC start skipped: invalid handles");
         return;
     }
-    if (ble_gap_conn_find(g_conn_handle, &desc) != 0) {
+    if (ble_gap_conn_find(link->conn_handle, &desc) != 0) {
         ESP_LOGW(TAG, "ACC start aborted: not connected");
         return;
     }
 
     ESP_LOGI(TAG, "Starting ACC...");
-    pmd_start_acc(g_conn_handle, g_pmd_ctrl_handle);
+    pmd_start_acc(link->conn_handle, link->pmd_ctrl_handle);
 }
 
 void ble_schedule_start_acc(void) {
-    schedule_start_acc();
+    for (int i = 0; i < MAX_POLAR_LINKS; i++) {
+        if (g_links[i].connected) {
+            schedule_start_acc(&g_links[i]);
+        }
+    }
 }
 
 static void pmd_try_enable_cccds(uint16_t conn_handle) {
-    if (!g_link_encrypted) {
-        g_cccd_pending = true;
+    polar_link_t *link = find_link_by_conn_handle(conn_handle);
+    if (!link) {
+        return;
+    }
+    int idx = link_index(link);
+    if (idx < 0) {
+        return;
+    }
+    if (!g_link_encrypted[idx]) {
+        g_cccd_pending[idx] = true;
         int rc = ble_gap_security_initiate(conn_handle);
         if (rc != 0 && rc != BLE_HS_EALREADY) {
             ESP_LOGW(TAG, "Security initiate failed: %d", rc);
@@ -478,19 +621,31 @@ static void pmd_try_enable_cccds(uint16_t conn_handle) {
         return;
     }
 
-    if (g_pmd_ctrl_cccd_handle && !g_ctrl_cccd_enabled) {
+    if (link->pmd_ctrl_cccd_handle && !link->ctrl_cccd_enabled) {
         uint8_t val[2] = {0x02, 0x00}; // indicate
-        int rc = ble_gattc_write_flat(conn_handle, g_pmd_ctrl_cccd_handle,
-                                      val, sizeof(val), write_cb, "CCCD_PMD_CTRL");
+        write_ctx_t *ctx = NULL;
+        if (idx >= 0) {
+            g_write_ctx_ctrl[idx].what = "CCCD_PMD_CTRL";
+            g_write_ctx_ctrl[idx].conn_handle = conn_handle;
+            ctx = &g_write_ctx_ctrl[idx];
+        }
+        int rc = ble_gattc_write_flat(conn_handle, link->pmd_ctrl_cccd_handle,
+                                      val, sizeof(val), write_cb, ctx);
         if (rc != 0) {
             ESP_LOGE(TAG, "CCCD ctrl enable failed: %d", rc);
         }
     }
 
-    if (g_pmd_cccd_handle && !g_data_cccd_enabled) {
+    if (link->pmd_cccd_handle && !link->data_cccd_enabled) {
         uint8_t val[2] = {0x01, 0x00}; // notify
-        int rc = ble_gattc_write_flat(conn_handle, g_pmd_cccd_handle,
-                                      val, sizeof(val), write_cb, "CCCD_PMD");
+        write_ctx_t *ctx = NULL;
+        if (idx >= 0) {
+            g_write_ctx_data[idx].what = "CCCD_PMD";
+            g_write_ctx_data[idx].conn_handle = conn_handle;
+            ctx = &g_write_ctx_data[idx];
+        }
+        int rc = ble_gattc_write_flat(conn_handle, link->pmd_cccd_handle,
+                                      val, sizeof(val), write_cb, ctx);
         if (rc != 0) {
             ESP_LOGE(TAG, "CCCD data enable failed: %d", rc);
         }
@@ -498,8 +653,16 @@ static void pmd_try_enable_cccds(uint16_t conn_handle) {
 }
 
 static void pmd_try_start_streams(uint16_t conn_handle) {
-    if (!g_link_encrypted) {
-        g_start_ecg_wait_encryption = true;
+    polar_link_t *link = find_link_by_conn_handle(conn_handle);
+    if (!link) {
+        return;
+    }
+    int idx = link_index(link);
+    if (idx < 0) {
+        return;
+    }
+    if (!g_link_encrypted[idx]) {
+        g_start_ecg_wait_encryption[idx] = true;
         int rc = ble_gap_security_initiate(conn_handle);
         if (rc != 0 && rc != BLE_HS_EALREADY) {
             ESP_LOGW(TAG, "Security initiate failed: %d", rc);
@@ -507,12 +670,12 @@ static void pmd_try_start_streams(uint16_t conn_handle) {
         return;
     }
 
-    if (g_ctrl_cccd_enabled && g_data_cccd_enabled) {
-        g_waiting_ecg_settings = true;
+    if (link->ctrl_cccd_enabled && link->data_cccd_enabled) {
+        link->waiting_ecg_settings = true;
         // Per official Polar PMD spec Table 2: ECG=0x00, PPG=0x01, ACC=0x02
         // Query only the official measurement types (no heuristic type detection)
-        pmd_get_settings(conn_handle, g_pmd_ctrl_handle, PMD_TYPE_ECG);  // 0x00
-        pmd_get_settings(conn_handle, g_pmd_ctrl_handle, PMD_TYPE_ACC);  // 0x02
+        pmd_get_settings(conn_handle, link->pmd_ctrl_handle, PMD_TYPE_ECG);  // 0x00
+        pmd_get_settings(conn_handle, link->pmd_ctrl_handle, PMD_TYPE_ACC);  // 0x02
     }
 }
 
@@ -521,14 +684,15 @@ static int dsc_disc_cb(uint16_t conn_handle,
                        uint16_t chr_val_handle,
                        const struct ble_gatt_dsc *dsc,
                        void *arg) {
+    polar_link_t *link = (polar_link_t *)arg;
     if (error->status == 0) {
         if (ble_uuid_u16(&dsc->uuid.u) == 0x2902) {
-            if (dsc->handle == (uint16_t)(g_pmd_ctrl_handle + 1)) {
-                g_pmd_ctrl_cccd_handle = dsc->handle;
-                ESP_LOGI(TAG, "PMD CTRL CCCD handle: 0x%04X", g_pmd_ctrl_cccd_handle);
-            } else if (dsc->handle == (uint16_t)(g_pmd_data_handle + 1)) {
-                g_pmd_cccd_handle = dsc->handle;
-                ESP_LOGI(TAG, "PMD DATA CCCD handle: 0x%04X", g_pmd_cccd_handle);
+            if (link && dsc->handle == (uint16_t)(link->pmd_ctrl_handle + 1)) {
+                link->pmd_ctrl_cccd_handle = dsc->handle;
+                ESP_LOGI(TAG, "PMD CTRL CCCD handle: 0x%04X", link->pmd_ctrl_cccd_handle);
+            } else if (link && dsc->handle == (uint16_t)(link->pmd_data_handle + 1)) {
+                link->pmd_cccd_handle = dsc->handle;
+                ESP_LOGI(TAG, "PMD DATA CCCD handle: 0x%04X", link->pmd_cccd_handle);
             } else {
                 ESP_LOGW(TAG, "PMD CCCD at 0x%04X (chr=0x%04X) not matched",
                          dsc->handle, chr_val_handle);
@@ -548,32 +712,40 @@ static int dsc_disc_cb(uint16_t conn_handle,
 static int chr_disc_cb(uint16_t conn_handle,
                        const struct ble_gatt_error *error,
                        const struct ble_gatt_chr *chr, void *arg) {
+    polar_link_t *link = (polar_link_t *)arg;
     if (error->status == 0) {
         if (ble_uuid_cmp(&chr->uuid.u, &UUID_PMD_CTRL.u) == 0) {
-            g_pmd_ctrl_handle = chr->val_handle;
+            if (link) {
+                link->pmd_ctrl_handle = chr->val_handle;
+            }
         } else if (ble_uuid_cmp(&chr->uuid.u, &UUID_PMD_DATA.u) == 0) {
-            g_pmd_data_handle = chr->val_handle;
+            if (link) {
+                link->pmd_data_handle = chr->val_handle;
+            }
         }
         return 0;
     }
 
     if (error->status == BLE_HS_EDONE) {
-        if (g_pmd_ctrl_handle) {
-            int rc = ble_gattc_disc_all_dscs(conn_handle, g_pmd_ctrl_handle,
-                                            g_pmd_end, dsc_disc_cb, NULL);
+        if (link && link->pmd_ctrl_handle) {
+            int rc = ble_gattc_disc_all_dscs(conn_handle, link->pmd_ctrl_handle,
+                                            link->pmd_end, dsc_disc_cb, link);
             if (rc != 0) {
                 ESP_LOGE(TAG, "Descriptor discovery (ctrl) failed: %d", rc);
             }
         }
-        if (g_pmd_data_handle) {
-            int rc = ble_gattc_disc_all_dscs(conn_handle, g_pmd_data_handle,
-                                            g_pmd_end, dsc_disc_cb, NULL);
+        if (link && link->pmd_data_handle) {
+            int rc = ble_gattc_disc_all_dscs(conn_handle, link->pmd_data_handle,
+                                            link->pmd_end, dsc_disc_cb, link);
             if (rc != 0) {
                 ESP_LOGE(TAG, "Descriptor discovery (data) failed: %d", rc);
             }
         }
         ESP_LOGI(TAG, "PMD handles: ctrl=0x%04X data=0x%04X ctrl_cccd=0x%04X data_cccd=0x%04X",
-                 g_pmd_ctrl_handle, g_pmd_data_handle, g_pmd_ctrl_cccd_handle, g_pmd_cccd_handle);
+                 link ? link->pmd_ctrl_handle : 0,
+                 link ? link->pmd_data_handle : 0,
+                 link ? link->pmd_ctrl_cccd_handle : 0,
+                 link ? link->pmd_cccd_handle : 0);
         return 0;
     }
 
@@ -583,18 +755,21 @@ static int chr_disc_cb(uint16_t conn_handle,
 static int svc_disc_cb(uint16_t conn_handle,
                        const struct ble_gatt_error *error,
                        const struct ble_gatt_svc *svc, void *arg) {
+    polar_link_t *link = (polar_link_t *)arg;
     if (error->status == 0) {
         if (ble_uuid_cmp(&svc->uuid.u, &UUID_PMD_SVC.u) == 0) {
-            g_pmd_start = svc->start_handle;
-            g_pmd_end   = svc->end_handle;
+            if (link) {
+                link->pmd_start = svc->start_handle;
+                link->pmd_end   = svc->end_handle;
+            }
         }
         return 0;
     }
 
     if (error->status == BLE_HS_EDONE) {
-        if (g_pmd_start > 0) {
-            int rc = ble_gattc_disc_all_chrs(conn_handle, g_pmd_start, g_pmd_end,
-                                            chr_disc_cb, NULL);
+        if (link && link->pmd_start > 0) {
+            int rc = ble_gattc_disc_all_chrs(conn_handle, link->pmd_start, link->pmd_end,
+                                            chr_disc_cb, link);
             if (rc != 0) {
                 ESP_LOGE(TAG, "Characteristic discovery failed: %d", rc);
             }
@@ -611,7 +786,7 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
     switch (event->type) {
 
     case BLE_GAP_EVENT_DISC: {
-        if (g_connecting || g_connected) return 0;
+        if (any_connecting()) return 0;
 
         const struct ble_gap_disc_desc *desc = &event->disc;
 
@@ -620,7 +795,8 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
             return 0;
         }
 
-        if (strcmp(device_name, g_target_device_name) != 0) {
+        polar_link_t *link = find_link_for_target(device_name);
+        if (!link) {
             return 0;
         }
 
@@ -628,9 +804,9 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         addr_to_str(&desc->addr, addr_str, sizeof(addr_str));
         ESP_LOGI(TAG, "H10 found: %s (MAC: %s)", device_name, addr_str);
 
-        g_connecting = true;
+        link->connecting = true;
         ble_gap_disc_cancel();
-        g_target_addr = desc->addr;
+        link->target_addr = desc->addr;
 
         struct ble_gap_conn_params cp;
         memset(&cp, 0, sizeof(cp));
@@ -644,32 +820,36 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         cp.max_ce_len = 0;
 
         ESP_LOGI(TAG, "Connecting...");
-        int rc = ble_gap_connect(g_own_addr_type, &g_target_addr,
-                                 30000, &cp, gap_event, NULL);
+        int rc = ble_gap_connect(g_own_addr_type, &link->target_addr,
+                                 30000, &cp, gap_event, link);
         if (rc != 0) {
             ESP_LOGE(TAG, "Connection failed: %d", rc);
-            g_connecting = false;
+            link->connecting = false;
             start_scan();
         }
         return 0;
     }
 
     case BLE_GAP_EVENT_NOTIFY_RX: {
+        polar_link_t *link = find_link_by_conn_handle(event->notify_rx.conn_handle);
+        if (!link) {
+            return 0;
+        }
         uint16_t h = event->notify_rx.attr_handle;
         struct os_mbuf *om = event->notify_rx.om;
         int pkt_len = OS_MBUF_PKTLEN(om);
 
-        if (h == g_pmd_data_handle || h == g_pmd_ctrl_handle) {
+        if (h == link->pmd_data_handle || h == link->pmd_ctrl_handle) {
             uint8_t buf[512];
             int n = pkt_len < (int)sizeof(buf) ? pkt_len : (int)sizeof(buf);
             os_mbuf_copydata(om, 0, n, buf);
 
-            parse_pmd_response(buf, n);
+            parse_pmd_response(link, buf, n);
         } else {
             static uint32_t unknown_notif = 0;
             if (unknown_notif++ < 5) {
                 ESP_LOGW(TAG, "Notify on UNKNOWN handle 0x%04X (ctrl=0x%04X, data=0x%04X) len=%d",
-                         h, g_pmd_ctrl_handle, g_pmd_data_handle, pkt_len);
+                         h, link->pmd_ctrl_handle, link->pmd_data_handle, pkt_len);
             }
         }
         return 0;
@@ -681,13 +861,19 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
     }
 
     case BLE_GAP_EVENT_CONNECT: {
+        polar_link_t *link = (polar_link_t *)arg;
+        if (!link) {
+            return 0;
+        }
+        int idx = link_index(link);
         if (event->connect.status == 0) {
-            g_conn_handle = event->connect.conn_handle;
-            g_connected = true;
-            led_status_set_polar_connected(true);
-            g_link_encrypted = false;
-            g_start_ecg_wait_encryption = false;
-            g_cccd_pending = false;
+            link->conn_handle = event->connect.conn_handle;
+            link->connected = true;
+            link->connecting = false;
+            led_status_set_polar_connected(any_connected());
+            g_link_encrypted[idx] = false;
+            g_start_ecg_wait_encryption[idx] = false;
+            g_cccd_pending[idx] = false;
             g_notification_count = 0;
             g_last_command_time = 0;
 
@@ -699,88 +885,64 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
                 ESP_LOGW(TAG, "Set preferred MTU failed: %d", rc);
             }
 
-            rc = ble_gattc_exchange_mtu(g_conn_handle, NULL, NULL);
+            rc = ble_gattc_exchange_mtu(link->conn_handle, NULL, NULL);
             if (rc != 0) {
                 ESP_LOGW(TAG, "MTU exchange failed: %d", rc);
             }
             struct ble_gap_conn_desc desc;
-            if (ble_gap_conn_find(g_conn_handle, &desc) == 0) {
+            if (ble_gap_conn_find(link->conn_handle, &desc) == 0) {
                 g_conn_interval_ms = (uint32_t)(desc.conn_itvl * 1.25f);
             }
 
-            g_pmd_start = g_pmd_end = 0;
-            g_pmd_ctrl_handle = 0;
-            g_pmd_data_handle = 0;
-            g_pmd_cccd_handle = 0;
-            g_pmd_ctrl_cccd_handle = 0;
-            g_ecg_packet_count = 0;
-            g_acc_packet_count = 0;
-            g_total_ecg_samples = 0;
-            g_total_acc_samples = 0;
-            g_first_sample_time = 0;
-            g_ecg_count = 0;
-            g_acc_count = 0;
-            g_ecg_started = false;
-            g_acc_started = false;
-            g_ctrl_cccd_enabled = false;
-            g_data_cccd_enabled = false;
-            g_waiting_ecg_settings = false;
-            g_ecg_settings_len = 0;
-            g_acc_settings_len = 0;
-            g_ecg_rate_selected = 0;
-            g_ecg_resolution_selected = 0;
-            g_acc_rate_selected = 0;
-            g_acc_resolution_selected = 0;
-            g_acc_range_selected = 0;
-            g_ecg_rate_warned = false;
-            g_acc_rate_warned = false;
+            reset_link_state(link);
             g_ecg_pmd_type = PMD_TYPE_ECG;  // Reset to default, will be detected
             g_acc_pmd_type = PMD_TYPE_ACC;
 
-            rc = ble_gattc_disc_all_svcs(g_conn_handle, svc_disc_cb, NULL);
+            rc = ble_gattc_disc_all_svcs(link->conn_handle, svc_disc_cb, link);
             if (rc != 0) {
                 ESP_LOGE(TAG, "Service discovery failed: %d", rc);
             }
 
-            rc = ble_gap_security_initiate(g_conn_handle);
+            rc = ble_gap_security_initiate(link->conn_handle);
             if (rc != 0 && rc != BLE_HS_EALREADY) {
                 ESP_LOGW(TAG, "Security initiation failed: %d (device may not require it)", rc);
             }
+
+            if (has_pending_targets()) {
+                start_scan();
+            }
         } else {
             ESP_LOGE(TAG, "Connection failed: %d", event->connect.status);
-            g_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-            g_connected = false;
-            led_status_set_polar_connected(false);
-            start_scan();
+            link->conn_handle = BLE_HS_CONN_HANDLE_NONE;
+            link->connected = false;
+            link->connecting = false;
+            led_status_set_polar_connected(any_connected());
+            if (has_pending_targets()) {
+                start_scan();
+            }
         }
-        g_connecting = false;
         return 0;
     }
 
     case BLE_GAP_EVENT_DISCONNECT: {
         ESP_LOGW(TAG, "Disconnected: reason=%d", event->disconnect.reason);
-        g_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-        g_connected = false;
-        g_connecting = false;
-        g_link_encrypted = false;
-        g_start_ecg_wait_encryption = false;
-        g_cccd_pending = false;
-        g_ctrl_cccd_enabled = false;
-        g_data_cccd_enabled = false;
-        g_waiting_ecg_settings = false;
-        g_ecg_settings_len = 0;
-        g_acc_settings_len = 0;
-        g_ecg_rate_selected = 0;
-        g_ecg_resolution_selected = 0;
-        g_acc_rate_selected = 0;
-        g_acc_resolution_selected = 0;
-        g_acc_range_selected = 0;
-        g_ecg_rate_warned = false;
-        g_acc_rate_warned = false;
+        polar_link_t *link = find_link_by_conn_handle(event->disconnect.conn.conn_handle);
+        if (link) {
+            int idx = link_index(link);
+            link->conn_handle = BLE_HS_CONN_HANDLE_NONE;
+            link->connected = false;
+            link->connecting = false;
+            g_link_encrypted[idx] = false;
+            g_start_ecg_wait_encryption[idx] = false;
+            g_cccd_pending[idx] = false;
+            reset_link_state(link);
+        }
         g_ecg_pmd_type = PMD_TYPE_ECG;  // Reset to default
         g_acc_pmd_type = PMD_TYPE_ACC;
-        led_status_set_polar_connected(false);
-        start_scan();
+        led_status_set_polar_connected(any_connected());
+        if (has_pending_targets()) {
+            start_scan();
+        }
         return 0;
     }
 
@@ -790,7 +952,7 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
     case BLE_GAP_EVENT_CONN_UPDATE:
         {
             struct ble_gap_conn_desc desc;
-            if (ble_gap_conn_find(g_conn_handle, &desc) == 0) {
+            if (ble_gap_conn_find(event->conn_update.conn_handle, &desc) == 0) {
                 g_conn_interval_ms = (uint32_t)(desc.conn_itvl * 1.25f);
             }
         }
@@ -800,19 +962,23 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         struct ble_gap_conn_desc desc;
         int rc = ble_gap_conn_find(event->enc_change.conn_handle, &desc);
         if (rc == 0) {
+            polar_link_t *link = find_link_by_conn_handle(event->enc_change.conn_handle);
+            int idx = link_index(link);
             ESP_LOGI(TAG, "Encryption change: status=%d encrypted=%d authenticated=%d bonded=%d",
                      event->enc_change.status,
                      desc.sec_state.encrypted,
                      desc.sec_state.authenticated,
                      desc.sec_state.bonded);
-            g_link_encrypted = desc.sec_state.encrypted;
-            if (g_link_encrypted && g_start_ecg_wait_encryption) {
-                g_start_ecg_wait_encryption = false;
-                schedule_start_ecg();
-            }
-            if (g_link_encrypted && g_cccd_pending) {
-                g_cccd_pending = false;
-                pmd_try_enable_cccds(event->enc_change.conn_handle);
+            if (idx >= 0) {
+                g_link_encrypted[idx] = desc.sec_state.encrypted;
+                if (g_link_encrypted[idx] && g_start_ecg_wait_encryption[idx]) {
+                    g_start_ecg_wait_encryption[idx] = false;
+                    schedule_start_ecg(link);
+                }
+                if (g_link_encrypted[idx] && g_cccd_pending[idx]) {
+                    g_cccd_pending[idx] = false;
+                    pmd_try_enable_cccds(event->enc_change.conn_handle);
+                }
             }
         }
         return 0;
@@ -836,7 +1002,10 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
 }
 
 int start_scan(void) {
-    if (!has_target_device()) {
+    if (!has_pending_targets()) {
+        return 0;
+    }
+    if (any_connecting()) {
         return 0;
     }
     struct ble_gap_disc_params p;
@@ -871,8 +1040,10 @@ void ble_init(void) {
     ble_svc_gap_init();
     ble_svc_gatt_init();
 
-    ble_npl_event_init(&g_start_ecg_ev, start_ecg_ev_cb, NULL);
-    ble_npl_event_init(&g_start_acc_ev, start_acc_ev_cb, NULL);
+    for (int i = 0; i < MAX_POLAR_LINKS; i++) {
+        ble_npl_event_init(&g_start_ecg_ev[i], start_ecg_ev_cb, &g_link_index[i]);
+        ble_npl_event_init(&g_start_acc_ev[i], start_acc_ev_cb, &g_link_index[i]);
+    }
 
     ble_svc_gap_device_name_set("ESP32C6-H10");
 
@@ -892,24 +1063,39 @@ void ble_init(void) {
 
 static void pmd_get_settings(uint16_t conn_handle, uint16_t ctrl_handle, uint8_t pmd_type) {
     uint8_t cmd[2] = {0x01, pmd_type};
+    polar_link_t *link = find_link_by_conn_handle(conn_handle);
+    int idx = link_index(link);
+    write_ctx_t *ctx = NULL;
+    if (idx >= 0) {
+        g_write_ctx_get_settings[idx].what = "GET_SETTINGS";
+        g_write_ctx_get_settings[idx].conn_handle = conn_handle;
+        ctx = &g_write_ctx_get_settings[idx];
+    }
     int rc = ble_gattc_write_flat(conn_handle, ctrl_handle,
                                   cmd, sizeof(cmd),
-                                  write_cb, "GET_SETTINGS");
+                                  write_cb, ctx);
     if (rc != 0) {
         ESP_LOGE(TAG, "GET_SETTINGS failed: %d", rc);
     }
 }
 
 void pmd_start_ecg(uint16_t conn_handle, uint16_t ctrl_handle) {
-    if (g_ecg_settings_len == 0) {
+    polar_link_t *link = find_link_by_conn_handle(conn_handle);
+    int idx = link_index(link);
+    if (!link) {
+        return;
+    }
+    if (link->ecg_settings_len == 0) {
         ESP_LOGE(TAG, "No ECG settings available!");
         return;
     }
 
     // Build START command with selected settings
     // ECG: choose device-supported rate/resolution
-    uint16_t desired_rate = g_ecg_rate_selected ? g_ecg_rate_selected : (uint16_t)g_ecg_sample_rate_hz;
-    uint16_t desired_resolution = g_ecg_resolution_selected ? g_ecg_resolution_selected : 14;  // 14-bit fallback
+    uint16_t desired_rate = link->ecg_rate_selected ? link->ecg_rate_selected
+        : (uint16_t)link->ecg_sample_rate_hz;
+    uint16_t desired_resolution = link->ecg_resolution_selected
+        ? link->ecg_resolution_selected : 14;  // 14-bit fallback
 
     // Build TLV: [Type 0, Count 1, rate_lo, rate_hi]
     //            [Type 1, Count 1, res_lo, res_hi]
@@ -926,19 +1112,30 @@ void pmd_start_ecg(uint16_t conn_handle, uint16_t ctrl_handle) {
     ESP_LOGI(TAG, "Starting ECG stream: type=0x%02X, rate=%dHz, res=%dbit",
              g_ecg_pmd_type, desired_rate, desired_resolution);
 
+    write_ctx_t *ctx = NULL;
+    if (idx >= 0) {
+        g_write_ctx_start_ecg[idx].what = "START_ECG";
+        g_write_ctx_start_ecg[idx].conn_handle = conn_handle;
+        ctx = &g_write_ctx_start_ecg[idx];
+    }
     int rc = ble_gattc_write_flat(conn_handle, ctrl_handle,
                                   cmd_full, sizeof(cmd_full),
-                                  write_cb, "START_ECG");
+                                  write_cb, ctx);
     if (rc != 0) {
         ESP_LOGE(TAG, "START_ECG write failed: %d", rc);
         return;
     }
 
-    g_ecg_started = true;
+    link->ecg_started = true;
 }
 
 void pmd_start_acc(uint16_t conn_handle, uint16_t ctrl_handle) {
-    if (g_acc_settings_len == 0) {
+    polar_link_t *link = find_link_by_conn_handle(conn_handle);
+    int idx = link_index(link);
+    if (!link) {
+        return;
+    }
+    if (link->acc_settings_len == 0) {
         ESP_LOGE(TAG, "No ACC settings available!");
         return;
     }
@@ -947,9 +1144,12 @@ void pmd_start_acc(uint16_t conn_handle, uint16_t ctrl_handle) {
     // GET_SETTINGS returns all available options, but START needs specific values
     // Format: [0x02] [MeasurementType] [TLV with selected settings]
 
-    uint16_t desired_rate = g_acc_rate_selected ? g_acc_rate_selected : (uint16_t)g_acc_sample_rate_hz;
-    uint16_t desired_resolution = g_acc_resolution_selected ? g_acc_resolution_selected : 16;  // 16-bit fallback
-    uint16_t desired_range = g_acc_range_selected ? g_acc_range_selected : 8;        // ±8G fallback
+    uint16_t desired_rate = link->acc_rate_selected ? link->acc_rate_selected
+        : (uint16_t)link->acc_sample_rate_hz;
+    uint16_t desired_resolution = link->acc_resolution_selected
+        ? link->acc_resolution_selected : 16;  // 16-bit fallback
+    uint16_t desired_range = link->acc_range_selected
+        ? link->acc_range_selected : 8;        // ±8G fallback
 
     // Build TLV: [Type 0, Count 1, rate_lo, rate_hi]
     //            [Type 1, Count 1, res_lo, res_hi]
@@ -968,13 +1168,19 @@ void pmd_start_acc(uint16_t conn_handle, uint16_t ctrl_handle) {
     ESP_LOGI(TAG, "Starting ACC stream: type=0x%02X, rate=%dHz, res=%dbit, range=±%dG",
              g_acc_pmd_type, desired_rate, desired_resolution, desired_range);
 
+    write_ctx_t *ctx = NULL;
+    if (idx >= 0) {
+        g_write_ctx_start_acc[idx].what = "START_ACC";
+        g_write_ctx_start_acc[idx].conn_handle = conn_handle;
+        ctx = &g_write_ctx_start_acc[idx];
+    }
     int rc = ble_gattc_write_flat(conn_handle, ctrl_handle,
                                   cmd_full, sizeof(cmd_full),
-                                  write_cb, "START_ACC");
+                                  write_cb, ctx);
     if (rc != 0) {
         ESP_LOGE(TAG, "START_ACC write failed: %d", rc);
         return;
     }
 
-    g_acc_started = true;
+    link->acc_started = true;
 }
