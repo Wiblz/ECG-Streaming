@@ -73,8 +73,8 @@ export interface BufferStats {
 	samples_per_device: Record<string, number>
 	samples_per_second: number
 	samples_per_second_per_device: Record<string, number>
-	oldest_timestamp: number
-	newest_timestamp: number
+	oldest_timestamp: number | null
+	newest_timestamp: number | null
 	total_processed: number
 	buffer_utilization: number
 }
@@ -95,7 +95,7 @@ export interface Session {
 }
 
 export interface SessionSample {
-	id: number
+	id: string
 	device_id: string
 	global_time: number
 	raw_value: number
@@ -107,7 +107,7 @@ export interface SessionSample {
 }
 
 export interface SessionAccelerometerSample {
-	id: number
+	id: string
 	device_id: string
 	global_time: number
 	x: number
@@ -163,7 +163,7 @@ export interface Collector {
 	display_name: string
 	device_ids?: string[]
 	version: string | null
-	metadata: Record<string, string>
+	metadata: Record<string, unknown>
 	connected_at?: number
 	first_seen?: number
 	last_seen?: number
@@ -205,7 +205,8 @@ export interface ApiClient {
 
 	// Stats methods
 	getStats(): Promise<{
-		sync: unknown
+		sync: SyncStats
+		grpc: Record<string, unknown>
 		ecg_websocket_connections: number
 		acc_websocket_connections: number
 		ecg_buffer: BufferStats
@@ -263,4 +264,21 @@ export interface ApiClient {
 		active: boolean
 		session?: Session
 	}>
+}
+
+export interface SyncDeviceStats {
+	ready: boolean
+	dropouts: number
+	drift?: number
+	drift_ppm?: number
+	offset?: number
+	confidence?: number
+	sample_count?: number
+	age_seconds?: number
+}
+
+export interface SyncStats {
+	total_devices: number
+	ready_devices: number
+	devices: Record<string, SyncDeviceStats>
 }

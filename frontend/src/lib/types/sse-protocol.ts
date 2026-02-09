@@ -52,7 +52,7 @@ export interface CollectorUpdateData {
 export interface DeviceUpdateData {
 	device_id: string
 	collector_id: string
-	status?: DeviceStatus
+	status: DeviceStatus
 	battery_level?: number | null
 }
 
@@ -67,8 +67,8 @@ export interface BufferStatsData {
 		samples_per_device: Record<string, number>
 		samples_per_second: number
 		samples_per_second_per_device: Record<string, number>
-		oldest_timestamp: number
-		newest_timestamp: number
+		oldest_timestamp: number | null
+		newest_timestamp: number | null
 		total_processed: number
 		buffer_utilization: number
 	}
@@ -79,8 +79,8 @@ export interface BufferStatsData {
 		samples_per_device: Record<string, number>
 		samples_per_second: number
 		samples_per_second_per_device: Record<string, number>
-		oldest_timestamp: number
-		newest_timestamp: number
+		oldest_timestamp: number | null
+		newest_timestamp: number | null
 		total_processed: number
 		buffer_utilization: number
 	}

@@ -7,7 +7,8 @@ import type {
 	Session,
 	SessionAccelerometerSamplesResponse,
 	SessionSamplesResponse,
-	SessionsResponse
+	SessionsResponse,
+	SyncStats
 } from '$lib/types/api'
 
 const envBase = import.meta.env.VITE_AGGREGATOR_HTTP as string | undefined
@@ -64,7 +65,8 @@ export class HttpClient implements ApiClient {
 	}
 
 	async getStats(): Promise<{
-		sync: unknown
+		sync: SyncStats
+		grpc: Record<string, unknown>
 		ecg_websocket_connections: number
 		acc_websocket_connections: number
 		ecg_buffer: BufferStats

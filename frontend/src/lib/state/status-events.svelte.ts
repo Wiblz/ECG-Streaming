@@ -191,8 +191,8 @@ class StatusEventsClient {
 					samples_per_device: {},
 					samples_per_second: 0,
 					samples_per_second_per_device: {},
-					oldest_timestamp: 0,
-					newest_timestamp: 0,
+					oldest_timestamp: null,
+					newest_timestamp: null,
 					total_processed: 0,
 					buffer_utilization: 0
 				}

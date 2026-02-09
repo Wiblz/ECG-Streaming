@@ -7,7 +7,8 @@ import type {
 	Session,
 	SessionAccelerometerSamplesResponse,
 	SessionSamplesResponse,
-	SessionsResponse
+	SessionsResponse,
+	SyncStats
 } from '$lib/types/api'
 import { getMockCollectors, getMockDevices, updateMockData } from './mockData'
 
@@ -92,7 +93,8 @@ export class MockClient implements ApiClient {
 	}
 
 	async getStats(): Promise<{
-		sync: unknown
+		sync: SyncStats
+		grpc: Record<string, unknown>
 		ecg_websocket_connections: number
 		acc_websocket_connections: number
 		ecg_buffer: BufferStats
@@ -106,13 +108,14 @@ export class MockClient implements ApiClient {
 			samples_per_device: {},
 			samples_per_second: 0,
 			samples_per_second_per_device: {},
-			oldest_timestamp: 0,
-			newest_timestamp: 0,
+			oldest_timestamp: null,
+			newest_timestamp: null,
 			total_processed: 0,
 			buffer_utilization: 0
 		}
 		return {
-			sync: {},
+			sync: { total_devices: 0, ready_devices: 0, devices: {} },
+			grpc: {},
 			ecg_websocket_connections: 0,
 			acc_websocket_connections: 0,
 			ecg_buffer: emptyStats,
@@ -128,8 +131,8 @@ export class MockClient implements ApiClient {
 			samples_per_device: {},
 			samples_per_second: 0,
 			samples_per_second_per_device: {},
-			oldest_timestamp: 0,
-			newest_timestamp: 0,
+			oldest_timestamp: null,
+			newest_timestamp: null,
 			total_processed: 0,
 			buffer_utilization: 0
 		}
@@ -143,8 +146,8 @@ export class MockClient implements ApiClient {
 			samples_per_device: {},
 			samples_per_second: 0,
 			samples_per_second_per_device: {},
-			oldest_timestamp: 0,
-			newest_timestamp: 0,
+			oldest_timestamp: null,
+			newest_timestamp: null,
 			total_processed: 0,
 			buffer_utilization: 0
 		}
