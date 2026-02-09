@@ -22,7 +22,13 @@ static void watchdog_task(void *param) {
         vTaskDelay(pdMS_TO_TICKS(1000));
         
         // Start ACC after first ECG data arrives
-        if (g_connected && g_ecg_started && !g_acc_started && g_ecg_packet_count >= 2) {
+        if (
+            g_connected
+            && g_ecg_started
+            && !g_acc_started
+            && g_ecg_packet_count >= 2
+            && g_acc_sample_rate_hz > 0
+        ) {
             ESP_LOGI(TAG, "ECG streaming confirmed, starting ACC...");
             ble_schedule_start_acc();
             // Note: g_acc_started is set to true in pmd_start_acc() after START command is sent
