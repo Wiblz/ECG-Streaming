@@ -19,8 +19,9 @@ export function getDeviceColor(index: number): string {
  */
 export function createDeviceSeries(
 	deviceIds: string[],
-	getVerifiedIndices?: () => number[],
-	deviceNicknames?: Map<string, string>
+	getVerifiedIndices?: (deviceId: string) => number[],
+	deviceNicknames?: Map<string, string>,
+	spanGaps: boolean = true
 ): uPlot.Series[] {
 	const series: uPlot.Series[] = [{ label: 'Time' }]
 
@@ -30,6 +31,7 @@ export function createDeviceSeries(
 			label: displayName,
 			stroke: getDeviceColor(idx),
 			width: 2,
+			spanGaps,
 			points: getVerifiedIndices
 				? {
 						show: true,
@@ -38,7 +40,7 @@ export function createDeviceSeries(
 						stroke: '#00ff00', // Green for verified samples
 						filter: () => {
 							// Return pre-computed indices - O(1) lookup
-							return getVerifiedIndices()
+							return getVerifiedIndices(deviceId)
 						}
 					}
 				: { show: false }

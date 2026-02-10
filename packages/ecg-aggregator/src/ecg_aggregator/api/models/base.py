@@ -67,12 +67,45 @@ class BufferedAccelerometerSampleModel(BaseModel):
     magnitude: float
 
 
+class RealtimeECGSampleModel(BaseModel):
+    """Realtime ECG sample for WS payloads (no device_id field)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str
+    global_time: float
+    confidence: float
+    wall_clock_us: int
+    receiver_clock_us: int
+    polar_clock_us: int
+    time_verified: bool
+    raw_value: int
+
+
+class RealtimeAccelerometerSampleModel(BaseModel):
+    """Realtime accelerometer sample for WS payloads (no device_id field)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str
+    global_time: float
+    confidence: float
+    wall_clock_us: int
+    receiver_clock_us: int
+    polar_clock_us: int
+    time_verified: bool
+    x: float
+    y: float
+    z: float
+    magnitude: float
+
+
 class ECGSessionSampleModel(BaseModel):
     """ECG session sample (grouped by device_id, so no device_id field)."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    id: str
+    id: int
     global_time: float
     raw_value: int
     confidence: float
@@ -87,7 +120,7 @@ class AccelerometerSessionSampleModel(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    id: str
+    id: int
     global_time: float
     x: float
     y: float

@@ -1,9 +1,9 @@
 <script lang="ts">
-	import type { Session } from '$lib/types/api';
+	import type { Session, SessionSample, SessionAccelerometerSample } from '$lib/types/api';
+	import { api } from '$lib/api/client';
 	import Button from './buttons/Button.svelte';
 	import Card from './Card.svelte';
-	import HistoricalAccelerometerWaveform from './HistoricalAccelerometerWaveform.svelte';
-	import HistoricalWaveform from './HistoricalWaveform.svelte';
+	import Waveform from './Waveform.svelte';
 	import 'uplot/dist/uPlot.min.css';
 
 	interface Props {
@@ -59,6 +59,10 @@
 		</Button>
 	{/snippet}
 
+	<div class="mb-4 text-xs text-gray-500">
+		Middle-click + drag to pan, scroll wheel to zoom. Data loads dynamically.
+	</div>
+
 	<div class="space-y-6">
 		<!-- ECG Waveform -->
 		<div>
@@ -66,7 +70,7 @@
 				<h3 class="text-sm font-semibold text-gray-900">ECG</h3>
 			</div>
 			{#key showVerifiedPoints}
-				<HistoricalWaveform
+				<Waveform
 					{session}
 					{loading}
 					{showVerifiedPoints}
@@ -74,6 +78,24 @@
 					{timeSyncEnabled}
 					{sharedTimeWindow}
 					onTimeWindowChange={handleTimeWindowChange}
+					fetchSamples={api.getSessionSamples}
+					getValue={(s: SessionSample) => s.raw_value}
+					yAxisLabel="Amplitude (mV)"
+					formatTooltip={(sample: SessionSample, xVal, yVal) => {
+						const verified = sample.time_verified ? ' ✓' : '';
+						return `
+							<table style="border-collapse: collapse;">
+								<tr><td style="padding: 1px 4px 1px 0;">ID:</td><td style="padding: 1px 0;">${sample.id}</td></tr>
+								<tr><td style="padding: 1px 4px 1px 0;">Value:</td><td style="padding: 1px 0;">${sample.raw_value}</td></tr>
+								<tr><td style="padding: 1px 4px 1px 0;">Time:</td><td style="padding: 1px 0;">${xVal.toFixed(4)}s</td></tr>
+								<tr><td style="padding: 1px 4px 1px 0;">Global:</td><td style="padding: 1px 0;">${sample.global_time.toFixed(3)}s</td></tr>
+								<tr><td style="padding: 1px 4px 1px 0;">Polar:</td><td style="padding: 1px 0;">${(sample.polar_clock_us / 1_000_000).toFixed(3)}s${verified}</td></tr>
+								<tr><td style="padding: 1px 4px 1px 0;">Receiver:</td><td style="padding: 1px 0;">${(sample.receiver_clock_us / 1_000_000).toFixed(3)}s</td></tr>
+								<tr><td style="padding: 1px 4px 1px 0;">Wall:</td><td style="padding: 1px 0;">${(sample.wall_clock_us / 1_000_000).toFixed(3)}s</td></tr>
+								<tr><td style="padding: 1px 4px 1px 0;">Conf:</td><td style="padding: 1px 0;">${(sample.confidence * 100).toFixed(0)}%</td></tr>
+							</table>
+						`;
+					}}
 				/>
 			{/key}
 		</div>
@@ -87,7 +109,7 @@
 				<h3 class="text-sm font-semibold text-gray-900">Accelerometer</h3>
 			</div>
 			{#key showVerifiedPoints}
-				<HistoricalAccelerometerWaveform
+				<Waveform
 					{session}
 					{loading}
 					{showVerifiedPoints}
@@ -95,6 +117,24 @@
 					{timeSyncEnabled}
 					{sharedTimeWindow}
 					onTimeWindowChange={handleTimeWindowChange}
+					fetchSamples={api.getSessionAccelerometerSamples}
+					getValue={(s: SessionAccelerometerSample) => s.magnitude}
+					yAxisLabel="Magnitude (g)"
+					formatTooltip={(sample: SessionAccelerometerSample, xVal, yVal) => {
+						const verified = sample.time_verified ? ' ✓' : '';
+						return `
+							<table style="border-collapse: collapse;">
+								<tr><td style="padding: 1px 4px 1px 0;">ID:</td><td style="padding: 1px 0;">${sample.id}</td></tr>
+								<tr><td style="padding: 1px 4px 1px 0;">X:</td><td style="padding: 1px 0;">${sample.x.toFixed(3)}g</td></tr>
+								<tr><td style="padding: 1px 4px 1px 0;">Y:</td><td style="padding: 1px 0;">${sample.y.toFixed(3)}g</td></tr>
+								<tr><td style="padding: 1px 4px 1px 0;">Z:</td><td style="padding: 1px 0;">${sample.z.toFixed(3)}g</td></tr>
+								<tr><td style="padding: 1px 4px 1px 0;">Mag:</td><td style="padding: 1px 0;">${sample.magnitude.toFixed(3)}g</td></tr>
+								<tr><td style="padding: 1px 4px 1px 0;">Time:</td><td style="padding: 1px 0;">${xVal.toFixed(4)}s</td></tr>
+								<tr><td style="padding: 1px 4px 1px 0;">Global:</td><td style="padding: 1px 0;">${sample.global_time.toFixed(3)}s</td></tr>
+								<tr><td style="padding: 1px 4px 1px 0;">Polar:</td><td style="padding: 1px 0;">${(sample.polar_clock_us / 1_000_000).toFixed(3)}s${verified}</td></tr>
+							</table>
+						`;
+					}}
 				/>
 			{/key}
 		</div>

@@ -81,6 +81,21 @@ export interface BufferStats {
 
 // Session types
 
+/**
+ * Base interface for all plottable samples (historical and live).
+ * Defines the minimum required fields for waveform visualization.
+ * Note: id is string | number to accommodate both BufferedSamples (string) and SessionSamples (number)
+ */
+export interface PlottableSample {
+	id: string | number
+	device_id: string
+	global_time: number
+	wall_clock_us: number
+	receiver_clock_us: number
+	polar_clock_us: number
+	time_verified: boolean
+}
+
 export interface Session {
 	id: number
 	start_time: number
@@ -95,7 +110,7 @@ export interface Session {
 }
 
 export interface SessionSample {
-	id: string
+	id: number
 	device_id: string
 	global_time: number
 	raw_value: number
@@ -107,7 +122,7 @@ export interface SessionSample {
 }
 
 export interface SessionAccelerometerSample {
-	id: string
+	id: number
 	device_id: string
 	global_time: number
 	x: number

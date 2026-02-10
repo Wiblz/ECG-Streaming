@@ -38,6 +38,8 @@ from ecg_aggregator.api.models import (
     DeviceSummary,
     ECGSessionSampleModel,
     ImportSessionResponse,
+    RealtimeAccelerometerSampleModel,
+    RealtimeECGSampleModel,
     RootEndpoints,
     RootResponse,
     SessionAccelerometerSamplesResponse,
@@ -231,9 +233,15 @@ class ECGStreamingServer:
                     # Send initial buffer stats immediately
                     from ecg_aggregator.api.sse_broadcaster import BufferStatsData
 
+                    ecg_stats = self.ecg_buffer.get_stats()
+                    acc_stats = self.acc_buffer.get_stats()
+                    if self.grpc_servicer:
+                        active_devices = self.grpc_servicer.get_active_device_count()
+                        ecg_stats = {**ecg_stats, "device_count": active_devices}
+                        acc_stats = {**acc_stats, "device_count": active_devices}
                     initial_stats = BufferStatsData(
-                        ecg_buffer=BufferStats.model_validate(self.ecg_buffer.get_stats()),
-                        acc_buffer=BufferStats.model_validate(self.acc_buffer.get_stats()),
+                        ecg_buffer=BufferStats.model_validate(ecg_stats),
+                        acc_buffer=BufferStats.model_validate(acc_stats),
                     )
                     yield {
                         "event": "buffer_stats",
@@ -1177,8 +1185,8 @@ class ECGStreamingServer:
                     continue
 
                 # Group samples by device_id for bandwidth efficiency
-                devices_data: dict[str, list[ECGSessionSampleModel]] = group_samples_by_device(
-                    all_samples, ECGSessionSampleModel
+                devices_data: dict[str, list[RealtimeECGSampleModel]] = group_samples_by_device(
+                    all_samples, RealtimeECGSampleModel
                 )
                 devices_payload = {
                     device_id: [sample.model_dump() for sample in samples]
@@ -1242,8 +1250,8 @@ class ECGStreamingServer:
                     continue
 
                 # Group samples by device_id for bandwidth efficiency
-                devices_data: dict[str, list[AccelerometerSessionSampleModel]] = (
-                    group_samples_by_device(all_samples, AccelerometerSessionSampleModel)
+                devices_data: dict[str, list[RealtimeAccelerometerSampleModel]] = (
+                    group_samples_by_device(all_samples, RealtimeAccelerometerSampleModel)
                 )
                 devices_payload = {
                     device_id: [sample.model_dump() for sample in samples]
@@ -1287,13 +1295,15 @@ class ECGStreamingServer:
 
                 from ecg_aggregator.api.sse_broadcaster import BufferStatsData
 
+                ecg_stats = self.ecg_buffer.get_stats(consume_rate=True)
+                acc_stats = self.acc_buffer.get_stats(consume_rate=True)
+                if self.grpc_servicer:
+                    active_devices = self.grpc_servicer.get_active_device_count()
+                    ecg_stats = {**ecg_stats, "device_count": active_devices}
+                    acc_stats = {**acc_stats, "device_count": active_devices}
                 stats = BufferStatsData(
-                    ecg_buffer=BufferStats.model_validate(
-                        self.ecg_buffer.get_stats(consume_rate=True)
-                    ),
-                    acc_buffer=BufferStats.model_validate(
-                        self.acc_buffer.get_stats(consume_rate=True)
-                    ),
+                    ecg_buffer=BufferStats.model_validate(ecg_stats),
+                    acc_buffer=BufferStats.model_validate(acc_stats),
                 )
 
                 await self.sse_broadcaster.broadcast("buffer_stats", stats)

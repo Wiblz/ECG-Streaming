@@ -98,6 +98,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
         self._samples_received = 0
         self._acc_samples_received = 0
         self._last_frame_ts: dict[tuple[str, str], int] = {}
+        self._sync_ready_logged: dict[str, int] = {}
 
         # Sample batching for database writes
         self._ecg_batch_buffer: list[
@@ -271,7 +272,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                                     collector_id=collector_id,
                                     display_name=display_name,
                                     status="CONNECTED",
-                                    device_count=len(device_ids),
+                                    active_devices=0,
                                 ),
                             )
                         )
@@ -360,9 +361,15 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                     if self.time_alignment.is_device_ready(device_id):
                         state = self.time_alignment._device_models.get(device_id)
                         if state and state.model:
-                            logger.info(
-                                f"Time sync ready for {device_id}: offset={state.model.offset:.3f}s, confidence={state.model.confidence:.2f}"
-                            )
+                            last_version = self._sync_ready_logged.get(device_id)
+                            if last_version != state.offset_version:
+                                self._sync_ready_logged[device_id] = state.offset_version
+                                logger.info(
+                                    "Time sync ready for %s: offset=%.3fs, confidence=%.2f",
+                                    device_id,
+                                    state.model.offset,
+                                    state.model.confidence,
+                                )
                             sync_status = collector_aggregator_pb2.SyncStatusUpdate(
                                 device_id=device_id,
                                 sync_ready=True,
@@ -888,6 +895,16 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
         )
 
         self.collectors[collector_id].active_devices = active_count
+
+    def get_active_device_count(self, active_window_s: float = 30.0) -> int:
+        """Get total number of active devices across all collectors."""
+        now = time.time()
+        return sum(
+            1
+            for dev_status in self.device_statuses.values()
+            if dev_status.last_data_time is not None
+            and (now - dev_status.last_data_time) <= active_window_s
+        )
 
     def get_stats(self) -> dict:
         """Get server statistics.

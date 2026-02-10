@@ -1,274 +1,384 @@
-<script lang="ts" generics="T extends { device_id: string; global_time: number; id: string; wall_clock_us: number; receiver_clock_us: number; polar_clock_us: number; time_verified: boolean }">
+<script lang="ts" generics="T extends PlottableSample">
 	import { onDestroy, onMount } from 'svelte';
 	import type uPlot from 'uplot';
-	import type { AlignedData } from 'uplot';
 	import { browser } from '$app/environment';
-	import { isPaused } from '$lib/state/pause.svelte';
-	import {
-		getCurrentPlaybackTime, 
-		getSessionStartTime,
-		setSessionStartTime
-	} from '$lib/state/session-time.svelte';
-	import type { ConnectionStateType } from '$lib/state/websocket.svelte';
-	import Button from './buttons/Button.svelte';
-	import Card from './Card.svelte';
-	import 'uplot/dist/uPlot.min.css';
+	import type { PlottableSample, Session } from '$lib/types/api';
+	import { alignSamplesToTimestamps, buildUnionTimestamps, flattenGroupedSamples, groupSamplesByDevice } from '$lib/utils/samples';
 
-	interface Props {
-		samples: Map<string, T[]>;
-		getValue: (sample: T) => number;
-		yAxisLabel: string;
-		title: string;
-		emptyMessage?: string;
-		wsState: ConnectionStateType;
-		/**
-		 * Whether to render the Card wrapper
-		 * @default true
-		 */
-		standalone?: boolean;
-		/**
-		 * Whether to show verified sample points
-		 * @default false
-		 */
-		showVerifiedPoints?: boolean;
-		/**
-		 * Map of device IDs to nicknames for display
-		 */
-		deviceNicknames?: Map<string, string>;
-	}
-
-	let {
-		samples,
-		getValue,
-		yAxisLabel,
-		title,
-		emptyMessage = 'Waiting for data...',
-		wsState,
-		standalone = true,
-		showVerifiedPoints = false,
-		deviceNicknames
-	}: Props = $props();
-
-	let plotContainer: HTMLDivElement;
-	let chart = $state<uPlot | null>(null);
 	let uPlotLib = $state<typeof uPlot | null>(null);
-	let createDeviceSeries: ((deviceIds: string[], getVerifiedIndices?: () => number[], deviceNicknames?: Map<string, string>) => uPlot.Series[]) | null = null;
+	let createDeviceSeries: ((deviceIds: string[], getVerifiedIndices?: (deviceId: string) => number[], deviceNicknames?: Map<string, string>, spanGaps?: boolean) => uPlot.Series[]) | null = null;
 	let createAxes: ((yLabel: string) => uPlot.Axis[]) | null = null;
 	let tooltipsPlugin: ReturnType<typeof import('$lib/utils/uplot-tooltips').tooltipsPlugin> | null =
 		null;
-	let animationFrameId: number | null = null;
-	let lastUpdateTime = 0;
 
-	// Sample lookup for efficient tooltip access - maps chart data index to original sample
-	let sampleLookup: T[] = [];
-	// Pre-computed indices of verified samples for efficient filtering
-	let verifiedIndices: number[] = [];
-
-	import { ConnectionState } from '$lib/state/websocket.svelte';
-
-	const isStreaming = $derived(
-		wsState === ConnectionState.CONNECTED && samples.size > 0 && !isPaused()
-	);
-
-	// Time window configuration
-	const WINDOW_DURATION = 7.5; // seconds to display
-	const UPDATE_INTERVAL_MS = 33; // update every 33ms (~30 FPS)
-
-	// X-axis range controlled by function (prevents setData from resetting scale)
-	let xAxisRange: [number, number] = [0, WINDOW_DURATION];
-
-	// Use shared session start time for synchronization across all waveforms
-	const sessionStartTime = $derived(getSessionStartTime());
-
-	// Get current time window based on wall-clock progression (shared across all waveforms)
-	function getCurrentTimeWindow(): { minTime: number; maxTime: number } | null {
-		const currentTime = getCurrentPlaybackTime();
-
-		if (currentTime === null) {
-			return null;
-		}
-
-		// Always show a fixed WINDOW_DURATION window, even if it starts in the past
-		const window = {
-			minTime: currentTime - WINDOW_DURATION,
-			maxTime: currentTime
-		};
-		return window;
+	interface Props {
+		session: Session;
+		loading?: boolean;
+		showVerifiedPoints?: boolean;
+		deviceNicknames?: Map<string, string>;
+		timeSyncEnabled?: boolean;
+		sharedTimeWindow?: { minTime: number; maxTime: number } | null;
+		onTimeWindowChange?: (window: { minTime: number; maxTime: number }) => void;
+		maxGapSeconds?: number;
+		/**
+		 * Function to fetch samples from API
+		 */
+		fetchSamples: (sessionId: number, params: { start_time: number; end_time: number }) => Promise<{ devices: Record<string, Omit<T, 'device_id'>[]> }>;
+		/**
+		 * Function to extract the value from a sample for plotting
+		 */
+		getValue: (sample: T) => number;
+		/**
+		 * Y-axis label
+		 */
+		yAxisLabel: string;
+		/**
+		 * Custom tooltip formatter for sample-specific data
+		 */
+		formatTooltip?: (sample: T, xVal: number, yVal: number) => string;
 	}
 
-	// Prepare data for uPlot from live samples, filtered by time window
-	function prepareChartData(
-		sampleMap: Map<string, T[]>,
-		timeWindow?: { minTime: number; maxTime: number } | null
-	): {
-		data: AlignedData;
-		devices: string[];
-		samples: T[];
-	} {
-		const devices = Array.from(sampleMap.keys());
+	let {
+		session,
+		loading = false,
+		showVerifiedPoints = false,
+		deviceNicknames,
+		timeSyncEnabled = false,
+		sharedTimeWindow = null,
+		onTimeWindowChange,
+		maxGapSeconds = 0.1,
+		fetchSamples,
+		getValue,
+		yAxisLabel,
+		formatTooltip
+	}: Props = $props();
 
-		if (devices.length === 0 || sampleMap.size === 0) {
-			return { data: [[], []], devices: [], samples: [] };
-		}
+	let plotContainer: HTMLDivElement;
+	let chart: uPlot | null = null;
+	let loadedSamples: T[] = $state([]);
+	let isLoadingData = $state(false);
 
-		// Single device case
-		if (devices.length === 1) {
-			const deviceSamples = sampleMap.get(devices[0])!;
-			if (deviceSamples.length === 0) {
-				return { data: [[], []], devices, samples: [] };
-			}
+	let deviceOrder: string[] = $state([]);
+	let sampleByDeviceAndTime = new Map<string, Map<number, T>>();
+	let verifiedIndicesByDevice = new Map<string, number[]>();
 
-			// Set session start time from first sample if not set
-			if (sessionStartTime === null && deviceSamples.length > 0) {
-				setSessionStartTime(deviceSamples[0].global_time);
-			}
+	// Track the currently loaded time range
+	let loadedTimeRange = $state<{ start: number; end: number } | null>(null);
 
-			// Use absolute time (seconds from session start)
-			const currentStartTime = sessionStartTime ?? deviceSamples[0].global_time;
+	// Track current viewport for display
+	let currentViewport = $state<{ start: number; end: number; sampleCount: number } | null>(null);
 
-			// Filter samples by time window if provided
-			let filteredSamples = deviceSamples;
-			if (timeWindow) {
-				filteredSamples = deviceSamples.filter((s) => {
-					const relTime = s.global_time - currentStartTime;
-					return relTime >= timeWindow.minTime && relTime <= timeWindow.maxTime;
-				});
-			}
+	const INITIAL_WINDOW_SECONDS = 30;
+	const MAX_WINDOW_SECONDS = 30; // Maximum zoom out window
 
-			const timestamps = filteredSamples.map((s) => s.global_time - currentStartTime);
-			const values = filteredSamples.map((s) => getValue(s));
+	// Debounce for fetching data
+	let fetchTimeout: ReturnType<typeof setTimeout> | null = null;
+	const FETCH_DEBOUNCE_MS = 300;
 
-			return {
-				data: [timestamps, values],
-				devices,
-				samples: filteredSamples
-			};
-		}
+	// Flag to prevent setScale hook from triggering during programmatic updates
+	let programmaticUpdate = false;
 
-		// Multiple devices - align by timestamp
-		// Find the device with the most samples to use as time base
-		let maxDevice = devices[0];
-		let maxLength = 0;
-		for (const deviceId of devices) {
-			const len = sampleMap.get(deviceId)!.length;
-			if (len > maxLength) {
-				maxLength = len;
-				maxDevice = deviceId;
-			}
-		}
+	const loadTimeRange = async (startTime: number, endTime: number) => {
+		// Skip if already loading or if we have this range
+		if (isLoadingData) return;
 
-		const baseSamples = sampleMap.get(maxDevice)!;
-		if (baseSamples.length === 0) {
-			return { data: [[], []], devices: [], samples: [] };
-		}
-
-		// Set session start time from first sample if not set
-		if (sessionStartTime === null && baseSamples.length > 0) {
-			setSessionStartTime(baseSamples[0].global_time);
-		}
-
-		// Use absolute time (seconds from session start)
-		const currentStartTime = sessionStartTime ?? baseSamples[0].global_time;
-
-		// Filter base samples by time window if provided
-		let filteredBaseSamples = baseSamples;
-		if (timeWindow) {
-			filteredBaseSamples = baseSamples.filter((s) => {
-				const relTime = s.global_time - currentStartTime;
-				return relTime >= timeWindow.minTime && relTime <= timeWindow.maxTime;
-			});
-		}
-
-		const timestamps = filteredBaseSamples.map((s) => s.global_time - currentStartTime);
-
-		// Create value arrays for each device, ALIGNED to the base timestamps
-		const seriesData = devices.map((deviceId) => {
-			const deviceSamples = sampleMap.get(deviceId)!;
-			let filtered = deviceSamples;
-			if (timeWindow) {
-				filtered = deviceSamples.filter((s) => {
-					const relTime = s.global_time - currentStartTime;
-					return relTime >= timeWindow.minTime && relTime <= timeWindow.maxTime;
-				});
-			}
-
-			// Align device samples to base timestamps using binary search for nearest neighbor
-			return timestamps.map((baseTimestamp) => {
-				const baseAbsTime = baseTimestamp + currentStartTime;
-
-				// Binary search to find closest sample - O(log n) instead of O(n)
-				let left = 0;
-				let right = filtered.length - 1;
-
-				// Handle edge cases
-				if (filtered.length === 0) return null;
-				if (filtered.length === 1) {
-					const diff = Math.abs(filtered[0].global_time - baseAbsTime);
-					return diff <= 0.1 ? getValue(filtered[0]) : null;
-				}
-
-				// Binary search for insertion point
-				while (left < right) {
-					const mid = Math.floor((left + right) / 2);
-					if (filtered[mid].global_time < baseAbsTime) {
-						left = mid + 1;
-					} else {
-						right = mid;
-					}
-				}
-
-				// Check left and left-1 for closest match
-				let closestIdx = left;
-				let minDiff = Math.abs(filtered[left].global_time - baseAbsTime);
-
-				if (left > 0) {
-					const leftDiff = Math.abs(filtered[left - 1].global_time - baseAbsTime);
-					if (leftDiff < minDiff) {
-						closestIdx = left - 1;
-						minDiff = leftDiff;
-					}
-				}
-
-				// Use null if no sample within reasonable tolerance (0.1s)
-				if (minDiff > 0.1) {
-					return null;
-				}
-
-				return getValue(filtered[closestIdx]);
-			});
-		});
-
-		return {
-			data: [timestamps, ...seriesData],
-			devices,
-			samples: filteredBaseSamples
-		};
-	}
-
-	// Create the chart
-	function createChart() {
-		if (!plotContainer || !uPlotLib || !createDeviceSeries || !createAxes) return;
-
-		const { data, devices } = prepareChartData(samples);
-
-		if (devices.length === 0) {
-			// No data yet, skip chart creation
+		if (
+			loadedTimeRange &&
+			Math.abs(loadedTimeRange.start - startTime) < 0.001 &&
+			Math.abs(loadedTimeRange.end - endTime) < 0.001
+		) {
 			return;
 		}
+
+		console.log(
+			`[Waveform] Loading time range: ${new Date(startTime * 1000).toISOString()} to ${new Date(endTime * 1000).toISOString()}`
+		);
+		isLoadingData = true;
+
+		try {
+			// Don't request limit - let server return all samples in the time range
+			// This ensures we get complete data even for large windows
+			const response = await fetchSamples(session.id, {
+				start_time: startTime,
+				end_time: endTime
+			});
+
+			// Flatten grouped data back into samples array with device_id
+			const samples = flattenGroupedSamples<T>(response.devices);
+
+			console.log(`[Waveform] Loaded ${samples.length} samples`);
+			loadedSamples = samples;
+			loadedTimeRange = { start: startTime, end: endTime };
+
+			// Update chart with new data
+			if (chart) {
+				// Save current viewport
+				const xScale = chart.scales.x;
+				const currentMin = xScale?.min;
+				const currentMax = xScale?.max;
+
+				// Prepare and set new data
+				const chartData = prepareChartData(loadedSamples);
+
+				// Set programmatic flag to prevent hook from triggering
+				programmaticUpdate = true;
+
+				const chartInstance = chart; // Capture for closure
+
+				// Batch the data update and scale restoration together
+				chartInstance.batch(() => {
+					// Pass false to prevent triggering hooks
+					chartInstance.setData(chartData.data, false);
+
+					// Restore viewport if we had one
+					if (currentMin !== undefined && currentMax !== undefined) {
+						chartInstance.setScale('x', { min: currentMin, max: currentMax });
+					}
+				});
+
+				// Reset flag after next tick to ensure all updates are processed
+				setTimeout(() => {
+					programmaticUpdate = false;
+				}, 0);
+			}
+		} catch (error) {
+			console.error('[Waveform] Error loading samples:', error);
+		} finally {
+			isLoadingData = false;
+		}
+	};
+
+	// Prepare data for uPlot (convert to relative session time)
+	const prepareChartData = (
+		samples: T[]
+	): { data: uPlot.AlignedData; devices: string[] } => {
+		if (samples.length === 0) {
+			deviceOrder = [];
+			sampleByDeviceAndTime = new Map();
+			verifiedIndicesByDevice = new Map();
+			return { data: [[], []], devices: [] };
+		}
+
+		const inferredDevices = [...new Set(samples.map((s) => s.device_id))];
+		const stableDeviceOrder = session.devices?.length ? session.devices : inferredDevices.sort();
+
+		const samplesByDevice = groupSamplesByDevice(samples);
+		const timestamps = buildUnionTimestamps(samples, session.start_time);
+		const aligned = alignSamplesToTimestamps(
+			samplesByDevice,
+			stableDeviceOrder,
+			timestamps,
+			session.start_time,
+			getValue,
+			maxGapSeconds
+		);
+
+		deviceOrder = aligned.deviceOrder;
+		sampleByDeviceAndTime = aligned.sampleByDeviceAndTime;
+
+		const nextVerified = new Map<string, number[]>();
+		for (const deviceId of aligned.deviceOrder) {
+			const deviceSamples = aligned.sampleByDeviceAndTime.get(deviceId);
+			const indices: number[] = [];
+			if (deviceSamples) {
+				for (let i = 0; i < aligned.timestamps.length; i += 1) {
+					const sample = deviceSamples.get(aligned.timestamps[i]);
+					if (sample?.time_verified) {
+						indices.push(i);
+					}
+				}
+			}
+			nextVerified.set(deviceId, indices);
+		}
+		verifiedIndicesByDevice = nextVerified;
+
+		return {
+			data: aligned.data,
+			devices: aligned.deviceOrder
+		};
+	};
+
+	// Plugin for wheel zoom and middle-click pan
+	function wheelZoomPlugin() {
+		return {
+			hooks: {
+				ready: [
+					(u: uPlot) => {
+						const over = u.over;
+
+						// Middle-click drag to pan
+						over.addEventListener('mousedown', (e) => {
+							if (e.button === 1) {
+								e.preventDefault();
+								const left0 = e.clientX;
+								const scXMin0 = u.scales.x.min!;
+								const scXMax0 = u.scales.x.max!;
+								const xUnitsPerPx = u.posToVal(1, 'x') - u.posToVal(0, 'x');
+
+								const onMove = (e2: MouseEvent) => {
+									e2.preventDefault();
+									const left1 = e2.clientX;
+									const dx = xUnitsPerPx * (left1 - left0);
+
+									// Clamp to session bounds (relative time: 0 to session duration)
+									let newMin = scXMin0 - dx;
+									let newMax = scXMax0 - dx;
+									const range = newMax - newMin;
+
+									const sessionDuration = session.duration_seconds ?? INITIAL_WINDOW_SECONDS;
+
+									if (newMin < 0) {
+										newMin = 0;
+										newMax = range;
+									}
+									if (newMax > sessionDuration) {
+										newMax = sessionDuration;
+										newMin = sessionDuration - range;
+									}
+
+									u.setScale('x', { min: newMin, max: newMax });
+								};
+
+								const onUp = () => {
+									document.removeEventListener('mousemove', onMove);
+									document.removeEventListener('mouseup', onUp);
+								};
+
+								document.addEventListener('mousemove', onMove);
+								document.addEventListener('mouseup', onUp);
+							}
+						});
+
+						// Wheel zoom
+						over.addEventListener('wheel', (e) => {
+							e.preventDefault();
+							const { left } = u.cursor;
+							const leftPct = left! / u.bbox.width;
+							const xVal = u.posToVal(left!, 'x');
+							const oxRange = u.scales.x.max! - u.scales.x.min!;
+							const factor = 0.75;
+							let nxRange = e.deltaY < 0 ? oxRange * factor : oxRange / factor;
+
+							// If trying to zoom out beyond max window, ignore the event
+							if (e.deltaY > 0 && oxRange >= MAX_WINDOW_SECONDS) {
+								return;
+							}
+
+							// Limit maximum zoom out to MAX_WINDOW_SECONDS
+							if (nxRange > MAX_WINDOW_SECONDS) {
+								nxRange = MAX_WINDOW_SECONDS;
+							}
+
+							let nxMin = xVal - leftPct * nxRange;
+							let nxMax = nxMin + nxRange;
+
+							// Clamp to session bounds (relative time: 0 to session duration)
+							const sessionDuration = session.duration_seconds ?? INITIAL_WINDOW_SECONDS;
+
+							if (nxMin < 0) {
+								nxMin = 0;
+								nxMax = nxRange;
+							}
+							if (nxMax > sessionDuration) {
+								nxMax = sessionDuration;
+								nxMin = sessionDuration - nxRange;
+							}
+							// Don't allow zooming out beyond session bounds
+							if (nxMin < 0) {
+								nxMin = 0;
+							}
+							if (nxMax > sessionDuration) {
+								nxMax = sessionDuration;
+							}
+
+							u.setScale('x', { min: nxMin, max: nxMax });
+						});
+					}
+				]
+			}
+		};
+	}
+
+	const createChart = () => {
+		if (!plotContainer || loadedSamples.length === 0) return;
+
+		console.log('[Waveform] Creating chart...');
+
+		const { data, devices } = prepareChartData(loadedSamples);
+
+		if (!createDeviceSeries || !createAxes) return;
 
 		const opts: uPlot.Options = {
 			width: plotContainer.clientWidth,
 			height: 400,
-			series: createDeviceSeries(devices, showVerifiedPoints ? () => verifiedIndices : undefined, deviceNicknames),
+			series: createDeviceSeries(
+				devices,
+				showVerifiedPoints ? (deviceId) => verifiedIndicesByDevice.get(deviceId) ?? [] : undefined,
+				deviceNicknames,
+				true
+			),
 			axes: createAxes(yAxisLabel),
 			scales: {
 				x: {
-					time: false,
-					auto: false,
-					range: () => xAxisRange
+					time: false
 				}
 			},
-			plugins: tooltipsPlugin ? [tooltipsPlugin] : [],
+			plugins: tooltipsPlugin ? [wheelZoomPlugin(), tooltipsPlugin] : [wheelZoomPlugin()],
+			hooks: {
+				setScale: [
+					(u) => {
+						const xScale = u.scales.x;
+						if (!xScale || !xScale.min || !xScale.max) return;
+
+						// Scale values are in relative time (seconds from session start)
+						const relativeStart = xScale.min;
+						const relativeEnd = xScale.max;
+
+						// Update viewport info for display (use relative time)
+						currentViewport = {
+							start: relativeStart,
+							end: relativeEnd,
+							sampleCount: loadedSamples.length
+						};
+
+						// If time sync is enabled, notify parent of time window change
+						if (timeSyncEnabled && onTimeWindowChange && !programmaticUpdate) {
+							onTimeWindowChange({ minTime: relativeStart, maxTime: relativeEnd });
+						}
+
+						// Skip data loading if this is a programmatic update
+						if (programmaticUpdate) return;
+
+						// Convert relative time to global time for API requests
+						const globalStart = session.start_time + relativeStart;
+						const globalEnd = session.start_time + relativeEnd;
+
+						// Clamp to session bounds (global time)
+						const sessionEnd = session.end_time ?? session.start_time + INITIAL_WINDOW_SECONDS;
+						const clampedStart = Math.max(globalStart, session.start_time);
+						const clampedEnd = Math.min(globalEnd, sessionEnd);
+
+						// Check if we need to load new data (10% threshold)
+						const currentWindow = relativeEnd - relativeStart;
+						const threshold = currentWindow * 0.1;
+
+						if (
+							!loadedTimeRange ||
+							Math.abs(loadedTimeRange.start - clampedStart) > threshold ||
+							Math.abs(loadedTimeRange.end - clampedEnd) > threshold
+						) {
+							// Debounce the fetch
+							if (fetchTimeout) {
+								clearTimeout(fetchTimeout);
+							}
+							fetchTimeout = setTimeout(() => {
+								loadTimeRange(clampedStart, clampedEnd);
+								fetchTimeout = null;
+							}, FETCH_DEBOUNCE_MS);
+						}
+					}
+				]
+			},
 			legend: {
 				show: true
 			}
@@ -278,140 +388,60 @@
 			chart.destroy();
 		}
 
+		if (!uPlotLib) return;
 		chart = new uPlotLib(opts, data, plotContainer);
-	}
+		console.log('[Waveform] Chart created');
+	};
 
-	// Debug logging counter
-	let updateCounter = 0;
+	// Initialize: load first window of data
+	const initialize = async () => {
+		if (loading || !session) return;
 
-	// Update function for time-based chart updates using requestAnimationFrame
-	function updateChart(currentTime: number) {
-		if (!chart || !isStreaming) {
-			animationFrameId = null;
-			return;
-		}
+		const sessionDuration = session.duration_seconds ?? INITIAL_WINDOW_SECONDS;
+		const windowSize = Math.min(INITIAL_WINDOW_SECONDS, sessionDuration);
 
-		// Throttle based on UPDATE_INTERVAL_MS for configurable frame rate
-		const deltaTime = currentTime - lastUpdateTime;
-		if (deltaTime < UPDATE_INTERVAL_MS) {
-			// Schedule next frame
-			animationFrameId = requestAnimationFrame(updateChart);
-			return;
-		}
+		// Load data using global time for API
+		const globalStart = session.start_time;
+		const globalEnd = session.start_time + windowSize;
 
-		lastUpdateTime = currentTime;
+		await loadTimeRange(globalStart, globalEnd);
+		createChart();
+	};
 
-		const timeWindow = getCurrentTimeWindow();
-		if (!timeWindow) {
-			// Schedule next frame
-			animationFrameId = requestAnimationFrame(updateChart);
-			return;
-		}
-
-		const { data, samples: chartSamples } = prepareChartData(samples, timeWindow);
-		sampleLookup = chartSamples;
-		// Pre-compute verified indices for performance
-		verifiedIndices = chartSamples.reduce((acc, sample, i) => {
-			if (sample.time_verified) acc.push(i);
-			return acc;
-		}, [] as number[]);
-
-		// Update the range array (chart will use function to read it)
-		xAxisRange[0] = timeWindow.minTime;
-		xAxisRange[1] = timeWindow.maxTime;
-
-		// Periodic logging every 10 updates
-		updateCounter++;
-		if (updateCounter % 10 === 0) {
-			const wallTime = Date.now() / 1000;
-			const devices = Array.from(samples.keys());
-			const _bufferInfo = devices.map((deviceId) => {
-				const deviceSamples = samples.get(deviceId)!;
-				const lastSample = deviceSamples[deviceSamples.length - 1];
-				if (!lastSample) return `${deviceId}: none`;
-				const delta = lastSample.global_time - wallTime;
-				return `${deviceId}: Δ${delta.toFixed(2)}s`;
-			}).join(', ');
-
-			// console.log(
-			// 	`[${title}] window.maxTime=${timeWindow.maxTime.toFixed(2)}, wall=${wallTime.toFixed(2)}, buffer: ${_bufferInfo}`
-			// );
-		}
-
-		// setData will now use the updated range via the function
-		chart.setData(data);
-
-		// Schedule next frame
-		animationFrameId = requestAnimationFrame(updateChart);
-	}
-
-
-	// Start/stop animation loop based on streaming state
+	// Initialize once when component is ready
+	let initialized = false;
 	$effect(() => {
-		if (isStreaming && chart) {
-			// Start animation loop
-			if (animationFrameId === null) {
-				// console.log(`[${title}] Starting animation loop`);
-				lastUpdateTime = performance.now();
-				animationFrameId = requestAnimationFrame(updateChart);
-			}
-		} else {
-			// Stop animation loop
-			if (animationFrameId !== null) {
-				// console.log(`[${title}] Stopping animation loop`);
-				cancelAnimationFrame(animationFrameId);
-				animationFrameId = null;
-			}
+		if (!loading && session && !initialized) {
+			initialized = true;
+			initialize();
 		}
-
-		// Cleanup on effect disposal
-		return () => {
-			if (animationFrameId !== null) {
-				cancelAnimationFrame(animationFrameId);
-				animationFrameId = null;
-			}
-		};
 	});
 
-	// Create chart when samples first arrive
+	// Sync with shared time window when time sync is enabled
 	$effect(() => {
-		if (!plotContainer || !uPlotLib) {
-			return;
-		}
-
-		const { data, devices, samples: chartSamples } = prepareChartData(samples);
-		sampleLookup = chartSamples;
-		// Pre-compute verified indices for performance
-		verifiedIndices = chartSamples.reduce((acc, sample, i) => {
-			if (sample.time_verified) acc.push(i);
-			return acc;
-		}, [] as number[]);
-
-		if (devices.length === 0) {
-			// No data yet
-			return;
-		}
-
-		if (!chart) {
-			// Create chart on first data
-			createChart();
+		if (timeSyncEnabled && sharedTimeWindow && chart) {
+			// Set programmatic update flag to prevent triggering setScale hook
+			programmaticUpdate = true;
+			chart.setScale('x', {
+				min: sharedTimeWindow.minTime,
+				max: sharedTimeWindow.maxTime
+			});
+			programmaticUpdate = false;
 		}
 	});
 
 	// Handle window resize
-	function handleResize() {
+	const handleResize = () => {
 		if (chart && plotContainer) {
 			chart.setSize({
 				width: plotContainer.clientWidth,
 				height: 400
 			});
 		}
-	}
+	};
 
 	onMount(async () => {
 		if (!browser) return;
-
-		// console.log(`[${title}] Loading uPlot...`);
 
 		// Dynamically import uPlot and utilities only in browser
 		const [uPlotModule, utilsModule, tooltipsModule] = await Promise.all([
@@ -422,36 +452,36 @@
 
 		uPlotLib = uPlotModule.default;
 		createDeviceSeries = utilsModule.createDeviceSeries;
-		createAxes = utilsModule.createAxes;
+		createAxes = (yLabel: string) => utilsModule.createAxes(yLabel);
 		tooltipsPlugin = tooltipsModule.tooltipsPlugin({
 			showSeriesPoints: true,
 			showCursorPosition: false,
 			formatValue: (xVal, yVal, seriesIdx, dataIdx) => {
-				// Use direct lookup - O(1) instead of O(n)
-				const sample = sampleLookup[dataIdx];
-				if (sample) {
+				const deviceId = deviceOrder[seriesIdx - 1];
+				const sample = deviceId ? sampleByDeviceAndTime.get(deviceId)?.get(xVal) : undefined;
+				if (sample && formatTooltip) {
+					return formatTooltip(sample, xVal, yVal);
+				} else if (sample) {
+					// Default tooltip
 					const verified = sample.time_verified ? ' ✓' : '';
 					return `
 						<table style="border-collapse: collapse;">
 							<tr><td style="padding: 1px 4px 1px 0;">ID:</td><td style="padding: 1px 0;">${sample.id}</td></tr>
-							<tr><td style="padding: 1px 4px 1px 0;">Value:</td><td style="padding: 1px 0;">${yVal.toFixed(0)}</td></tr>
-							<tr><td style="padding: 1px 4px 1px 0;">Time:</td><td style="padding: 1px 0;">${xVal.toFixed(2)}s</td></tr>
+							<tr><td style="padding: 1px 4px 1px 0;">Value:</td><td style="padding: 1px 0;">${yVal.toFixed(3)}</td></tr>
+							<tr><td style="padding: 1px 4px 1px 0;">Time:</td><td style="padding: 1px 0;">${xVal.toFixed(4)}s</td></tr>
+							<tr><td style="padding: 1px 4px 1px 0;">Global:</td><td style="padding: 1px 0;">${sample.global_time.toFixed(3)}s</td></tr>
 							<tr><td style="padding: 1px 4px 1px 0;">Polar:</td><td style="padding: 1px 0;">${(sample.polar_clock_us / 1_000_000).toFixed(3)}s${verified}</td></tr>
-							<tr><td style="padding: 1px 4px 1px 0;">Receiver:</td><td style="padding: 1px 0;">${(sample.receiver_clock_us / 1_000_000).toFixed(3)}s</td></tr>
-							<tr><td style="padding: 1px 4px 1px 0;">Wall:</td><td style="padding: 1px 0;">${(sample.wall_clock_us / 1_000_000).toFixed(3)}s</td></tr>
 						</table>
 					`;
 				}
 				return `
 					<table style="border-collapse: collapse;">
-						<tr><td style="padding: 1px 4px 1px 0;">Time:</td><td style="padding: 1px 0;">${xVal.toFixed(2)}s</td></tr>
-						<tr><td style="padding: 1px 4px 1px 0;">Value:</td><td style="padding: 1px 0;">${yVal.toFixed(0)}</td></tr>
+						<tr><td style="padding: 1px 4px 1px 0;">Time:</td><td style="padding: 1px 0;">${xVal.toFixed(4)}s</td></tr>
+						<tr><td style="padding: 1px 4px 1px 0;">Value:</td><td style="padding: 1px 0;">${yVal.toFixed(3)}</td></tr>
 					</table>
 				`;
 			}
 		});
-
-		// console.log(`[${title}] uPlot loaded successfully`);
 
 		window.addEventListener('resize', handleResize);
 	});
@@ -460,57 +490,45 @@
 		if (browser) {
 			window.removeEventListener('resize', handleResize);
 		}
-		if (animationFrameId !== null) {
-			cancelAnimationFrame(animationFrameId);
-		}
 		if (chart) {
 			chart.destroy();
+		}
+		if (fetchTimeout) {
+			clearTimeout(fetchTimeout);
 		}
 	});
 </script>
 
-
-{#if standalone}
-	<Card {title}>
-		{#snippet headerActions()}
-			<Button
-				variant={showVerifiedPoints ? 'success' : 'ghost'}
-				size="sm"
-				onclick={() => {
-					showVerifiedPoints = !showVerifiedPoints;
-					createChart();
-				}}
-				title="Toggle verified sample points (samples with direct Polar timestamps)"
-			>
-				Verified Points
-			</Button>
-			{#if isStreaming}
-				<div class="flex items-center gap-2 text-xs text-gray-500">
-					<div class="w-2 h-2 bg-status-success-fg rounded-full animate-pulse"></div>
-					<span>Streaming</span>
-				</div>
-			{:else}
-				<div class="flex items-center gap-2 text-xs text-gray-500">
-					<div class="w-2 h-2 bg-status-neutral-fg rounded-full"></div>
-					<span>No data</span>
-				</div>
-			{/if}
-		{/snippet}
-
-		<div bind:this={plotContainer} class="border border-gray-200 rounded-lg">
-			{#if samples.size === 0}
-				<div class="bg-gray-50 p-12 text-center">
-					<p class="text-gray-500">{emptyMessage}</p>
-				</div>
-			{/if}
-		</div>
-	</Card>
-{:else}
-	<div bind:this={plotContainer} class="border border-gray-200 rounded-lg">
-		{#if samples.size === 0}
-			<div class="bg-gray-50 p-12 text-center">
-				<p class="text-gray-500">{emptyMessage}</p>
+<div>
+	<div class="flex items-center justify-end mb-4 gap-4">
+		{#if isLoadingData}
+			<div class="flex items-center gap-2 text-xs text-status-info-fg">
+				<div class="w-2 h-2 bg-status-info-fg rounded-full animate-pulse"></div>
+				<span>Loading data...</span>
+			</div>
+		{/if}
+		{#if !loading}
+			<div class="flex flex-col items-end gap-1">
+				{#if currentViewport}
+					<div class="text-xs font-mono text-gray-600">
+						Loaded: {currentViewport.sampleCount.toLocaleString()} / {session.ecg_sample_count.toLocaleString()}
+						samples
+					</div>
+					<div class="text-xs text-gray-500">
+						Window: {(currentViewport.end - currentViewport.start).toFixed(1)}s ({currentViewport.start.toFixed(
+							1
+						)}s - {currentViewport.end.toFixed(1)}s)
+					</div>
+				{/if}
 			</div>
 		{/if}
 	</div>
-{/if}
+
+	{#if loadedSamples.length === 0 && !loading && !isLoadingData}
+		<div class="border border-gray-200 rounded-lg bg-gray-50 p-12 text-center">
+			<p class="text-gray-500">No data to display</p>
+		</div>
+	{:else}
+		<div bind:this={plotContainer} class="border border-gray-200 rounded-lg"></div>
+	{/if}
+</div>

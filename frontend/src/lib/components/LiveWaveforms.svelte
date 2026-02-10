@@ -7,7 +7,7 @@
 	import Button from './buttons/Button.svelte';
 	import Card from './Card.svelte';
 	import PauseButton from './PauseButton.svelte';
-	import Waveform from './Waveform.svelte';
+	import LiveWaveform from './LiveWaveform.svelte';
 	import 'uplot/dist/uPlot.min.css';
 
 	// Get samples and connection states
@@ -62,7 +62,7 @@
 				{/if}
 			</div>
 			{#key `${showVerifiedPoints}-${deviceNicknames.size}`}
-				<Waveform
+				<LiveWaveform
 					samples={ecgSamples}
 					wsState={ecgWsState}
 					{deviceNicknames}
@@ -96,7 +96,7 @@
 				{/if}
 			</div>
 			{#key `${showVerifiedPoints}-${deviceNicknames.size}`}
-				<Waveform
+				<LiveWaveform
 					samples={accSamples}
 					wsState={accWsState}
 					{deviceNicknames}

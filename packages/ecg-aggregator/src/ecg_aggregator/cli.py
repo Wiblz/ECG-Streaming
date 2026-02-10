@@ -279,6 +279,12 @@ def run(
         ble_debug_file=ble_debug_file,
         log_format=settings.logging.format,
     )
+    uvicorn_error = logging.getLogger("uvicorn.error")
+    uvicorn_access = logging.getLogger("uvicorn.access")
+    uvicorn_error.handlers.clear()
+    uvicorn_access.handlers.clear()
+    uvicorn_error.propagate = True
+    uvicorn_access.propagate = True
 
     # Add buffer handler for TUI logs (if --tui enabled)
     if tui:

@@ -6,6 +6,8 @@ from ecg_aggregator.api.models.base import (
     BufferedECGSampleModel,
     BufferStats,
     ECGSessionSampleModel,
+    RealtimeAccelerometerSampleModel,
+    RealtimeECGSampleModel,
     StatsResponse,
     SyncInfo,
 )
@@ -62,6 +64,8 @@ __all__ = [
     "DevicesStatusResponse",
     "DevicesSummaryResponse",
     "ECGSessionSampleModel",
+    "RealtimeAccelerometerSampleModel",
+    "RealtimeECGSampleModel",
     "ImportSessionResponse",
     "RootEndpoints",
     "RootResponse",

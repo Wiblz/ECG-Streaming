@@ -174,6 +174,7 @@ class ECGAggregator:
             host="0.0.0.0",
             port=self.config.api.port,
             log_level="info",
+            log_config=None,
         )
 
         self.uvicorn_server = uvicorn.Server(uvicorn_config)
