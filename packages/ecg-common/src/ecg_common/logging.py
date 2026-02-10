@@ -109,3 +109,36 @@ def get_logger(name: str) -> logging.Logger:
         Configured logger instance
     """
     return logging.getLogger(name)
+
+
+def get_run_log_paths(
+    log_file: Path | None,
+    ble_debug_file: Path | None,
+    run_label: str,
+) -> tuple[Path | None, Path | None]:
+    """Create timestamped log paths for this run.
+
+    If a log path is provided, append -{run_label}-{timestamp} before the suffix.
+    If a directory path is provided, create a file named {run_label}-{timestamp}.log
+    inside that directory.
+    """
+    if log_file is None and ble_debug_file is None:
+        return None, None
+
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+
+    def _stamp(path: Path | None, default_suffix: str) -> Path | None:
+        if path is None:
+            return None
+        path = Path(path)
+        path_str = str(path)
+
+        if path.exists() and path.is_dir() or path_str.endswith(("/", "\\")):
+            filename = f"{run_label}-{timestamp}{default_suffix}"
+            return path / filename
+
+        suffix = path.suffix or default_suffix
+        stem = path.stem if path.suffix else path.name
+        return path.with_name(f"{stem}-{run_label}-{timestamp}{suffix}")
+
+    return _stamp(log_file, ".log"), _stamp(ble_debug_file, ".log")

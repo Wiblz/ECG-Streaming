@@ -109,14 +109,6 @@ class USBConfig(BaseModel):
         frozen=True,
     )
 
-    auto_discover: bool = Field(
-        default=True,
-        description="Auto-discover USB devices when no devices are specified",
-    )
-    devices: list[str] = Field(
-        default_factory=list,
-        description="Explicit USB device paths (e.g., /dev/ttyACM0)",
-    )
     ecg_sample_rate: int = Field(
         default=130,
         description="Default ECG sample rate for USB devices (Hz)",

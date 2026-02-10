@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from ecg_common.logging import get_logger
 
 from ecg_collector.config import DeviceConfig
+from ecg_collector.usb.errors import UsbConfigNotReadyError
 from ecg_collector.usb.inventory import EspInventoryEntry
 
 logger = get_logger(__name__)
@@ -175,6 +176,8 @@ class PairingManager:
                                 f"Configured ESP {esp_id} → {desired_target} "
                                 f"(ecg={ecg_rate}, acc={acc_rate})"
                             )
+                        except UsbConfigNotReadyError as e:
+                            logger.debug("USB collector not ready for ESP %s: %s", esp_id, e)
                         except Exception as e:
                             # Log error but continue with other ESPs
                             logger.error(f"Failed to configure ESP {esp_id}: {e}")

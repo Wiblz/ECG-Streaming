@@ -2,7 +2,6 @@
 
 import asyncio
 import contextlib
-import os
 import time
 
 from ecg_common.logging import get_logger
@@ -13,6 +12,7 @@ from ecg_collector.base import DataCollector
 from ecg_collector.config import CollectorSettings
 from ecg_collector.grpc_client import CollectorGrpcClient
 from ecg_collector.usb.collector import UsbCollector, discover_and_group_usb_interfaces
+from ecg_collector.usb.errors import UsbConfigNotReadyError
 from ecg_collector.usb.inventory import EspInventoryManager
 from ecg_collector.usb.pairing import PairingManager
 
@@ -78,10 +78,15 @@ class MultiUsbCollectorService(DataCollector):
         self.running = False
         self.device_ids: set[str] = set()
         self._usb_tasks: dict[str, asyncio.Task[None]] = {}
+        self._discovery_task: asyncio.Task[None] | None = None
+        self._grpc_task: asyncio.Task[None] | None = None
+        self._discovery_interval_s = 5.0
+        self._inventory_prune_interval_s = 15.0
+        self._inventory_stale_s = 45.0
+        self._last_inventory_prune_ts = 0.0
         self._rejected_device_ids: set[str] = set()
         self._configured_esp_ids: set[str] = set()
         self._unmapped_esp_ids: set[str] = set()
-        self._last_frame_ts: dict[tuple[str, SensorType], int] = {}
         self._seen_app_versions: set[str] = set()
 
         # Initialize auto-pairing modules
@@ -224,51 +229,6 @@ class MultiUsbCollectorService(DataCollector):
             )
             # Convert proto to Python dataclass at the wire boundary
             python_frame = self._proto_to_dataclass(esp_msg.sensor_frame)
-            last_key = (python_frame.device_id, python_frame.sensor_type)
-            last_ts = self._last_frame_ts.get(last_key)
-
-            sample_size = 3 if python_frame.sensor_type == SensorType.ECG else 6
-            sample_count = len(python_frame.raw_data) // sample_size
-            expected_span_us = (
-                int((sample_count - 1) * 1_000_000 / python_frame.sample_rate)
-                if sample_count > 1 and python_frame.sample_rate > 0
-                else 0
-            )
-
-            # Write frame to dedicated log file
-            frame_log_path = os.environ.get("COLLECTOR_FRAME_LOG", "collector_frames.log")
-            with open(frame_log_path, "a") as f:
-                if last_ts is not None:
-                    delta_us = python_frame.polar_clock_us - last_ts
-                    gap_threshold_us = expected_span_us * 3
-                    gap_detected = delta_us > gap_threshold_us
-
-                    f.write(
-                        f"{time.time():.6f} RECV device={python_frame.device_id} "
-                        f"type={python_frame.sensor_type.name} samples={sample_count} "
-                        f"polar_clock_us={python_frame.polar_clock_us} delta_us={delta_us} "
-                        f"expected_span_us={expected_span_us} gap={'YES' if gap_detected else 'NO'}\n"
-                    )
-
-                    if gap_detected:
-                        logger.warning(
-                            "USB gap detected %s %s: delta_us=%d expected_span_us=%d samples=%d",
-                            python_frame.device_id,
-                            python_frame.sensor_type.name,
-                            delta_us,
-                            expected_span_us,
-                            sample_count,
-                        )
-                else:
-                    f.write(
-                        f"{time.time():.6f} RECV device={python_frame.device_id} "
-                        f"type={python_frame.sensor_type.name} samples={sample_count} "
-                        f"polar_clock_us={python_frame.polar_clock_us} delta_us=N/A "
-                        f"expected_span_us={expected_span_us} gap=NO (first)\n"
-                    )
-
-            self._last_frame_ts[last_key] = python_frame.polar_clock_us
-
             try:
                 # Update registration if device list changed
                 if self.device_ids:
@@ -401,12 +361,50 @@ class MultiUsbCollectorService(DataCollector):
             run_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await run_task
+            self.usb_collectors.pop(device_path, None)
+            self._inventory_manager.drop_device_path(device_path)
+            self._usb_tasks.pop(device_path, None)
             return
 
         try:
             await run_task
         except Exception as e:
             logger.error("USB collector task error for %s: %s", device_path, e, exc_info=True)
+        finally:
+            self.usb_collectors.pop(device_path, None)
+            self._inventory_manager.drop_device_path(device_path)
+            self._usb_tasks.pop(device_path, None)
+
+    async def _discovery_loop(self) -> None:
+        """Periodically discover USB data interfaces and start collectors."""
+        while self.running:
+            try:
+                finished_paths = [path for path, task in self._usb_tasks.items() if task.done()]
+                for path in finished_paths:
+                    self._usb_tasks.pop(path, None)
+
+                now = time.time()
+                if now - self._last_inventory_prune_ts >= self._inventory_prune_interval_s:
+                    self._inventory_manager.prune_stale(self._inventory_stale_s)
+                    self._last_inventory_prune_ts = now
+
+                device_groups = await discover_and_group_usb_interfaces()
+                data_paths = [
+                    group.data_interface.device_path
+                    for group in device_groups.values()
+                    if group.data_interface
+                ]
+
+                for device_path in data_paths:
+                    if device_path not in self._usb_tasks:
+                        logger.info("Discovered USB device: %s", device_path)
+                        self._usb_tasks[device_path] = asyncio.create_task(
+                            self._run_usb_device(device_path)
+                        )
+            except Exception as e:
+                logger.error("USB discovery loop error: %s", e, exc_info=True)
+
+            await asyncio.sleep(self._discovery_interval_s)
 
     async def _send_esp_config(
         self,
@@ -425,7 +423,9 @@ class MultiUsbCollectorService(DataCollector):
         # Find the collector for this device path
         usb_collector = self.usb_collectors.get(device_path)
         if not usb_collector:
-            raise ValueError(f"No collector for {device_path}")
+            raise UsbConfigNotReadyError(f"No collector for {device_path}")
+        if usb_collector.writer is None or not usb_collector.running:
+            raise UsbConfigNotReadyError(f"USB writer not ready for {device_path}")
 
         config_msg = esp_collector_pb2.UsbConfig(
             esp_id=esp_id,
@@ -450,11 +450,12 @@ class MultiUsbCollectorService(DataCollector):
         try:
             device_paths = list(dict.fromkeys(self.device_paths))
             if not device_paths:
-                logger.error("No USB device paths provided")
-                return
+                logger.warning(
+                    "No USB device paths provided; continuing with auto-discovery enabled"
+                )
 
             # Start gRPC client
-            grpc_task = asyncio.create_task(self.grpc_client.run())
+            self._grpc_task = asyncio.create_task(self.grpc_client.run())
 
             # Start auto-pairing modules
             self._inventory_manager.start()
@@ -465,12 +466,19 @@ class MultiUsbCollectorService(DataCollector):
             )
             logger.info("Started auto-pairing background loops")
 
+            # Start USB discovery loop
+            self._discovery_task = asyncio.create_task(self._discovery_loop())
+
             for device_path in device_paths:
                 self._usb_tasks[device_path] = asyncio.create_task(
                     self._run_usb_device(device_path)
                 )
 
-            await grpc_task
+            while self.running:
+                if self._grpc_task and self._grpc_task.done():
+                    logger.warning("gRPC task ended unexpectedly; collector will keep running")
+                    self._grpc_task = asyncio.create_task(self.grpc_client.run())
+                await asyncio.sleep(1.0)
 
         except Exception as e:
             logger.error("Multi-USB collector error: %s", e, exc_info=True)
@@ -485,6 +493,18 @@ class MultiUsbCollectorService(DataCollector):
         await self._inventory_manager.stop()
         await self._pairing_manager.stop()
         logger.info("Stopped auto-pairing background loops")
+
+        if self._discovery_task:
+            self._discovery_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._discovery_task
+            self._discovery_task = None
+
+        if self._grpc_task:
+            self._grpc_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._grpc_task
+            self._grpc_task = None
 
         for task in self._usb_tasks.values():
             task.cancel()

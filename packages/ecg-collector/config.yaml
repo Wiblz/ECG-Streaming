@@ -92,9 +92,6 @@ logging:
 
 # USB configuration
 usb:
-  auto_discover: true            # Auto-discover USB devices when none specified
-  devices: [ ]                    # Explicit device paths (e.g., /dev/ttyACM0)
-
   # Global defaults for USB devices (can be overridden per-device)
   ecg_sample_rate: 130           # Default ECG sample rate for USB devices (Hz)
   acc_sample_rate: 0           # Default ACC sample rate for USB devices (Hz)

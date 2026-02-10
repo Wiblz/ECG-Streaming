@@ -10,6 +10,7 @@ from ecg_common.models import DeviceStatus
 from ecg_collector.base import DataCollector
 from ecg_collector.ble.adapter_manager import BLEAdapterManager
 from ecg_collector.ble.device_state_manager import DeviceStateManager
+from ecg_collector.ble.discovery import BleDiscoveryManager
 from ecg_collector.config import CollectorSettings
 from ecg_collector.grpc_client import CollectorGrpcClient
 
@@ -57,6 +58,7 @@ class BleCollectorService(DataCollector):
             max_devices_per_adapter=settings.ble.max_devices_per_adapter
         )
         self.device_manager = DeviceStateManager(monitor_interval=5.0)
+        self._ble_discovery = BleDiscoveryManager()
 
         self._collection_tasks: dict[str, asyncio.Task] = {}
         self._monitor_task: asyncio.Task | None = None
@@ -71,6 +73,10 @@ class BleCollectorService(DataCollector):
         logger.info(f"Aggregator: {self.settings.aggregator.host}:{self.settings.aggregator.port}")
 
         self.running = True
+
+        # Start shared BLE discovery loop and prime cache
+        self._ble_discovery.start()
+        await self._ble_discovery.scan_once()
 
         # Start gRPC client
         asyncio.create_task(self.grpc_client.run())
@@ -89,9 +95,10 @@ class BleCollectorService(DataCollector):
                 continue
 
             try:
+                discovered_address = self._ble_discovery.get_address(device_id)
                 driver = self.adapter_manager.add_device(
                     device_id=device_id,
-                    address=None,  # Let driver discover MAC address by device name
+                    address=discovered_address,  # Prefer shared discovery cache
                     adapter_id=device_config.ble_adapter,  # Use pinned adapter if specified
                 )
                 self.device_manager.add_device(driver)
@@ -142,6 +149,7 @@ class BleCollectorService(DataCollector):
         # Disconnect from aggregator
         await self.grpc_client.disconnect()
 
+        await self._ble_discovery.stop()
         logger.info("BLE Collector stopped")
 
     async def _monitor_loop(self) -> None:

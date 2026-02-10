@@ -1180,6 +1180,10 @@ class ECGStreamingServer:
                 devices_data: dict[str, list[ECGSessionSampleModel]] = group_samples_by_device(
                     all_samples, ECGSessionSampleModel
                 )
+                devices_payload = {
+                    device_id: [sample.model_dump() for sample in samples]
+                    for device_id, samples in devices_data.items()
+                }
 
                 broadcast_count += 1
                 logger.debug(
@@ -1189,7 +1193,7 @@ class ECGStreamingServer:
                 # Broadcast to all connections - grouped by device_id
                 message = {
                     "type": "data",
-                    "devices": devices_data,
+                    "devices": devices_payload,
                     "timestamp": current_time,
                     "count": len(all_samples),
                 }
@@ -1241,11 +1245,15 @@ class ECGStreamingServer:
                 devices_data: dict[str, list[AccelerometerSessionSampleModel]] = (
                     group_samples_by_device(all_samples, AccelerometerSessionSampleModel)
                 )
+                devices_payload = {
+                    device_id: [sample.model_dump() for sample in samples]
+                    for device_id, samples in devices_data.items()
+                }
 
                 # Broadcast to all connections - grouped by device_id
                 message = {
                     "type": "data",
-                    "devices": devices_data,
+                    "devices": devices_payload,
                     "timestamp": current_time,
                     "count": len(all_samples),
                 }

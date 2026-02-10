@@ -8,7 +8,7 @@ from typing import Annotated
 
 import typer
 from ecg_common import __version__
-from ecg_common.logging import setup_logging
+from ecg_common.logging import get_run_log_paths, setup_logging
 from rich.console import Console
 from rich.live import Live
 from rich.table import Table
@@ -138,11 +138,14 @@ def ble_run(
         console.print(f"[red]Failed to load configuration: {e}[/red]")
         sys.exit(1)
 
-    # Setup logging
+    # Setup logging with per-run timestamped files
+    log_file, ble_debug_file = get_run_log_paths(
+        settings.logging.file, settings.logging.ble_debug_file, "collector"
+    )
     setup_logging(
         level=settings.logging.level,
-        log_file=settings.logging.file,
-        ble_debug_file=settings.logging.ble_debug_file,
+        log_file=log_file,
+        ble_debug_file=ble_debug_file,
         log_format=settings.logging.format,
     )
 
@@ -202,9 +205,10 @@ def usb_scan(
     except Exception:
         settings = CollectorSettings()
 
+    log_file, _ = get_run_log_paths(settings.logging.file, None, "collector")
     setup_logging(
         level=settings.logging.level,
-        log_file=settings.logging.file,
+        log_file=log_file,
         log_format=settings.logging.format,
         console=False,  # Disable console logging to avoid interfering with Live display
     )
@@ -366,10 +370,6 @@ def usb_run(
     aggregator: Annotated[
         str | None, typer.Option("--aggregator", "-a", help="Aggregator address (host:port)")
     ] = None,
-    devices: Annotated[
-        list[str] | None,
-        typer.Option("--device", "-d", help="USB device path (repeatable)"),
-    ] = None,
     collector_id: Annotated[
         str | None, typer.Option("--id", "-i", help="Collector ID (auto-generated if not provided)")
     ] = None,
@@ -384,13 +384,11 @@ def usb_run(
 
     Args:
         aggregator: Aggregator address in host:port format
-        devices: USB device paths (repeatable)
         collector_id: Optional collector ID
         display_name: Optional display name
         config: Path to YAML configuration file
     """
     from ecg_collector.config import CollectorSettings
-    from ecg_collector.usb.collector import discover_and_group_usb_interfaces
     from ecg_collector.usb.service import MultiUsbCollectorService
 
     # Load configuration
@@ -400,10 +398,13 @@ def usb_run(
         console.print(f"[red]Failed to load configuration: {e}[/red]")
         settings = CollectorSettings()
 
+    log_file, ble_debug_file = get_run_log_paths(
+        settings.logging.file, settings.logging.ble_debug_file, "collector"
+    )
     setup_logging(
         level=settings.logging.level,
-        log_file=settings.logging.file,
-        ble_debug_file=settings.logging.ble_debug_file,
+        log_file=log_file,
+        ble_debug_file=ble_debug_file,
         log_format=settings.logging.format,
     )
 
@@ -425,41 +426,8 @@ def usb_run(
         host = settings.aggregator.host
         port = settings.aggregator.port
 
-    # Resolve device paths
-    device_paths = devices or settings.usb.devices
-    if not device_paths and settings.usb.auto_discover:
-        # Use smart discovery to only get DATA interfaces
-        console.print("[blue]Auto-discovering USB devices...[/blue]")
-
-        async def discover_data_interfaces() -> list[str]:
-            device_groups = await discover_and_group_usb_interfaces()
-            data_paths = [
-                group.data_interface.device_path
-                for group in device_groups.values()
-                if group.data_interface
-            ]
-
-            # Show discovery summary
-            total_devices = len(device_groups)
-            log_interfaces = sum(1 for g in device_groups.values() if g.log_interface)
-            if total_devices > 0:
-                console.print(
-                    f"[green]Found {total_devices} ESP device(s)[/green] "
-                    f"({len(data_paths)} data interface(s), {log_interfaces} log interface(s))"
-                )
-                console.print("[dim]Note: Only data interfaces will be used for streaming[/dim]")
-
-            return data_paths
-
-        device_paths = asyncio.run(discover_data_interfaces())
-
-    if not device_paths:
-        console.print("[red]No USB devices configured or discovered[/red]")
-        console.print("Use --device to specify device paths or enable usb.auto_discover")
-        return
-
     console.print("\n[blue]Starting USB collector:[/blue]")
-    console.print(f"  Devices: {', '.join(device_paths)}")
+    console.print("  Devices: (auto-discover)")
     console.print(f"  Aggregator: {host}:{port}")
     if collector_id:
         console.print(f"  Collector ID: {collector_id}")
@@ -484,7 +452,7 @@ def usb_run(
 
         # Create service with unified settings
         service = MultiUsbCollectorService(
-            device_paths=device_paths,
+            device_paths=[],
             settings=effective_settings,
         )
 
@@ -546,9 +514,10 @@ def usb_auto_pair(
         return
 
     # Setup logging so probe logs go to file
+    log_file, _ = get_run_log_paths(settings.logging.file, None, "collector")
     setup_logging(
         level=settings.logging.level,
-        log_file=settings.logging.file,
+        log_file=log_file,
         log_format=settings.logging.format,
         console=False,  # Disable console logging to avoid interfering with Live display
     )
