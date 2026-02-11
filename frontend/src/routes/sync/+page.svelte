@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import Button from '$lib/components/buttons/Button.svelte';
-	import IconButton from '$lib/components/buttons/IconButton.svelte';
 	import Header from '$lib/components/Header.svelte';
 	import PulsingCircle from '$lib/components/PulsingCircle.svelte';
 

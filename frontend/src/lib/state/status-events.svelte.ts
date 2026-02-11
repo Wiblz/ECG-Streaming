@@ -106,7 +106,7 @@ class StatusEventsClient {
 	/**
 	 * Handle initial connection event
 	 */
-	private handleConnected(event: MessageEvent) {
+	private handleConnected() {
 		console.log('[SSE] Connected event received');
 		this.connectionStatus = 'connected';
 		this.lastUpdate = new Date();
@@ -207,7 +207,7 @@ class StatusEventsClient {
 	/**
 	 * Handle heartbeat events
 	 */
-	private handleHeartbeat(event: MessageEvent) {
+	private handleHeartbeat() {
 		// Just update last update time
 		this.lastUpdate = new Date();
 	}

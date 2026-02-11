@@ -24,8 +24,7 @@ export function tooltipsPlugin(opts: TooltipOptions = {}) {
 	const {
 		showSeriesPoints = true,
 		showCursorPosition = false,
-		formatValue = (xVal: number, yVal: number, seriesIdx: number, dataIdx: number) =>
-			`${xVal.toFixed(2)}, ${yVal.toFixed(2)}`
+		formatValue = (xVal: number, yVal: number) => `${xVal.toFixed(2)}, ${yVal.toFixed(2)}`
 	} = opts;
 
 	let cursortt: HTMLDivElement | null = null;

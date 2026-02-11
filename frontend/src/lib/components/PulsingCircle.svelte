@@ -93,8 +93,8 @@
 
 	// Watch for delayPattern changes while running
 	$effect(() => {
-		// Create dependency on delayPattern
-		const _ = delayPattern;
+		// Create dependency on delayPattern - track it
+		void delayPattern;
 		if (isRunning) {
 			stopPulsing();
 			startPulsing();

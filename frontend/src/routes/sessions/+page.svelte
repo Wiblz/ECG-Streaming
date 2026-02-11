@@ -10,13 +10,8 @@
 
 	const deviceNicknameMap = $derived(createDeviceNicknameMap(data.devices));
 
-	// Local reactive copy of sessions that we can update
+	// Local reactive copy of sessions that we can update - use $state since we're mutating it
 	let sessions = $state(data.sessions);
-
-	// Watch for data changes from page load
-	$effect(() => {
-		sessions = data.sessions;
-	});
 
 	let importing = $state(false);
 	let importMessage = $state<string | null>(null);

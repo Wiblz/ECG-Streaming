@@ -36,28 +36,28 @@ export function addSamples(newSamples: BufferedAccelerometerSample[]) {
 		const cutoffTime = newestTime - MAX_DURATION;
 		const filtered = deviceSamples.filter((s) => s.global_time >= cutoffTime);
 
-		const dropped = deviceSamples.length - filtered.length;
-		if (dropped > 0) {
-			// Show first and last 3 samples that were dropped
-			const droppedSamples = deviceSamples.filter((s) => s.global_time < cutoffTime);
-			const _droppedPreview = [
-				...droppedSamples.slice(0, 3).map((s) => s.global_time.toFixed(2)),
-				droppedSamples.length > 6 ? '...' : null,
-				...droppedSamples.slice(-3).map((s) => s.global_time.toFixed(2))
-			]
-				.filter(Boolean)
-				.join(', ');
+		// const dropped = deviceSamples.length - filtered.length;
+		// if (dropped > 0) {
+		// 	// Show first and last 3 samples that were dropped
+		// 	const droppedSamples = deviceSamples.filter((s) => s.global_time < cutoffTime);
+		// 	const droppedPreview = [
+		// 		...droppedSamples.slice(0, 3).map((s) => s.global_time.toFixed(2)),
+		// 		droppedSamples.length > 6 ? '...' : null,
+		// 		...droppedSamples.slice(-3).map((s) => s.global_time.toFixed(2))
+		// 	]
+		// 		.filter(Boolean)
+		// 		.join(', ');
 
-			// console.log(
-			// 	`[Live Accelerometer] ${device_id}: added ${newDeviceSamples.length}, dropped ${dropped} samples [${droppedPreview}], now ${filtered.length} (cutoff: ${cutoffTime.toFixed(2)}, newest: ${newestTime.toFixed(2)})`
-			// );
-		}
+		// 	console.log(
+		// 		`[Live Accelerometer] ${device_id}: added ${newDeviceSamples.length}, dropped ${dropped} samples [${droppedPreview}], now ${filtered.length} (cutoff: ${cutoffTime.toFixed(2)}, newest: ${newestTime.toFixed(2)})`
+		// 	);
+		// }
 
 		// Log current buffer state
-		const _timeRange =
-			filtered.length > 0
-				? `${filtered[0].global_time.toFixed(2)}s - ${filtered[filtered.length - 1].global_time.toFixed(2)}s`
-				: 'empty';
+		// const timeRange =
+		// 	filtered.length > 0
+		// 		? `${filtered[0].global_time.toFixed(2)}s - ${filtered[filtered.length - 1].global_time.toFixed(2)}s`
+		// 		: 'empty';
 		// console.log(
 		// 	`[Live Accelerometer] ${device_id} buffer: ${filtered.length} samples, range: ${timeRange}`
 		// );

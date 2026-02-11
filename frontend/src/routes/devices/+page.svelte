@@ -1,8 +1,7 @@
 <script lang="ts">
-	import { invalidate } from '$app/navigation';
 	import { api } from '$lib/api/client';
 	import Header from '$lib/components/Header.svelte';
-	import { mergeDevice, setDevices } from '$lib/state/devices.svelte';
+	import { mergeDevice } from '$lib/state/devices.svelte';
 	import { statusEvents } from '$lib/state/status-events.svelte';
 	import type { Collector, DeviceInfo } from '$lib/types/api';
 	import { formatTimeSince } from '$lib/utils/format';
