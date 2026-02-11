@@ -36,12 +36,8 @@
 			</p>
 
 			<div class="flex gap-4 justify-center">
-				<LinkButton href="/" variant="primary" size="lg">
-					Go to Home
-				</LinkButton>
-				<Button variant="secondary" size="lg" onclick={() => window.history.back()}>
-					Go Back
-				</Button>
+				<LinkButton href="/" variant="primary" size="lg">Go to Home</LinkButton>
+				<Button variant="secondary" size="lg" onclick={() => window.history.back()}>Go Back</Button>
 			</div>
 		</div>
 	</main>

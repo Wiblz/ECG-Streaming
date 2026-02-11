@@ -150,7 +150,11 @@
 			</div>
 
 			<!-- Waveform Visualization -->
-			<HistoricalWaveforms session={data.session} loading={false} deviceNicknames={deviceNicknameMap} />
+			<HistoricalWaveforms
+				session={data.session}
+				loading={false}
+				deviceNicknames={deviceNicknameMap}
+			/>
 		</div>
 	</main>
 </div>

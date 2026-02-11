@@ -75,8 +75,7 @@
 		success: 'bg-green-600 hover:bg-green-700 text-white',
 		danger: 'bg-red-600 hover:bg-red-700 text-white',
 		warning: 'bg-yellow-600 hover:bg-yellow-700 text-white',
-		ghost:
-			'bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 disabled:bg-gray-50'
+		ghost: 'bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 disabled:bg-gray-50'
 	};
 
 	const buttonClasses = $derived(
@@ -84,15 +83,11 @@
 	);
 </script>
 
-<button
-	{type}
-	{title}
-	disabled={disabled || loading}
-	onclick={onclick}
-	class={buttonClasses}
->
+<button {type} {title} disabled={disabled || loading} {onclick} class={buttonClasses}>
 	{#if loading}
-		<div class="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
+		<div
+			class="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"
+		></div>
 	{:else if icon}
 		{@render icon()}
 	{/if}

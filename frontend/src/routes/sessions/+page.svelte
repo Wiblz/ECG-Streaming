@@ -73,7 +73,7 @@
 			const result = await api.deleteSession(sessionId);
 			if (result.success) {
 				// Remove the deleted session from the local state
-				sessions = sessions.filter(s => s.id !== sessionId);
+				sessions = sessions.filter((s) => s.id !== sessionId);
 				importMessage = `Session #${sessionId} deleted successfully`;
 				// Auto-dismiss success message after 3 seconds
 				setTimeout(() => {

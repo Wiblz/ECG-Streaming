@@ -2,16 +2,16 @@
  * Shared uPlot utilities for ECG waveform rendering
  */
 
-import type uPlot from 'uplot'
+import type uPlot from 'uplot';
 
 // Standard color palette for device waveforms
-export const DEVICE_COLORS = ['#ff3e00', '#40b3ff', '#676778', '#ff6b6b', '#4ecdc4']
+export const DEVICE_COLORS = ['#ff3e00', '#40b3ff', '#676778', '#ff6b6b', '#4ecdc4'];
 
 /**
  * Get color for device by index
  */
 export function getDeviceColor(index: number): string {
-	return DEVICE_COLORS[index % DEVICE_COLORS.length]
+	return DEVICE_COLORS[index % DEVICE_COLORS.length];
 }
 
 /**
@@ -23,10 +23,10 @@ export function createDeviceSeries(
 	deviceNicknames?: Map<string, string>,
 	spanGaps: boolean = true
 ): uPlot.Series[] {
-	const series: uPlot.Series[] = [{ label: 'Time' }]
+	const series: uPlot.Series[] = [{ label: 'Time' }];
 
 	deviceIds.forEach((deviceId, idx) => {
-		const displayName = deviceNicknames?.get(deviceId) || deviceId
+		const displayName = deviceNicknames?.get(deviceId) || deviceId;
 		series.push({
 			label: displayName,
 			stroke: getDeviceColor(idx),
@@ -40,14 +40,14 @@ export function createDeviceSeries(
 						stroke: '#00ff00', // Green for verified samples
 						filter: () => {
 							// Return pre-computed indices - O(1) lookup
-							return getVerifiedIndices(deviceId)
+							return getVerifiedIndices(deviceId);
 						}
 					}
 				: { show: false }
-		})
-	})
+		});
+	});
 
-	return series
+	return series;
 }
 
 /**
@@ -56,13 +56,13 @@ export function createDeviceSeries(
 export function formatTimeAxis(u: uPlot, vals: number[]): string[] {
 	return vals.map((v) => {
 		if (v < 60) {
-			return v.toFixed(1) + 's'
+			return v.toFixed(1) + 's';
 		} else {
-			const mins = Math.floor(v / 60)
-			const secs = (v % 60).toFixed(0)
-			return `${mins}m ${secs}s`
+			const mins = Math.floor(v / 60);
+			const secs = (v % 60).toFixed(0);
+			return `${mins}m ${secs}s`;
 		}
-	})
+	});
 }
 
 /**
@@ -79,5 +79,5 @@ export function createAxes(yLabel: string = 'Raw Value'): uPlot.Axis[] {
 			space: 80,
 			gap: 5
 		}
-	]
+	];
 }

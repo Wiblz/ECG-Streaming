@@ -1,4 +1,4 @@
-import type { Collector, DeviceInfo } from '$lib/types/api'
+import type { Collector, DeviceInfo } from '$lib/types/api';
 
 /**
  * Mock data for UI testing
@@ -7,7 +7,7 @@ import type { Collector, DeviceInfo } from '$lib/types/api'
 
 // Generate mock collectors in different states
 export function getMockCollectors(): Collector[] {
-	const now = Date.now() / 1000
+	const now = Date.now() / 1000;
 
 	return [
 		// Healthy connected collector
@@ -83,12 +83,12 @@ export function getMockCollectors(): Collector[] {
 			health: 'disconnected',
 			connected: false
 		}
-	]
+	];
 }
 
 // Generate mock devices in different states
 export function getMockDevices(): DeviceInfo[] {
-	const now = Date.now() / 1000
+	const now = Date.now() / 1000;
 
 	return [
 		// Streaming device with nickname
@@ -229,7 +229,7 @@ export function getMockDevices(): DeviceInfo[] {
 			battery_level: null,
 			error_message: null
 		}
-	]
+	];
 }
 
 // Simulate live updates to mock data (for testing real-time updates)
@@ -237,7 +237,7 @@ export function updateMockData(
 	devices: DeviceInfo[],
 	collectors: Collector[]
 ): { devices: DeviceInfo[]; collectors: Collector[] } {
-	const now = Date.now() / 1000
+	const now = Date.now() / 1000;
 
 	// Update timestamps for connected devices/collectors
 	const updatedDevices = devices.map((device) => {
@@ -262,10 +262,10 @@ export function updateMockData(
 				total_samples: device.total_samples
 					? device.total_samples + Math.floor(Math.random() * 100)
 					: 0
-			}
+			};
 		}
-		return device
-	})
+		return device;
+	});
 
 	const updatedCollectors = collectors.map((collector) => {
 		if (collector.connected) {
@@ -277,10 +277,10 @@ export function updateMockData(
 				samples_sent: collector.samples_sent
 					? collector.samples_sent + Math.floor(Math.random() * 200)
 					: 0
-			}
+			};
 		}
-		return collector
-	})
+		return collector;
+	});
 
-	return { devices: updatedDevices, collectors: updatedCollectors }
+	return { devices: updatedDevices, collectors: updatedCollectors };
 }

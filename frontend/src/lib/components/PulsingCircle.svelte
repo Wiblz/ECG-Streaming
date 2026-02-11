@@ -23,8 +23,12 @@
 		size?: string;
 	}
 
-	let { delayPattern, isRunning, soundEnabled = true, size = 'w-64 h-64 md:w-96 md:h-96' }: Props =
-		$props();
+	let {
+		delayPattern,
+		isRunning,
+		soundEnabled = true,
+		size = 'w-64 h-64 md:w-96 md:h-96'
+	}: Props = $props();
 
 	let currentPatternIndex = $state(0);
 	let isPulsing = $state(false);

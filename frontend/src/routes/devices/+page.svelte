@@ -222,7 +222,6 @@
 	<Header />
 
 	<main class="container mx-auto px-6 py-8 max-w-7xl">
-
 		<!-- Collectors Summary -->
 		{#if liveCollectors.length > 0}
 			<div class="mb-8">
@@ -245,87 +244,89 @@
 								</span>
 							</div>
 
-						<div class="space-y-1 text-xs text-gray-600">
-							{#if collector.version}
-								<div class="flex justify-between">
-									<span>Version:</span>
-									<span class="font-mono">{collector.version}</span>
-								</div>
-							{/if}
-							{#if collector.connected}
-								<div class="flex justify-between">
-									<span>Status:</span>
-									<span class="text-green-600 font-medium">Connected</span>
-								</div>
-								{#if collector.active_devices !== undefined}
+							<div class="space-y-1 text-xs text-gray-600">
+								{#if collector.version}
 									<div class="flex justify-between">
-										<span>Active Devices:</span>
-										<span>{collector.active_devices}</span>
+										<span>Version:</span>
+										<span class="font-mono">{collector.version}</span>
 									</div>
 								{/if}
-								{#if collector.samples_sent !== undefined}
+								{#if collector.connected}
 									<div class="flex justify-between">
-										<span>Samples Sent:</span>
-										<span>{collector.samples_sent.toLocaleString()}</span>
+										<span>Status:</span>
+										<span class="text-green-600 font-medium">Connected</span>
 									</div>
-								{/if}
-							{:else}
-								<div class="flex justify-between">
-									<span>Status:</span>
-									<span class="text-gray-600">Disconnected</span>
-								</div>
-								{#if collector.last_seen}
+									{#if collector.active_devices !== undefined}
+										<div class="flex justify-between">
+											<span>Active Devices:</span>
+											<span>{collector.active_devices}</span>
+										</div>
+									{/if}
+									{#if collector.samples_sent !== undefined}
+										<div class="flex justify-between">
+											<span>Samples Sent:</span>
+											<span>{collector.samples_sent.toLocaleString()}</span>
+										</div>
+									{/if}
+								{:else}
 									<div class="flex justify-between">
-										<span>Last Seen:</span>
-										<span>{formatTimeSince(collector.last_seen)}</span>
+										<span>Status:</span>
+										<span class="text-gray-600">Disconnected</span>
 									</div>
+									{#if collector.last_seen}
+										<div class="flex justify-between">
+											<span>Last Seen:</span>
+											<span>{formatTimeSince(collector.last_seen)}</span>
+										</div>
+									{/if}
 								{/if}
-							{/if}
-						</div>
+							</div>
 						</div>
 					{/each}
 				</div>
 			</div>
 		{/if}
 
-			<!-- Filters and Controls -->
+		<!-- Filters and Controls -->
 		<div class="mb-6 flex flex-wrap gap-4 items-center justify-between">
-		<div class="flex gap-4">
-			<div>
-				<label for="filter-status" class="block text-sm font-medium text-gray-700 mb-1">
-					Filter by Status
-				</label>
-				<select
-					id="filter-status"
-					bind:value={filterStatus}
-					class="block w-full pl-3 pr-10 py-2 text-base border border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
-				>
-					<option value="all">All Devices</option>
-					<option value="connected">Connected Only</option>
-					<option value="disconnected">Disconnected Only</option>
-				</select>
-			</div>
+			<div class="flex gap-4">
+				<div>
+					<label for="filter-status" class="block text-sm font-medium text-gray-700 mb-1">
+						Filter by Status
+					</label>
+					<select
+						id="filter-status"
+						bind:value={filterStatus}
+						class="block w-full pl-3 pr-10 py-2 text-base border border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+					>
+						<option value="all">All Devices</option>
+						<option value="connected">Connected Only</option>
+						<option value="disconnected">Disconnected Only</option>
+					</select>
+				</div>
 
-			<div>
-				<label for="sort-by" class="block text-sm font-medium text-gray-700 mb-1"> Sort By </label>
-				<select
-					id="sort-by"
-					bind:value={sortBy}
-					class="block w-full pl-3 pr-10 py-2 text-base border border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
-				>
-					<option value="last_seen">Last Seen</option>
-					<option value="name">Name</option>
-					<option value="total_samples">Total Samples</option>
-				</select>
+				<div>
+					<label for="sort-by" class="block text-sm font-medium text-gray-700 mb-1">
+						Sort By
+					</label>
+					<select
+						id="sort-by"
+						bind:value={sortBy}
+						class="block w-full pl-3 pr-10 py-2 text-base border border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+					>
+						<option value="last_seen">Last Seen</option>
+						<option value="name">Name</option>
+						<option value="total_samples">Total Samples</option>
+					</select>
+				</div>
 			</div>
-		</div>
 
 			<div class="text-sm text-gray-600">
 				Showing {filteredDevices.length} of {liveDevices.length} devices
 			</div>
 		</div>
 
-			<!-- Devices Table -->
+		<!-- Devices Table -->
 		{#if filteredDevices.length === 0}
 			<div class="bg-white border border-gray-200 rounded-xl shadow-sm p-12 text-center">
 				<div class="text-6xl mb-4">🔌</div>
@@ -338,177 +339,199 @@
 			</div>
 		{:else}
 			<div class="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-			<table class="min-w-full divide-y divide-gray-200">
-				<thead class="bg-gray-50">
-					<tr>
-						<th
-							scope="col"
-							class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-						>
-							Device
-						</th>
-						<th
-							scope="col"
-							class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-						>
-							Collector
-						</th>
-						<th
-							scope="col"
-							class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-						>
-							Status
-						</th>
-						<th
-							scope="col"
-							class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-						>
-							Statistics
-						</th>
-						<th
-							scope="col"
-							class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-						>
-							Last Activity
-						</th>
-					</tr>
-				</thead>
-				<tbody class="bg-white divide-y divide-gray-200">
-					{#each filteredDevices as device (device.device_id)}
-						{@const colors = getDeviceStatusColors(device.status)}
-						{@const isEditing = editingDevice === device.device_id}
-						{@const deviceCollector = device.collector_id
-							? collectorMap.get(device.collector_id)
-							: null}
-						<tr class="hover:bg-gray-50">
-							<!-- Device Name/ID -->
-							<td class="px-6 py-4 whitespace-nowrap">
-								{#if isEditing}
-									<div class="flex items-center gap-2">
-										<input
-											type="text"
-											bind:value={editingNickname}
-											placeholder="Enter nickname"
-											class="text-sm font-medium px-2 py-1 border border-gray-300 rounded w-48"
-											onkeydown={(e) => {
-												if (e.key === 'Enter') {
-													saveNickname(device.device_id);
-												} else if (e.key === 'Escape') {
-													cancelEditingNickname();
-												}
-											}}
-											use:focusElement
-										/>
-										<button
-											onclick={() => saveNickname(device.device_id)}
-											disabled={savingNickname}
-											class="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
-										>
-											Save
-										</button>
-										<button
-											onclick={cancelEditingNickname}
-											disabled={savingNickname}
-											class="px-2 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600 disabled:opacity-50"
-										>
-											Cancel
-										</button>
-									</div>
-								{:else}
-									<div class="group">
-										{#if device.nickname}
-											<div class="flex items-center gap-1.5">
-												<span class="text-sm font-medium text-gray-900">{device.nickname}</span>
-												<button
-													onclick={() =>
-														startEditingNickname(device.device_id, device.nickname || null)}
-													class="shrink-0 p-0.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors opacity-0 group-hover:opacity-100"
-													title="Edit nickname"
-												>
-													<svg class="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-													</svg>
-												</button>
-											</div>
-											<div class="text-xs text-gray-500 font-mono truncate">
-												{device.device_id}
-											</div>
-										{:else}
-											<div class="flex items-center gap-1.5">
-												<span class="text-sm font-medium font-mono text-gray-900 truncate">
-													{device.device_id}
-												</span>
-												<button
-													onclick={() =>
-														startEditingNickname(device.device_id, device.nickname || null)}
-													class="shrink-0 p-0.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors opacity-0 group-hover:opacity-100"
-													title="Edit nickname"
-												>
-													<svg class="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-													</svg>
-												</button>
-											</div>
-										{/if}
-									</div>
-								{/if}
-							</td>
-
-							<!-- Collector -->
-							<td class="px-6 py-4 whitespace-nowrap">
-								{#if deviceCollector}
-									<div class="text-sm text-gray-900">{deviceCollector.display_name}</div>
-									<div
-										class="text-xs {deviceCollector.connected ? 'text-green-600' : 'text-gray-500'}"
-									>
-										{deviceCollector.connected ? 'Connected' : 'Disconnected'}
-									</div>
-								{:else}
-									<span class="text-sm text-gray-400">Unknown</span>
-								{/if}
-							</td>
-
-							<!-- Status -->
-							<td class="px-6 py-4 whitespace-nowrap">
-								<span
-									class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border {colors.bg} {colors.text} {colors.border}"
-								>
-									{device.status || 'DISCONNECTED'}
-								</span>
-								{#if device.sync_ready}
-									<div class="text-xs text-green-600 mt-1">✓ Synced</div>
-								{/if}
-							</td>
-
-							<!-- Statistics -->
-							<td class="px-6 py-4 whitespace-nowrap">
-								<div class="text-sm text-gray-900">
-									{#if device.total_samples}
-										{device.total_samples.toLocaleString()} samples
+				<table class="min-w-full divide-y divide-gray-200">
+					<thead class="bg-gray-50">
+						<tr>
+							<th
+								scope="col"
+								class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+							>
+								Device
+							</th>
+							<th
+								scope="col"
+								class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+							>
+								Collector
+							</th>
+							<th
+								scope="col"
+								class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+							>
+								Status
+							</th>
+							<th
+								scope="col"
+								class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+							>
+								Statistics
+							</th>
+							<th
+								scope="col"
+								class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+							>
+								Last Activity
+							</th>
+						</tr>
+					</thead>
+					<tbody class="bg-white divide-y divide-gray-200">
+						{#each filteredDevices as device (device.device_id)}
+							{@const colors = getDeviceStatusColors(device.status)}
+							{@const isEditing = editingDevice === device.device_id}
+							{@const deviceCollector = device.collector_id
+								? collectorMap.get(device.collector_id)
+								: null}
+							<tr class="hover:bg-gray-50">
+								<!-- Device Name/ID -->
+								<td class="px-6 py-4 whitespace-nowrap">
+									{#if isEditing}
+										<div class="flex items-center gap-2">
+											<input
+												type="text"
+												bind:value={editingNickname}
+												placeholder="Enter nickname"
+												class="text-sm font-medium px-2 py-1 border border-gray-300 rounded w-48"
+												onkeydown={(e) => {
+													if (e.key === 'Enter') {
+														saveNickname(device.device_id);
+													} else if (e.key === 'Escape') {
+														cancelEditingNickname();
+													}
+												}}
+												use:focusElement
+											/>
+											<button
+												onclick={() => saveNickname(device.device_id)}
+												disabled={savingNickname}
+												class="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+											>
+												Save
+											</button>
+											<button
+												onclick={cancelEditingNickname}
+												disabled={savingNickname}
+												class="px-2 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600 disabled:opacity-50"
+											>
+												Cancel
+											</button>
+										</div>
 									{:else}
-										No samples
-									{/if}
-								</div>
-								{#if device.battery_level !== null && device.battery_level !== undefined}
-									<div class="text-xs text-gray-500">Battery: {device.battery_level}%</div>
-								{/if}
-							</td>
-
-							<!-- Last Activity -->
-							<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-								{#if device.last_seen}
-									<div>{formatTimeSince(device.last_seen)}</div>
-									{#if device.first_seen}
-										<div class="text-xs text-gray-400">
-											First seen: {formatTimeSince(device.first_seen)}
+										<div class="group">
+											{#if device.nickname}
+												<div class="flex items-center gap-1.5">
+													<span class="text-sm font-medium text-gray-900">{device.nickname}</span>
+													<button
+														onclick={() =>
+															startEditingNickname(device.device_id, device.nickname || null)}
+														class="shrink-0 p-0.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors opacity-0 group-hover:opacity-100"
+														title="Edit nickname"
+													>
+														<svg
+															class="size-4"
+															fill="none"
+															stroke="currentColor"
+															viewBox="0 0 24 24"
+														>
+															<path
+																stroke-linecap="round"
+																stroke-linejoin="round"
+																stroke-width="2"
+																d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+															/>
+														</svg>
+													</button>
+												</div>
+												<div class="text-xs text-gray-500 font-mono truncate">
+													{device.device_id}
+												</div>
+											{:else}
+												<div class="flex items-center gap-1.5">
+													<span class="text-sm font-medium font-mono text-gray-900 truncate">
+														{device.device_id}
+													</span>
+													<button
+														onclick={() =>
+															startEditingNickname(device.device_id, device.nickname || null)}
+														class="shrink-0 p-0.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors opacity-0 group-hover:opacity-100"
+														title="Edit nickname"
+													>
+														<svg
+															class="size-4"
+															fill="none"
+															stroke="currentColor"
+															viewBox="0 0 24 24"
+														>
+															<path
+																stroke-linecap="round"
+																stroke-linejoin="round"
+																stroke-width="2"
+																d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+															/>
+														</svg>
+													</button>
+												</div>
+											{/if}
 										</div>
 									{/if}
-								{:else}
-									<span class="text-gray-400">Never</span>
-								{/if}
-							</td>
-						</tr>
-					{/each}
+								</td>
+
+								<!-- Collector -->
+								<td class="px-6 py-4 whitespace-nowrap">
+									{#if deviceCollector}
+										<div class="text-sm text-gray-900">{deviceCollector.display_name}</div>
+										<div
+											class="text-xs {deviceCollector.connected
+												? 'text-green-600'
+												: 'text-gray-500'}"
+										>
+											{deviceCollector.connected ? 'Connected' : 'Disconnected'}
+										</div>
+									{:else}
+										<span class="text-sm text-gray-400">Unknown</span>
+									{/if}
+								</td>
+
+								<!-- Status -->
+								<td class="px-6 py-4 whitespace-nowrap">
+									<span
+										class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border {colors.bg} {colors.text} {colors.border}"
+									>
+										{device.status || 'DISCONNECTED'}
+									</span>
+									{#if device.sync_ready}
+										<div class="text-xs text-green-600 mt-1">✓ Synced</div>
+									{/if}
+								</td>
+
+								<!-- Statistics -->
+								<td class="px-6 py-4 whitespace-nowrap">
+									<div class="text-sm text-gray-900">
+										{#if device.total_samples}
+											{device.total_samples.toLocaleString()} samples
+										{:else}
+											No samples
+										{/if}
+									</div>
+									{#if device.battery_level !== null && device.battery_level !== undefined}
+										<div class="text-xs text-gray-500">Battery: {device.battery_level}%</div>
+									{/if}
+								</td>
+
+								<!-- Last Activity -->
+								<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+									{#if device.last_seen}
+										<div>{formatTimeSince(device.last_seen)}</div>
+										{#if device.first_seen}
+											<div class="text-xs text-gray-400">
+												First seen: {formatTimeSince(device.first_seen)}
+											</div>
+										{/if}
+									{:else}
+										<span class="text-gray-400">Never</span>
+									{/if}
+								</td>
+							</tr>
+						{/each}
 					</tbody>
 				</table>
 			</div>

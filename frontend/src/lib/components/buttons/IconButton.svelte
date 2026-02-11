@@ -68,6 +68,6 @@
 	);
 </script>
 
-<button type="button" {title} {disabled} onclick={onclick} class={buttonClasses}>
+<button type="button" {title} {disabled} {onclick} class={buttonClasses}>
 	{@render children()}
 </button>

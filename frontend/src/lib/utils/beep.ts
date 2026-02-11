@@ -8,10 +8,10 @@
  * - Smooth sine wave with ramping to avoid clicking sounds
  */
 export class BeepGenerator {
-	private audioContext: AudioContext | null = null
-	private gainNode: GainNode | null = null
-	private muted: boolean = false
-	private volume: number = 0.3
+	private audioContext: AudioContext | null = null;
+	private gainNode: GainNode | null = null;
+	private muted: boolean = false;
+	private volume: number = 0.3;
 
 	/**
 	 * Initialize the AudioContext and gain node.
@@ -19,10 +19,10 @@ export class BeepGenerator {
 	 */
 	private initAudio(): void {
 		if (!this.audioContext) {
-			this.audioContext = new AudioContext()
-			this.gainNode = this.audioContext.createGain()
-			this.gainNode.connect(this.audioContext.destination)
-			this.gainNode.gain.value = this.muted ? 0 : this.volume
+			this.audioContext = new AudioContext();
+			this.gainNode = this.audioContext.createGain();
+			this.gainNode.connect(this.audioContext.destination);
+			this.gainNode.gain.value = this.muted ? 0 : this.volume;
 		}
 	}
 
@@ -32,26 +32,26 @@ export class BeepGenerator {
 	 * @param duration - Duration in milliseconds (default: 100ms)
 	 */
 	beep(frequency: number = 800, duration: number = 100): void {
-		this.initAudio()
-		if (!this.audioContext || !this.gainNode) return
+		this.initAudio();
+		if (!this.audioContext || !this.gainNode) return;
 
-		const oscillator = this.audioContext.createOscillator()
-		const gainRamp = this.audioContext.createGain()
+		const oscillator = this.audioContext.createOscillator();
+		const gainRamp = this.audioContext.createGain();
 
-		oscillator.connect(gainRamp)
-		gainRamp.connect(this.gainNode)
+		oscillator.connect(gainRamp);
+		gainRamp.connect(this.gainNode);
 
-		oscillator.frequency.value = frequency
-		oscillator.type = 'sine' // Smoothest sound
+		oscillator.frequency.value = frequency;
+		oscillator.type = 'sine'; // Smoothest sound
 
 		// Ramp to avoid clicking sounds
-		const now = this.audioContext.currentTime
-		gainRamp.gain.setValueAtTime(0, now)
-		gainRamp.gain.linearRampToValueAtTime(1, now + 0.01)
-		gainRamp.gain.exponentialRampToValueAtTime(0.01, now + duration / 1000)
+		const now = this.audioContext.currentTime;
+		gainRamp.gain.setValueAtTime(0, now);
+		gainRamp.gain.linearRampToValueAtTime(1, now + 0.01);
+		gainRamp.gain.exponentialRampToValueAtTime(0.01, now + duration / 1000);
 
-		oscillator.start(now)
-		oscillator.stop(now + duration / 1000)
+		oscillator.start(now);
+		oscillator.stop(now + duration / 1000);
 	}
 
 	/**
@@ -59,9 +59,9 @@ export class BeepGenerator {
 	 * @param volume - Volume level (0.0 to 1.0)
 	 */
 	setVolume(volume: number): void {
-		this.volume = Math.max(0, Math.min(1, volume))
+		this.volume = Math.max(0, Math.min(1, volume));
 		if (this.gainNode && !this.muted) {
-			this.gainNode.gain.value = this.volume
+			this.gainNode.gain.value = this.volume;
 		}
 	}
 
@@ -70,9 +70,9 @@ export class BeepGenerator {
 	 * @param muted - Whether to mute the audio
 	 */
 	setMuted(muted: boolean): void {
-		this.muted = muted
+		this.muted = muted;
 		if (this.gainNode) {
-			this.gainNode.gain.value = muted ? 0 : this.volume
+			this.gainNode.gain.value = muted ? 0 : this.volume;
 		}
 	}
 
@@ -80,6 +80,6 @@ export class BeepGenerator {
 	 * Get the current muted state
 	 */
 	isMuted(): boolean {
-		return this.muted
+		return this.muted;
 	}
 }

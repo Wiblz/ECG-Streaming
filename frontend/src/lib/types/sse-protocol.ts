@@ -13,10 +13,10 @@ export type SSEEventType =
 	| 'collector_update'
 	| 'device_update'
 	| 'buffer_stats'
-	| 'heartbeat'
+	| 'heartbeat';
 
 // Collector status values
-export type CollectorStatus = 'CONNECTED' | 'HEALTHY' | 'DISCONNECTED'
+export type CollectorStatus = 'CONNECTED' | 'HEALTHY' | 'DISCONNECTED';
 
 // Device status values (matches protobuf enum)
 export type DeviceStatus =
@@ -25,35 +25,35 @@ export type DeviceStatus =
 	| 'CONNECTING'
 	| 'CONNECTED'
 	| 'STREAMING'
-	| 'ERROR'
+	| 'ERROR';
 
 /**
  * Connected event - sent immediately on initial connection
  */
 export interface ConnectedEventData {
-	timestamp: number
+	timestamp: number;
 }
 
 /**
  * Collector update event - sent when collector status changes
  */
 export interface CollectorUpdateData {
-	collector_id: string
-	display_name?: string
-	status?: CollectorStatus
-	device_count?: number
-	samples_sent?: number
-	active_devices?: number
+	collector_id: string;
+	display_name?: string;
+	status?: CollectorStatus;
+	device_count?: number;
+	samples_sent?: number;
+	active_devices?: number;
 }
 
 /**
  * Device update event - sent when device status changes
  */
 export interface DeviceUpdateData {
-	device_id: string
-	collector_id: string
-	status: DeviceStatus
-	battery_level?: number | null
+	device_id: string;
+	collector_id: string;
+	status: DeviceStatus;
+	battery_level?: number | null;
 }
 
 /**
@@ -61,36 +61,36 @@ export interface DeviceUpdateData {
  */
 export interface BufferStatsData {
 	ecg_buffer: {
-		total_samples: number
-		duration_seconds: number
-		device_count: number
-		samples_per_device: Record<string, number>
-		samples_per_second: number
-		samples_per_second_per_device: Record<string, number>
-		oldest_timestamp: number | null
-		newest_timestamp: number | null
-		total_processed: number
-		buffer_utilization: number
-	}
+		total_samples: number;
+		duration_seconds: number;
+		device_count: number;
+		samples_per_device: Record<string, number>;
+		samples_per_second: number;
+		samples_per_second_per_device: Record<string, number>;
+		oldest_timestamp: number | null;
+		newest_timestamp: number | null;
+		total_processed: number;
+		buffer_utilization: number;
+	};
 	acc_buffer: {
-		total_samples: number
-		duration_seconds: number
-		device_count: number
-		samples_per_device: Record<string, number>
-		samples_per_second: number
-		samples_per_second_per_device: Record<string, number>
-		oldest_timestamp: number | null
-		newest_timestamp: number | null
-		total_processed: number
-		buffer_utilization: number
-	}
+		total_samples: number;
+		duration_seconds: number;
+		device_count: number;
+		samples_per_device: Record<string, number>;
+		samples_per_second: number;
+		samples_per_second_per_device: Record<string, number>;
+		oldest_timestamp: number | null;
+		newest_timestamp: number | null;
+		total_processed: number;
+		buffer_utilization: number;
+	};
 }
 
 /**
  * Heartbeat event - keepalive sent when idle (every 30s)
  */
 export interface HeartbeatEventData {
-	timestamp: number
+	timestamp: number;
 }
 
 /**
@@ -101,12 +101,12 @@ export type SSEEventData =
 	| CollectorUpdateData
 	| DeviceUpdateData
 	| BufferStatsData
-	| HeartbeatEventData
+	| HeartbeatEventData;
 
 /**
  * SSE Message envelope (as received from EventSource)
  */
 export interface SSEMessage<T extends SSEEventData = SSEEventData> {
-	event: SSEEventType
-	data: T
+	event: SSEEventType;
+	data: T;
 }
