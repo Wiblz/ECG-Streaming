@@ -32,7 +32,6 @@
 	}
 </script>
 
-
 <Card title="Session Waveforms">
 	{#snippet headerActions()}
 		{#if hasBothSignals}
@@ -78,10 +77,11 @@
 					{timeSyncEnabled}
 					{sharedTimeWindow}
 					onTimeWindowChange={handleTimeWindowChange}
+					alignMode="linear"
 					fetchSamples={api.getSessionSamples}
 					getValue={(s: SessionSample) => s.raw_value}
 					yAxisLabel="Amplitude (mV)"
-					formatTooltip={(sample: SessionSample, xVal, yVal) => {
+					formatTooltip={(sample: SessionSample, xVal) => {
 						const verified = sample.time_verified ? ' ✓' : '';
 						return `
 							<table style="border-collapse: collapse;">
@@ -117,10 +117,11 @@
 					{timeSyncEnabled}
 					{sharedTimeWindow}
 					onTimeWindowChange={handleTimeWindowChange}
+					alignMode="linear"
 					fetchSamples={api.getSessionAccelerometerSamples}
 					getValue={(s: SessionAccelerometerSample) => s.magnitude}
 					yAxisLabel="Magnitude (g)"
-					formatTooltip={(sample: SessionAccelerometerSample, xVal, yVal) => {
+					formatTooltip={(sample: SessionAccelerometerSample, xVal) => {
 						const verified = sample.time_verified ? ' ✓' : '';
 						return `
 							<table style="border-collapse: collapse;">

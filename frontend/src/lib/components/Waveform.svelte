@@ -3,13 +3,31 @@
 	import type uPlot from 'uplot';
 	import { browser } from '$app/environment';
 	import type { PlottableSample, Session } from '$lib/types/api';
-	import { alignSamplesToTimestamps, buildUnionTimestamps, flattenGroupedSamples, groupSamplesByDevice } from '$lib/utils/samples';
-
-	let uPlotLib = $state<typeof uPlot | null>(null);
-	let createDeviceSeries: ((deviceIds: string[], getVerifiedIndices?: (deviceId: string) => number[], deviceNicknames?: Map<string, string>, spanGaps?: boolean) => uPlot.Series[]) | null = null;
-	let createAxes: ((yLabel: string) => uPlot.Axis[]) | null = null;
-	let tooltipsPlugin: ReturnType<typeof import('$lib/utils/uplot-tooltips').tooltipsPlugin> | null =
-		null;
+	import type { AlignMode } from '$lib/utils/samples';
+	import {
+		alignSamplesToTimestamps,
+		buildUnionTimestamps,
+		flattenGroupedSamples,
+		groupSamplesByDevice
+	} from '$lib/utils/samples';
+	import { SvelteMap } from 'svelte/reactivity';
+	import WaveformPlot, {
+		type WaveformPlotApi,
+		type WaveformPlotOptions
+	} from './WaveformPlot.svelte';
+	let createDeviceSeries = $state<
+		| ((
+				deviceIds: string[],
+				getVerifiedIndices?: (deviceId: string) => number[],
+				deviceNicknames?: Map<string, string>,
+				spanGaps?: boolean
+		  ) => uPlot.Series[])
+		| null
+	>(null);
+	let createAxes = $state<((yLabel: string) => uPlot.Axis[]) | null>(null);
+	let tooltipsPlugin = $state<ReturnType<
+		typeof import('$lib/utils/uplot-tooltips').tooltipsPlugin
+	> | null>(null);
 
 	interface Props {
 		session: Session;
@@ -20,10 +38,14 @@
 		sharedTimeWindow?: { minTime: number; maxTime: number } | null;
 		onTimeWindowChange?: (window: { minTime: number; maxTime: number }) => void;
 		maxGapSeconds?: number;
+		alignMode?: AlignMode;
 		/**
 		 * Function to fetch samples from API
 		 */
-		fetchSamples: (sessionId: number, params: { start_time: number; end_time: number }) => Promise<{ devices: Record<string, Omit<T, 'device_id'>[]> }>;
+		fetchSamples: (
+			sessionId: number,
+			params: { start_time: number; end_time: number }
+		) => Promise<{ devices: Record<string, Omit<T, 'device_id'>[]> }>;
 		/**
 		 * Function to extract the value from a sample for plotting
 		 */
@@ -47,20 +69,24 @@
 		sharedTimeWindow = null,
 		onTimeWindowChange,
 		maxGapSeconds = 0.1,
+		alignMode = 'linear',
 		fetchSamples,
 		getValue,
 		yAxisLabel,
 		formatTooltip
 	}: Props = $props();
 
-	let plotContainer: HTMLDivElement;
-	let chart: uPlot | null = null;
+	let chartApi: WaveformPlotApi | null = null;
 	let loadedSamples: T[] = $state([]);
 	let isLoadingData = $state(false);
+	let plotData: uPlot.AlignedData = $state([[], []]);
+	let plotDevices: string[] = $state([]);
+	let plotOptions: WaveformPlotOptions | null = $state(null);
+	let plotOptionsKey = $state('');
 
 	let deviceOrder: string[] = $state([]);
-	let sampleByDeviceAndTime = new Map<string, Map<number, T>>();
-	let verifiedIndicesByDevice = new Map<string, number[]>();
+	let sampleByDeviceAndTime: Map<string, Map<number, T>> = new Map();
+	let verifiedIndicesByDevice = new SvelteMap<string, number[]>();
 
 	// Track the currently loaded time range
 	let loadedTimeRange = $state<{ start: number; end: number } | null>(null);
@@ -110,33 +136,14 @@
 			loadedSamples = samples;
 			loadedTimeRange = { start: startTime, end: endTime };
 
-			// Update chart with new data
-			if (chart) {
-				// Save current viewport
-				const xScale = chart.scales.x;
-				const currentMin = xScale?.min;
-				const currentMax = xScale?.max;
+			const chartData = prepareChartData(loadedSamples);
+			plotData = chartData.data;
+			plotDevices = chartData.devices;
+			rebuildPlotOptions(chartData.devices);
 
-				// Prepare and set new data
-				const chartData = prepareChartData(loadedSamples);
-
-				// Set programmatic flag to prevent hook from triggering
+			if (chartApi) {
 				programmaticUpdate = true;
-
-				const chartInstance = chart; // Capture for closure
-
-				// Batch the data update and scale restoration together
-				chartInstance.batch(() => {
-					// Pass false to prevent triggering hooks
-					chartInstance.setData(chartData.data, false);
-
-					// Restore viewport if we had one
-					if (currentMin !== undefined && currentMax !== undefined) {
-						chartInstance.setScale('x', { min: currentMin, max: currentMax });
-					}
-				});
-
-				// Reset flag after next tick to ensure all updates are processed
+				chartApi.setDataPreserveScale(chartData.data, 'x');
 				setTimeout(() => {
 					programmaticUpdate = false;
 				}, 0);
@@ -149,13 +156,11 @@
 	};
 
 	// Prepare data for uPlot (convert to relative session time)
-	const prepareChartData = (
-		samples: T[]
-	): { data: uPlot.AlignedData; devices: string[] } => {
+	const prepareChartData = (samples: T[]): { data: uPlot.AlignedData; devices: string[] } => {
 		if (samples.length === 0) {
 			deviceOrder = [];
-			sampleByDeviceAndTime = new Map();
-			verifiedIndicesByDevice = new Map();
+			sampleByDeviceAndTime = new SvelteMap();
+			verifiedIndicesByDevice = new SvelteMap();
 			return { data: [[], []], devices: [] };
 		}
 
@@ -170,13 +175,14 @@
 			timestamps,
 			session.start_time,
 			getValue,
-			maxGapSeconds
+			maxGapSeconds,
+			alignMode
 		);
 
 		deviceOrder = aligned.deviceOrder;
 		sampleByDeviceAndTime = aligned.sampleByDeviceAndTime;
 
-		const nextVerified = new Map<string, number[]>();
+		const nextVerified = new SvelteMap<string, number[]>();
 		for (const deviceId of aligned.deviceOrder) {
 			const deviceSamples = aligned.sampleByDeviceAndTime.get(deviceId);
 			const indices: number[] = [];
@@ -299,17 +305,27 @@
 		};
 	}
 
-	const createChart = () => {
-		if (!plotContainer || loadedSamples.length === 0) return;
+	function rebuildPlotOptions(devices: string[]) {
+		if (!createDeviceSeries || !createAxes || devices.length === 0) {
+			plotOptions = null;
+			plotOptionsKey = '';
+			return;
+		}
 
-		console.log('[Waveform] Creating chart...');
+		const nextKey = [
+			devices.join('|'),
+			showVerifiedPoints ? 'v1' : 'v0',
+			yAxisLabel,
+			deviceNicknames ? `n${deviceNicknames.size}` : 'n0',
+			tooltipsPlugin ? 't1' : 't0'
+		].join('|');
 
-		const { data, devices } = prepareChartData(loadedSamples);
+		if (nextKey === plotOptionsKey) {
+			return;
+		}
+		plotOptionsKey = nextKey;
 
-		if (!createDeviceSeries || !createAxes) return;
-
-		const opts: uPlot.Options = {
-			width: plotContainer.clientWidth,
+		plotOptions = {
 			height: 400,
 			series: createDeviceSeries(
 				devices,
@@ -328,7 +344,7 @@
 				setScale: [
 					(u) => {
 						const xScale = u.scales.x;
-						if (!xScale || !xScale.min || !xScale.max) return;
+						if (!xScale || xScale.min === undefined || xScale.max === undefined) return;
 
 						// Scale values are in relative time (seconds from session start)
 						const relativeStart = xScale.min;
@@ -383,15 +399,7 @@
 				show: true
 			}
 		};
-
-		if (chart) {
-			chart.destroy();
-		}
-
-		if (!uPlotLib) return;
-		chart = new uPlotLib(opts, data, plotContainer);
-		console.log('[Waveform] Chart created');
-	};
+	}
 
 	// Initialize: load first window of data
 	const initialize = async () => {
@@ -405,7 +413,6 @@
 		const globalEnd = session.start_time + windowSize;
 
 		await loadTimeRange(globalStart, globalEnd);
-		createChart();
 	};
 
 	// Initialize once when component is ready
@@ -417,12 +424,19 @@
 		}
 	});
 
+	// Rebuild plot options once plotting helpers are ready
+	$effect(() => {
+		if (!plotDevices.length) return;
+		if (!createDeviceSeries || !createAxes) return;
+		rebuildPlotOptions(plotDevices);
+	});
+
 	// Sync with shared time window when time sync is enabled
 	$effect(() => {
-		if (timeSyncEnabled && sharedTimeWindow && chart) {
+		if (timeSyncEnabled && sharedTimeWindow && chartApi) {
 			// Set programmatic update flag to prevent triggering setScale hook
 			programmaticUpdate = true;
-			chart.setScale('x', {
+			chartApi.setScale('x', {
 				min: sharedTimeWindow.minTime,
 				max: sharedTimeWindow.maxTime
 			});
@@ -430,33 +444,20 @@
 		}
 	});
 
-	// Handle window resize
-	const handleResize = () => {
-		if (chart && plotContainer) {
-			chart.setSize({
-				width: plotContainer.clientWidth,
-				height: 400
-			});
-		}
-	};
-
 	onMount(async () => {
 		if (!browser) return;
 
 		// Dynamically import uPlot and utilities only in browser
-		const [uPlotModule, utilsModule, tooltipsModule] = await Promise.all([
-			import('uplot'),
+		const [utilsModule, tooltipsModule] = await Promise.all([
 			import('$lib/utils/uplot'),
 			import('$lib/utils/uplot-tooltips')
 		]);
-
-		uPlotLib = uPlotModule.default;
 		createDeviceSeries = utilsModule.createDeviceSeries;
 		createAxes = (yLabel: string) => utilsModule.createAxes(yLabel);
 		tooltipsPlugin = tooltipsModule.tooltipsPlugin({
 			showSeriesPoints: true,
 			showCursorPosition: false,
-			formatValue: (xVal, yVal, seriesIdx, dataIdx) => {
+			formatValue: (xVal, yVal, seriesIdx) => {
 				const deviceId = deviceOrder[seriesIdx - 1];
 				const sample = deviceId ? sampleByDeviceAndTime.get(deviceId)?.get(xVal) : undefined;
 				if (sample && formatTooltip) {
@@ -483,16 +484,10 @@
 			}
 		});
 
-		window.addEventListener('resize', handleResize);
+		rebuildPlotOptions(plotDevices);
 	});
 
 	onDestroy(() => {
-		if (browser) {
-			window.removeEventListener('resize', handleResize);
-		}
-		if (chart) {
-			chart.destroy();
-		}
 		if (fetchTimeout) {
 			clearTimeout(fetchTimeout);
 		}
@@ -529,6 +524,16 @@
 			<p class="text-gray-500">No data to display</p>
 		</div>
 	{:else}
-		<div bind:this={plotContainer} class="border border-gray-200 rounded-lg"></div>
+		<WaveformPlot
+			data={plotData}
+			options={plotOptions}
+			plotClass="border border-gray-200 rounded-lg"
+			onReady={(api) => {
+				chartApi = api;
+			}}
+			onChartDestroy={() => {
+				chartApi = null;
+			}}
+		/>
 	{/if}
 </div>

@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { getSamples as getAccSamples } from '$lib/state/acc-data.svelte';
-	import { getSamples as getEcgSamples } from '$lib/state/ecg-data.svelte';
+	import { samples as accSamples } from '$lib/state/acc-data.svelte';
+	import { samples as ecgSamples } from '$lib/state/ecg-data.svelte';
 	import { getDevices } from '$lib/state/devices.svelte';
 	import { ConnectionState, getAccWsState, getWsState } from '$lib/state/websocket.svelte';
 	import { createDeviceNicknameMap } from '$lib/utils/device-names';
@@ -10,9 +10,7 @@
 	import LiveWaveform from './LiveWaveform.svelte';
 	import 'uplot/dist/uPlot.min.css';
 
-	// Get samples and connection states
-	const ecgSamples = $derived(getEcgSamples());
-	const accSamples = $derived(getAccSamples());
+	// Get connection states
 	const ecgWsState = $derived(getWsState());
 	const accWsState = $derived(getAccWsState());
 
@@ -27,7 +25,6 @@
 	// Shared state for verified points toggle
 	let showVerifiedPoints = $state(false);
 </script>
-
 
 <Card title="Live Waveforms">
 	{#snippet headerActions()}
@@ -61,19 +58,18 @@
 					</div>
 				{/if}
 			</div>
-			{#key `${showVerifiedPoints}-${deviceNicknames.size}`}
-				<LiveWaveform
-					samples={ecgSamples}
-					wsState={ecgWsState}
-					{deviceNicknames}
-					getValue={(s) => s.raw_value}
-					yAxisLabel="Amplitude (mV)"
-					title="ECG"
-					emptyMessage="Waiting for ECG data..."
-					standalone={false}
-					{showVerifiedPoints}
-				/>
-			{/key}
+			<LiveWaveform
+				samples={ecgSamples}
+				wsState={ecgWsState}
+				{deviceNicknames}
+				getValue={(s) => s.raw_value}
+				yAxisLabel="Amplitude (mV)"
+				title="ECG"
+				emptyMessage="Waiting for ECG data..."
+				standalone={false}
+				alignMode="linear"
+				{showVerifiedPoints}
+			/>
 		</div>
 
 		<!-- Divider -->
@@ -95,19 +91,18 @@
 					</div>
 				{/if}
 			</div>
-			{#key `${showVerifiedPoints}-${deviceNicknames.size}`}
-				<LiveWaveform
-					samples={accSamples}
-					wsState={accWsState}
-					{deviceNicknames}
-					getValue={(s) => s.magnitude}
-					yAxisLabel="Magnitude (g)"
-					title="Accelerometer"
-					emptyMessage="Waiting for accelerometer data..."
-					standalone={false}
-					{showVerifiedPoints}
-				/>
-			{/key}
+			<LiveWaveform
+				samples={accSamples}
+				wsState={accWsState}
+				{deviceNicknames}
+				getValue={(s) => s.magnitude}
+				yAxisLabel="Magnitude (g)"
+				title="Accelerometer"
+				emptyMessage="Waiting for accelerometer data..."
+				standalone={false}
+				alignMode="linear"
+				{showVerifiedPoints}
+			/>
 		</div>
 	</div>
 </Card>

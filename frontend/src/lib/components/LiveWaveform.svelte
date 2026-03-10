@@ -5,19 +5,22 @@
 	import { browser } from '$app/environment';
 	import type { PlottableSample } from '$lib/types/api';
 	import { isPaused } from '$lib/state/pause.svelte';
+	import type { AlignMode } from '$lib/utils/samples';
 	import { alignSamplesToTimestamps } from '$lib/utils/samples';
+	import { SvelteMap } from 'svelte/reactivity';
 	import {
-		getCurrentPlaybackTime, 
+		getCurrentPlaybackTime,
 		getSessionStartTime,
 		setSessionStartTime
 	} from '$lib/state/session-time.svelte';
 	import type { ConnectionStateType } from '$lib/state/websocket.svelte';
 	import Button from './buttons/Button.svelte';
 	import Card from './Card.svelte';
+	import WaveformPlot, { type WaveformPlotOptions } from './WaveformPlot.svelte';
 	import 'uplot/dist/uPlot.min.css';
 
 	interface Props {
-		samples: Map<string, T[]>;
+		samples: SvelteMap<string, T[]> | Map<string, T[]>;
 		getValue: (sample: T) => number;
 		yAxisLabel: string;
 		title: string;
@@ -38,6 +41,7 @@
 		 */
 		deviceNicknames?: Map<string, string>;
 		maxGapSeconds?: number;
+		alignMode?: AlignMode;
 	}
 
 	let {
@@ -50,22 +54,30 @@
 		standalone = true,
 		showVerifiedPoints = false,
 		deviceNicknames,
-		maxGapSeconds = 0.1
+		maxGapSeconds = 0.1,
+		alignMode = 'linear'
 	}: Props = $props();
 
-	let plotContainer: HTMLDivElement;
-	let chart = $state<uPlot | null>(null);
-	let uPlotLib = $state<typeof uPlot | null>(null);
-	let createDeviceSeries: ((deviceIds: string[], getVerifiedIndices?: (deviceId: string) => number[], deviceNicknames?: Map<string, string>, spanGaps?: boolean) => uPlot.Series[]) | null = null;
+	let createDeviceSeries:
+		| ((
+				deviceIds: string[],
+				getVerifiedIndices?: (deviceId: string) => number[],
+				deviceNicknames?: Map<string, string>,
+				spanGaps?: boolean
+		  ) => uPlot.Series[])
+		| null = null;
 	let createAxes: ((yLabel: string) => uPlot.Axis[]) | null = null;
 	let tooltipsPlugin: ReturnType<typeof import('$lib/utils/uplot-tooltips').tooltipsPlugin> | null =
 		null;
+	let plotData: AlignedData = $state([[], []]);
+	let plotOptions: WaveformPlotOptions | null = $state(null);
+	let plotReady = $state(false);
 	let animationFrameId: number | null = null;
 	let lastUpdateTime = 0;
 
 	let deviceOrder: string[] = $state([]);
-	let sampleByDeviceAndTime = new Map<string, Map<number, T>>();
-	let verifiedIndicesByDevice = new Map<string, number[]>();
+	let sampleByDeviceAndTime: Map<string, Map<number, T>> = new Map();
+	let verifiedIndicesByDevice = new SvelteMap<string, number[]>();
 
 	// Cache for aligned data to avoid re-aligning on every frame
 	let alignmentCache = $state<{
@@ -88,12 +100,18 @@
 	const WINDOW_DURATION = 7.5; // seconds to display
 	const UPDATE_INTERVAL_MS = 33; // update every 33ms (~30 FPS)
 
-	// Track if samples are fresh (updated in animation loop)
+	// Track if samples are fresh (updated when samples change)
 	let samplesAreFresh = $state(false);
 
 	// Check freshness when samples change
 	$effect(() => {
-		if (samples.size === 0) {
+		// Must read into the SvelteMap contents to track it as a dependency.
+		// Array.from(samples.values()) forces reading the map's values.
+		const allDeviceSamples = Array.from(samples.values());
+		// Reading nested array lengths ensures Svelte tracks changes to array contents.
+		const totalSamples = allDeviceSamples.reduce((sum, arr) => sum + arr.length, 0);
+
+		if (totalSamples === 0) {
 			samplesAreFresh = false;
 			return;
 		}
@@ -101,7 +119,7 @@
 		const now = Date.now() / 1000;
 		const STALE_THRESHOLD = 15 + 5;
 
-		for (const deviceSamples of samples.values()) {
+		for (const deviceSamples of allDeviceSamples) {
 			const newestSample = deviceSamples[deviceSamples.length - 1];
 			const age = now - newestSample.global_time;
 			if (age < STALE_THRESHOLD) {
@@ -115,6 +133,29 @@
 
 	// Show plot only if samples are fresh
 	const shouldShowPlot = $derived(samplesAreFresh);
+
+	// Initialize plot options and data once dependencies are ready
+	$effect(() => {
+		if (!shouldShowPlot || plotOptions || !createDeviceSeries || !createAxes) {
+			return;
+		}
+
+		const { data, devices } = prepareChartData(samples);
+		plotData = data;
+
+		if (devices.length > 0) {
+			rebuildPlotOptions(devices);
+		} else {
+			plotOptions = null;
+		}
+	});
+
+	// Rebuild plot options when device order changes
+	$effect(() => {
+		if (!createDeviceSeries || !createAxes) return;
+		if (deviceOrder.length === 0) return;
+		rebuildPlotOptions(deviceOrder);
+	});
 
 	// X-axis range controlled by function (prevents setData from resetting scale)
 	let xAxisRange: [number, number] = [0, WINDOW_DURATION];
@@ -175,7 +216,8 @@
 
 				// Check first and last sample timestamps
 				const firstCurrentTime = currentSamples[0].global_time - currentStartTime!;
-				const lastCurrentTime = currentSamples[currentSamples.length - 1].global_time - currentStartTime!;
+				const lastCurrentTime =
+					currentSamples[currentSamples.length - 1].global_time - currentStartTime!;
 
 				const cachedTimes = Array.from(cachedDeviceSamples.keys()).sort((a, b) => a - b);
 				if (cachedTimes.length === 0) return false;
@@ -184,8 +226,10 @@
 				const lastCachedTime = cachedTimes[cachedTimes.length - 1];
 
 				// If first or last timestamp changed, samples have shifted
-				if (Math.abs(firstCurrentTime - firstCachedTime) > 0.001 ||
-				    Math.abs(lastCurrentTime - lastCachedTime) > 0.001) {
+				if (
+					Math.abs(firstCurrentTime - firstCachedTime) > 0.001 ||
+					Math.abs(lastCurrentTime - lastCachedTime) > 0.001
+				) {
 					return false;
 				}
 			}
@@ -208,8 +252,8 @@
 		if (devices.length === 0 || sampleMap.size === 0) {
 			alignmentCache = null;
 			deviceOrder = [];
-			sampleByDeviceAndTime = new Map();
-			verifiedIndicesByDevice = new Map();
+			sampleByDeviceAndTime = new SvelteMap();
+			verifiedIndicesByDevice = new SvelteMap();
 			return { data: [[], []], devices: [], samples: [] };
 		}
 
@@ -241,7 +285,7 @@
 			const values = filteredSamples.map((s) => getValue(s));
 
 			deviceOrder = devices;
-			const lookup = new Map<number, T>();
+			const lookup = new SvelteMap<number, T>();
 			const verifiedIndices: number[] = [];
 			for (let i = 0; i < filteredSamples.length; i += 1) {
 				const relTime = timestamps[i];
@@ -251,8 +295,8 @@
 					verifiedIndices.push(i);
 				}
 			}
-			sampleByDeviceAndTime = new Map([[devices[0], lookup]]);
-			verifiedIndicesByDevice = new Map([[devices[0], verifiedIndices]]);
+			sampleByDeviceAndTime = new SvelteMap([[devices[0], lookup]]);
+			verifiedIndicesByDevice = new SvelteMap([[devices[0], verifiedIndices]]);
 
 			return {
 				data: [timestamps, values],
@@ -262,8 +306,6 @@
 		}
 
 		// Multiple devices - align by timestamp
-		const currentStartTime = sessionStartTime ?? 0;
-
 		// Check if we can use cached alignment
 		const useCachedAlignment = isCacheValid(sampleMap);
 
@@ -286,8 +328,8 @@
 			if (baseSamples.length === 0) {
 				alignmentCache = null;
 				deviceOrder = [];
-				sampleByDeviceAndTime = new Map();
-				verifiedIndicesByDevice = new Map();
+				sampleByDeviceAndTime = new SvelteMap();
+				verifiedIndicesByDevice = new SvelteMap();
 				return { data: [[], []], devices: [], samples: [] };
 			}
 
@@ -296,17 +338,18 @@
 				setSessionStartTime(baseSamples[0].global_time);
 			}
 
-			const startTime = sessionStartTime ?? baseSamples[0].global_time;
+			const alignStartTime = sessionStartTime ?? baseSamples[0].global_time;
 
 			// Build full alignment (no time window filtering)
-			const allTimestamps = baseSamples.map((s) => s.global_time - startTime);
+			const allTimestamps = baseSamples.map((s) => s.global_time - alignStartTime);
 			const aligned = alignSamplesToTimestamps(
 				sampleMap,
 				devices,
 				allTimestamps,
-				startTime,
+				alignStartTime,
 				getValue,
-				maxGapSeconds
+				maxGapSeconds,
+				alignMode
 			);
 
 			// Update cache
@@ -316,7 +359,7 @@
 				timestamps: allTimestamps,
 				seriesData: aligned.data.slice(1) as (number | null)[][],
 				sampleByDeviceAndTime: aligned.sampleByDeviceAndTime,
-				sessionStartTime: startTime,
+				sessionStartTime: alignStartTime,
 				baseDeviceId: maxDevice
 			};
 		}
@@ -330,7 +373,7 @@
 		if (!timeWindow) {
 			deviceOrder = alignmentCache!.deviceOrder;
 			sampleByDeviceAndTime = cachedSampleByDevice;
-			const nextVerified = new Map<string, number[]>();
+			const nextVerified = new SvelteMap<string, number[]>();
 			for (const deviceId of alignmentCache!.deviceOrder) {
 				const deviceSamples = cachedSampleByDevice.get(deviceId);
 				const indices: number[] = [];
@@ -370,7 +413,7 @@
 
 		deviceOrder = alignmentCache!.deviceOrder;
 		sampleByDeviceAndTime = cachedSampleByDevice;
-		const nextVerified = new Map<string, number[]>();
+		const nextVerified = new SvelteMap<string, number[]>();
 		for (const deviceId of alignmentCache!.deviceOrder) {
 			const deviceSamples = cachedSampleByDevice.get(deviceId);
 			const indices: number[] = [];
@@ -393,19 +436,13 @@
 		};
 	}
 
-	// Create the chart
-	function createChart() {
-		if (!plotContainer || !uPlotLib || !createDeviceSeries || !createAxes) return;
-
-		const { data, devices } = prepareChartData(samples);
-
-		if (devices.length === 0) {
-			// No data yet, skip chart creation
+	function rebuildPlotOptions(devices: string[]) {
+		if (!createDeviceSeries || !createAxes || devices.length === 0) {
+			plotOptions = null;
 			return;
 		}
 
-		const opts: uPlot.Options = {
-			width: plotContainer.clientWidth,
+		plotOptions = {
 			height: 400,
 			series: createDeviceSeries(
 				devices,
@@ -426,43 +463,16 @@
 				show: true
 			}
 		};
-
-		if (chart) {
-			chart.destroy();
-		}
-
-		chart = new uPlotLib(opts, data, plotContainer);
 	}
-
-	// Debug logging counter
-	let updateCounter = 0;
 
 	// Update function for time-based chart updates using requestAnimationFrame
 	function updateChart(currentTime: number) {
-		if (!chart || !isStreaming) {
+		if (!plotReady || !isStreaming) {
 			animationFrameId = null;
-			samplesAreFresh = false;
 			return;
 		}
 
-		// Check if samples are fresh
-		const now = Date.now() / 1000;
-		const STALE_THRESHOLD = 15 + 5; // MAX_DURATION + 5s margin
-		let hasFreshSamples = false;
-
-		for (const deviceSamples of samples.values()) {
-			const newestSample = deviceSamples[deviceSamples.length - 1];
-			const age = now - newestSample.global_time;
-			if (age < STALE_THRESHOLD) {
-				hasFreshSamples = true;
-				break;
-			}
-		}
-
-		samplesAreFresh = hasFreshSamples;
-
-		if (!hasFreshSamples) {
-			// Samples are stale, stop updating
+		if (!samplesAreFresh) {
 			animationFrameId = null;
 			return;
 		}
@@ -484,9 +494,9 @@
 			return;
 		}
 
-		const { data } = prepareChartData(samples, timeWindow);
+		const { data, devices } = prepareChartData(samples, timeWindow);
 
-		// Update the range array (chart will use function to read it)
+		// Update the range array (plot will use function to read it)
 		xAxisRange[0] = timeWindow.minTime;
 		xAxisRange[1] = timeWindow.maxTime;
 
@@ -509,26 +519,26 @@
 		// }
 
 		// setData will now use the updated range via the function
-		chart.setData(data);
+		plotData = data;
+		if (devices.length === 0) {
+			plotOptions = null;
+		}
 
 		// Schedule next frame
 		animationFrameId = requestAnimationFrame(updateChart);
 	}
 
-
 	// Start/stop animation loop based on streaming state
 	$effect(() => {
-		if (isStreaming && chart) {
+		if (isStreaming && plotReady) {
 			// Start animation loop
 			if (animationFrameId === null) {
-				// console.log(`[${title}] Starting animation loop`);
 				lastUpdateTime = performance.now();
 				animationFrameId = requestAnimationFrame(updateChart);
 			}
 		} else {
 			// Stop animation loop
 			if (animationFrameId !== null) {
-				// console.log(`[${title}] Stopping animation loop`);
 				cancelAnimationFrame(animationFrameId);
 				animationFrameId = null;
 			}
@@ -543,66 +553,20 @@
 		};
 	});
 
-	// Create/destroy chart based on shouldShowPlot
-	$effect(() => {
-		if (!shouldShowPlot) {
-			// Destroy chart when not showing plot
-			if (chart) {
-				chart.destroy();
-				chart = null;
-			}
-			return;
-		}
-
-		if (!uPlotLib) {
-			return;
-		}
-
-		// Wait for plotContainer to exist and have dimensions
-		if (!plotContainer || plotContainer.clientWidth === 0) {
-			// Defer until next frame when layout is calculated
-			const rafId = requestAnimationFrame(() => {
-				if (plotContainer && plotContainer.clientWidth > 0 && !chart) {
-					createChart();
-				}
-			});
-			return () => cancelAnimationFrame(rafId);
-		}
-
-		if (!chart) {
-			createChart();
-		}
-	});
-
-	// Handle window resize
-	function handleResize() {
-		if (chart && plotContainer) {
-			chart.setSize({
-				width: plotContainer.clientWidth,
-				height: 400
-			});
-		}
-	}
-
 	onMount(async () => {
 		if (!browser) return;
 
-		// console.log(`[${title}] Loading uPlot...`);
-
-		// Dynamically import uPlot and utilities only in browser
-		const [uPlotModule, utilsModule, tooltipsModule] = await Promise.all([
-			import('uplot'),
+		// Dynamically import utilities only in browser
+		const [utilsModule, tooltipsModule] = await Promise.all([
 			import('$lib/utils/uplot'),
 			import('$lib/utils/uplot-tooltips')
 		]);
-
-		uPlotLib = uPlotModule.default;
 		createDeviceSeries = utilsModule.createDeviceSeries;
 		createAxes = utilsModule.createAxes;
 		tooltipsPlugin = tooltipsModule.tooltipsPlugin({
 			showSeriesPoints: true,
 			showCursorPosition: false,
-			formatValue: (xVal, yVal, seriesIdx, dataIdx) => {
+			formatValue: (xVal, yVal, seriesIdx) => {
 				const deviceId = deviceOrder[seriesIdx - 1];
 				const sample = deviceId ? sampleByDeviceAndTime.get(deviceId)?.get(xVal) : undefined;
 				if (sample) {
@@ -627,24 +591,15 @@
 			}
 		});
 
-		// console.log(`[${title}] uPlot loaded successfully`);
-
-		window.addEventListener('resize', handleResize);
+		rebuildPlotOptions(deviceOrder);
 	});
 
 	onDestroy(() => {
-		if (browser) {
-			window.removeEventListener('resize', handleResize);
-		}
 		if (animationFrameId !== null) {
 			cancelAnimationFrame(animationFrameId);
 		}
-		if (chart) {
-			chart.destroy();
-		}
 	});
 </script>
-
 
 {#if standalone}
 	<Card {title}>
@@ -654,7 +609,7 @@
 				size="sm"
 				onclick={() => {
 					showVerifiedPoints = !showVerifiedPoints;
-					createChart();
+					rebuildPlotOptions(deviceOrder);
 				}}
 				title="Toggle verified sample points (samples with direct Polar timestamps)"
 			>
@@ -675,7 +630,17 @@
 
 		<div class="border border-gray-200 rounded-lg">
 			{#if shouldShowPlot}
-				<div bind:this={plotContainer} class="w-full h-[400px]"></div>
+				<WaveformPlot
+					data={plotData}
+					options={plotOptions}
+					plotClass="w-full h-[400px]"
+					onReady={() => {
+						plotReady = true;
+					}}
+					onChartDestroy={() => {
+						plotReady = false;
+					}}
+				/>
 			{:else}
 				<div class="bg-gray-50 p-12 text-center">
 					<p class="text-gray-500">{emptyMessage}</p>
@@ -686,7 +651,17 @@
 {:else}
 	<div class="border border-gray-200 rounded-lg">
 		{#if shouldShowPlot}
-			<div bind:this={plotContainer} class="w-full h-[400px]"></div>
+			<WaveformPlot
+				data={plotData}
+				options={plotOptions}
+				plotClass="w-full h-[400px]"
+				onReady={() => {
+					plotReady = true;
+				}}
+				onChartDestroy={() => {
+					plotReady = false;
+				}}
+			/>
 		{:else}
 			<div class="bg-gray-50 p-12 text-center">
 				<p class="text-gray-500">{emptyMessage}</p>
