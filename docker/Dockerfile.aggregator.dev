@@ -22,10 +22,10 @@ COPY pyproject.toml /app/
 
 # Install packages in editable mode
 # When volumes are mounted, editable installs will pick up changes automatically
-# Use cache mount to share downloaded packages between builds
-RUN --mount=type=cache,target=/root/.cache/uv \
+# Use service-specific cache mount to avoid lock contention with collector
+RUN --mount=type=cache,target=/root/.cache/uv-aggregator \
     uv pip install --system -e packages/ecg-common
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,target=/root/.cache/uv-aggregator \
     uv pip install --system -e packages/ecg-aggregator
 
 # Expose ports (gRPC and HTTP API)

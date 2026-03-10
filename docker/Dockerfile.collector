@@ -23,10 +23,10 @@ COPY packages/ecg-collector /app/packages/ecg-collector
 COPY pyproject.toml /app/
 
 # Install dependencies
-# Use cache mount to share downloaded packages between builds
-RUN --mount=type=cache,target=/root/.cache/uv \
+# Use service-specific cache mount to avoid lock contention with aggregator
+RUN --mount=type=cache,target=/root/.cache/uv-collector \
     uv pip install --system -e "packages/ecg-common[dev]"
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,target=/root/.cache/uv-collector \
     uv pip install --system -e "packages/ecg-collector[dev]"
 
 # Default command (can be overridden)
