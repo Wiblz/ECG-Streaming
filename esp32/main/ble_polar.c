@@ -31,9 +31,13 @@
 #include "state.h"
 #include "usb_output.h"
 #include "usb_transport.h"
+#include "usb_provision.h"
 #include "led_status.h"
 
 static const char *TAG = "H10_COMBINED";
+static uint64_t g_scan_started_us = 0;
+static ecg_streaming_BleScanSighting g_scan_sightings[16];
+static size_t g_scan_sighting_count = 0;
 
 void ble_store_config_init(void);
 
@@ -51,8 +55,13 @@ static const ble_uuid128_t UUID_PMD_DATA = BLE_UUID128_INIT(
 
 static struct ble_npl_event g_start_ecg_ev;
 static struct ble_npl_event g_start_acc_ev;
+static struct ble_npl_event g_apply_config_ev;
+static struct ble_npl_event g_start_scan_request_ev;
 static bool g_start_ecg_pending = false;
 static bool g_start_acc_pending = false;
+static bool g_apply_config_pending = false;
+static bool g_apply_config_changed = false;
+static bool g_start_scan_request_pending = false;
 static bool g_start_ecg_wait_encryption = false;
 static bool g_link_encrypted = false;
 static bool g_cccd_pending = false;
@@ -65,8 +74,11 @@ static bool g_acc_rate_warned = false;
 
 static void schedule_start_ecg(void);
 static void schedule_start_acc(void);
+static void schedule_apply_config(bool changed);
 static void start_ecg_ev_cb(struct ble_npl_event *ev);
 static void start_acc_ev_cb(struct ble_npl_event *ev);
+static void apply_config_ev_cb(struct ble_npl_event *ev);
+static void start_scan_request_ev_cb(struct ble_npl_event *ev);
 void ble_schedule_start_acc(void);
 static void pmd_get_settings(uint16_t conn_handle, uint16_t ctrl_handle, uint8_t pmd_type);
 static void pmd_try_enable_cccds(uint16_t conn_handle);
@@ -110,9 +122,11 @@ static bool parse_adv_name(const uint8_t *adv_data, uint8_t adv_len,
 
 static void parse_pmd_response(uint8_t *data, int len) {
     g_notification_count++;
+#if CONFIG_DEBUG_PMD_PROTO_ENABLE
     uint64_t now_us = (uint64_t)esp_timer_get_time();
     static uint64_t last_notif_us = 0;
     static uint64_t notif_index = 0;
+#endif
 
     if (len < 2) {
         return;
@@ -121,10 +135,12 @@ static void parse_pmd_response(uint8_t *data, int len) {
     uint8_t frame_type = data[0];
 
     uint8_t pmd_type = data[1];
+#if CONFIG_DEBUG_PMD_PROTO_ENABLE
     uint32_t debug_pmd_type =
         (frame_type == 0xF0 || frame_type == 0x80) ? pmd_type : frame_type;
     uint32_t sample_count = 0;
     uint64_t timestamp_ns = 0;
+#endif
 
     switch (frame_type) {
         case 0xF0: { // Control Point Response
@@ -137,7 +153,6 @@ static void parse_pmd_response(uint8_t *data, int len) {
             uint8_t opcode = data[1];
             uint8_t measurement_type = data[2];
             uint8_t status = data[3];
-            uint8_t more_flag = data[4];
 
             if (opcode == 0x02 && status != 0x00) {
                 ESP_LOGE(TAG, "PMD start failed: type=0x%02X err=0x%02X",
@@ -163,7 +178,6 @@ static void parse_pmd_response(uint8_t *data, int len) {
                 uint16_t sample_rate = 0;
                 uint16_t resolution = 0;
                 uint16_t range = 0;
-                uint8_t channels = 0;
                 bool tlv_valid = false;
 
                 int offset = 0;
@@ -207,7 +221,6 @@ static void parse_pmd_response(uint8_t *data, int len) {
                     } else if (tlv_type == 4) {
                         // Channels (uint8)
                         if (offset + tlv_count <= settings_len) {
-                            channels = tlv_data[offset];
                             offset += tlv_count;
                         } else {
                             ESP_LOGW(TAG, "TLV Type 4 (ch): insufficient data, count=%d", tlv_count);
@@ -289,7 +302,9 @@ static void parse_pmd_response(uint8_t *data, int len) {
 
             uint64_t acc_timestamp_ns = 0;
             memcpy(&acc_timestamp_ns, data + 1, 8);
+#if CONFIG_DEBUG_PMD_PROTO_ENABLE
             timestamp_ns = acc_timestamp_ns;
+#endif
 
             int acc_data_start = 10;
             int acc_data_len = len - acc_data_start;
@@ -299,6 +314,9 @@ static void parse_pmd_response(uint8_t *data, int len) {
             // ACC is 16-bit per axis (3 axes) = 6 bytes per sample
             int acc_num_samples = acc_data_len / 6;
             g_total_acc_samples += acc_num_samples;
+#if CONFIG_DEBUG_PMD_PROTO_ENABLE
+            sample_count = (uint32_t)acc_num_samples;
+#endif
 
             // Send raw frame data with PMD timestamp (convert ns to us) and ESP timestamp
             output_sensor_frame(
@@ -316,7 +334,9 @@ static void parse_pmd_response(uint8_t *data, int len) {
 
             uint64_t ecg_timestamp_ns = 0;
             memcpy(&ecg_timestamp_ns, data + 1, 8);
+#if CONFIG_DEBUG_PMD_PROTO_ENABLE
             timestamp_ns = ecg_timestamp_ns;
+#endif
 
             int data_start = 10;
             int data_len = len - data_start;
@@ -326,6 +346,9 @@ static void parse_pmd_response(uint8_t *data, int len) {
             // ECG is 14-bit = 24-bit per 3 samples, packed as 3 bytes per sample
             int num_samples = data_len / 3;
             g_total_ecg_samples += num_samples;
+#if CONFIG_DEBUG_PMD_PROTO_ENABLE
+            sample_count = (uint32_t)num_samples;
+#endif
 
             if (g_first_sample_time == 0) g_first_sample_time = xTaskGetTickCount();
 
@@ -380,8 +403,53 @@ static void parse_pmd_response(uint8_t *data, int len) {
         usb_send_esp_message(&msg);
     }
 #endif
-
+#if CONFIG_DEBUG_PMD_PROTO_ENABLE
     last_notif_us = now_us;
+#endif
+}
+
+static bool scan_name_matches_prefix(const char *device_name) {
+    if (!device_name || device_name[0] == '\0') {
+        return false;
+    }
+    if (g_scan_name_prefix[0] == '\0') {
+        return true;
+    }
+    size_t prefix_len = strlen(g_scan_name_prefix);
+    return strncmp(device_name, g_scan_name_prefix, prefix_len) == 0;
+}
+
+static void add_scan_sighting(const struct ble_gap_disc_desc *desc, const char *device_name) {
+    if (!desc || !device_name || device_name[0] == '\0') {
+        return;
+    }
+
+    char addr_str[20] = {0};
+    addr_to_str(&desc->addr, addr_str, sizeof(addr_str));
+    uint64_t seen_at_us = (uint64_t)esp_timer_get_time();
+
+    for (size_t i = 0; i < g_scan_sighting_count; i++) {
+        if (strcmp(g_scan_sightings[i].address, addr_str) == 0) {
+            g_scan_sightings[i].rssi = desc->rssi;
+            g_scan_sightings[i].seen_at_us = seen_at_us;
+            strlcpy(g_scan_sightings[i].name, device_name, sizeof(g_scan_sightings[i].name));
+            strlcpy(g_scan_sightings[i].device_id, device_name, sizeof(g_scan_sightings[i].device_id));
+            return;
+        }
+    }
+
+    if (g_scan_sighting_count >= (sizeof(g_scan_sightings) / sizeof(g_scan_sightings[0]))) {
+        return;
+    }
+
+    ecg_streaming_BleScanSighting *entry = &g_scan_sightings[g_scan_sighting_count];
+    *entry = (ecg_streaming_BleScanSighting)ecg_streaming_BleScanSighting_init_zero;
+    strlcpy(entry->device_id, device_name, sizeof(entry->device_id));
+    strlcpy(entry->name, device_name, sizeof(entry->name));
+    strlcpy(entry->address, addr_str, sizeof(entry->address));
+    entry->rssi = desc->rssi;
+    entry->seen_at_us = seen_at_us;
+    g_scan_sighting_count++;
 }
 
 static int write_cb(uint16_t conn_handle, const struct ble_gatt_error *error,
@@ -427,6 +495,15 @@ static void schedule_start_acc(void) {
     ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &g_start_acc_ev);
 }
 
+static void schedule_apply_config(bool changed) {
+    g_apply_config_changed = changed;
+    if (g_apply_config_pending) {
+        return;
+    }
+    g_apply_config_pending = true;
+    ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &g_apply_config_ev);
+}
+
 static void start_ecg_ev_cb(struct ble_npl_event *ev) {
     struct ble_gap_conn_desc desc;
     g_start_ecg_pending = false;
@@ -464,8 +541,34 @@ static void start_acc_ev_cb(struct ble_npl_event *ev) {
     pmd_start_acc(g_conn_handle, g_pmd_ctrl_handle);
 }
 
+static void apply_config_ev_cb(struct ble_npl_event *ev) {
+    (void)ev;
+    g_apply_config_pending = false;
+
+    if (g_apply_config_changed) {
+        if (g_connected) {
+            ble_gap_terminate(g_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+        } else {
+            ble_gap_disc_cancel();
+            start_scan();
+        }
+        return;
+    }
+
+    if (g_connected && !g_ecg_started && g_ecg_sample_rate_hz > 0) {
+        schedule_start_ecg();
+    }
+    if (g_connected && !g_acc_started && g_acc_sample_rate_hz > 0) {
+        schedule_start_acc();
+    }
+}
+
 void ble_schedule_start_acc(void) {
     schedule_start_acc();
+}
+
+void ble_apply_updated_config(bool changed) {
+    schedule_apply_config(changed);
 }
 
 static void pmd_try_enable_cccds(uint16_t conn_handle) {
@@ -617,6 +720,13 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
 
         char device_name[64] = {0};
         if (!parse_adv_name(desc->data, desc->length_data, device_name, sizeof(device_name))) {
+            return 0;
+        }
+
+        if (g_scanner_active) {
+            if (scan_name_matches_prefix(device_name)) {
+                add_scan_sighting(desc, device_name);
+            }
             return 0;
         }
 
@@ -785,6 +895,32 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
     }
 
     case BLE_GAP_EVENT_DISC_COMPLETE:
+        if (g_scanner_active) {
+            uint64_t now_us = (uint64_t)esp_timer_get_time();
+            uint64_t elapsed_us = (now_us > g_scan_started_us) ? (now_us - g_scan_started_us) : 0;
+            uint32_t duration_ms = (uint32_t)(elapsed_us / 1000u);
+
+            usb_send_ble_scan_result(
+                g_scanner_request_id,
+                g_scan_sightings,
+                g_scan_sighting_count,
+                duration_ms
+            );
+            ESP_LOGI(
+                TAG,
+                "Scanner mode complete: request=%lu sightings=%u duration_ms=%lu",
+                (unsigned long)g_scanner_request_id,
+                (unsigned int)g_scan_sighting_count,
+                (unsigned long)duration_ms
+            );
+
+            g_scanner_active = false;
+            g_scan_sighting_count = 0;
+
+            if (!g_connected && !g_connecting && has_target_device()) {
+                start_scan();
+            }
+        }
         return 0;
 
     case BLE_GAP_EVENT_CONN_UPDATE:
@@ -836,7 +972,8 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
 }
 
 int start_scan(void) {
-    if (!has_target_device()) {
+    if (!g_scanner_active && !has_target_device()) {
+        ESP_LOGW(TAG, "start_scan skipped: no target configured and scanner mode inactive");
         return 0;
     }
     struct ble_gap_disc_params p;
@@ -846,8 +983,78 @@ int start_scan(void) {
     p.window = 0x0010;
     p.filter_duplicates = 1;
 
-    ESP_LOGI(TAG, "Scanning...");
-    return ble_gap_disc(g_own_addr_type, BLE_HS_FOREVER, &p, gap_event, NULL);
+    int32_t duration = BLE_HS_FOREVER;
+    if (g_scanner_active) {
+        duration = (int32_t)(g_scan_duration_ms > 0 ? g_scan_duration_ms : 5000);
+        ESP_LOGI(
+            TAG,
+            "Scanning (scanner mode): own_addr_type=%u request=%lu duration_ms=%ld prefix=%s",
+            (unsigned)g_own_addr_type,
+            (unsigned long)g_scanner_request_id,
+            (long)duration,
+            g_scan_name_prefix[0] ? g_scan_name_prefix : "(none)"
+        );
+    } else {
+        ESP_LOGI(
+            TAG,
+            "Scanning: own_addr_type=%u target=%s ecg=%d acc=%d",
+            (unsigned)g_own_addr_type,
+            g_target_device_name,
+            g_ecg_sample_rate_hz,
+            g_acc_sample_rate_hz
+        );
+    }
+
+    int rc = ble_gap_disc(g_own_addr_type, duration, &p, gap_event, NULL);
+    ESP_LOGI(TAG, "ble_gap_disc returned rc=%d", rc);
+    return rc;
+}
+
+void ble_start_scan_request(uint32_t request_id, uint32_t duration_ms, const char *name_prefix) {
+    g_scanner_request_id = request_id;
+    g_scan_duration_ms = duration_ms > 0 ? duration_ms : 5000;
+    if (name_prefix && name_prefix[0] != '\0') {
+        strlcpy(g_scan_name_prefix, name_prefix, sizeof(g_scan_name_prefix));
+    } else {
+        strlcpy(g_scan_name_prefix, "Polar", sizeof(g_scan_name_prefix));
+    }
+
+    g_scanner_active = true;
+    g_scan_started_us = (uint64_t)esp_timer_get_time();
+    g_scan_sighting_count = 0;
+    memset(g_scan_sightings, 0, sizeof(g_scan_sightings));
+    if (g_start_scan_request_pending) {
+        return;
+    }
+    g_start_scan_request_pending = true;
+    ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &g_start_scan_request_ev);
+}
+
+static void start_scan_request_ev_cb(struct ble_npl_event *ev) {
+    (void)ev;
+    g_start_scan_request_pending = false;
+
+    if (g_connected || g_connecting) {
+        ESP_LOGW(
+            TAG,
+            "Ignoring scan request %lu while connected/connecting",
+            (unsigned long)g_scanner_request_id
+        );
+        g_scanner_active = false;
+        return;
+    }
+
+    ble_gap_disc_cancel();
+    int rc = start_scan();
+    if (rc != 0) {
+        ESP_LOGE(
+            TAG,
+            "Failed to start scanner mode request=%lu rc=%d",
+            (unsigned long)g_scanner_request_id,
+            rc
+        );
+        g_scanner_active = false;
+    }
 }
 
 static void on_sync(void) {
@@ -857,7 +1064,7 @@ static void on_sync(void) {
         return;
     }
 
-    ESP_LOGI(TAG, "BLE ready");
+    ESP_LOGI(TAG, "BLE ready: own_addr_type=%u", (unsigned)g_own_addr_type);
     start_scan();
 }
 
@@ -873,6 +1080,8 @@ void ble_init(void) {
 
     ble_npl_event_init(&g_start_ecg_ev, start_ecg_ev_cb, NULL);
     ble_npl_event_init(&g_start_acc_ev, start_acc_ev_cb, NULL);
+    ble_npl_event_init(&g_apply_config_ev, apply_config_ev_cb, NULL);
+    ble_npl_event_init(&g_start_scan_request_ev, start_scan_request_ev_cb, NULL);
 
     ble_svc_gap_device_name_set("ESP32C6-H10");
 

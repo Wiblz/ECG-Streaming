@@ -51,6 +51,8 @@ message UsbDeviceInfo {
   bool config_required = 6;           // True if ESP needs configuration before starting
   bool polar_connected = 7;           // True if currently connected to Polar device
   DeviceStatus polar_status = 8;      // Status of Polar device connection
+  bool scanner_active = 9;            // True if ESP is in BLE scanner mode
+  uint32 scanner_request_id = 10;     // Last scan request id processed by ESP
 }
 
 // Configuration acknowledgment from ESP32
@@ -77,6 +79,30 @@ message BleNotificationDebug {
   uint32 mtu = 10;                    // Negotiated MTU
 }
 
+// BLE sighting captured during a scanner-mode discovery pass
+message BleScanSighting {
+  string device_id = 1;               // Canonical device ID/name from advertisement
+  string name = 2;                    // Advertisement local name
+  string address = 3;                 // BLE MAC address
+  int32 rssi = 4;                     // RSSI measured by scanning ESP
+  uint64 seen_at_us = 5;              // ESP wall clock when seen (microseconds since boot)
+}
+
+// BLE scanner-mode result from ESP32 to collector
+message BleScanResult {
+  uint32 request_id = 1;              // Echoes StartBleScan.request_id
+  string esp_id = 2;                  // ESP32 identifier
+  repeated BleScanSighting sightings = 3;
+  uint32 duration_ms = 4;             // Actual scan duration used by ESP
+}
+
+// ESP discovery/scanner reports sent separately from operational traffic
+message EspDiscoveryMessage {
+  oneof message {
+    BleScanResult ble_scan_result = 1;
+  }
+}
+
 // ============================================================================
 // Collector → ESP32 Messages
 // ============================================================================
@@ -84,6 +110,7 @@ message BleNotificationDebug {
 message CollectorToEspMessage {
   oneof message {
     UsbConfig config = 1;
+    StartBleScan start_ble_scan = 2;
   }
 }
 
@@ -95,4 +122,12 @@ message UsbConfig {
   int32 ecg_sample_rate = 3;          // Requested ECG sample rate (Hz)
   int32 acc_sample_rate = 4;          // Requested accelerometer sample rate (Hz)
   bool persist = 5;                   // If true, save config to ESP32 flash
+}
+
+// Command ESP to run one bounded BLE discovery pass and report sightings
+message StartBleScan {
+  string esp_id = 1;                  // Target ESP32 identifier
+  uint32 request_id = 2;              // Collector-generated request id for idempotency
+  uint32 duration_ms = 3;             // Scan duration
+  string name_prefix = 4;             // Name filter (e.g., "Polar")
 }

@@ -96,6 +96,20 @@ bool usb_send_esp_message(const ecg_streaming_EspMessage *msg) {
                           g_payload_buf, stream.bytes_written);
 }
 
+bool usb_send_esp_discovery_message(const ecg_streaming_EspDiscoveryMessage *msg) {
+    pb_ostream_t stream = pb_ostream_from_buffer(g_payload_buf, sizeof(g_payload_buf));
+
+    if (!pb_encode(&stream, ecg_streaming_EspDiscoveryMessage_fields, msg)) {
+        return false;
+    }
+
+    return send_usb_frame(
+        ecg_streaming_UsbPayloadType_USB_PAYLOAD_TYPE_ESP_DISCOVERY_MESSAGE,
+        g_payload_buf,
+        stream.bytes_written
+    );
+}
+
 bool usb_receive_collector_to_esp_message(ecg_streaming_CollectorToEspMessage *out_msg) {
     uint8_t len_le[4];
     if (usb_cdc_read_binary(len_le, sizeof(len_le), 10) != sizeof(len_le)) {

@@ -67,6 +67,7 @@ class PairingManager:
         self,
         esp_inventory: dict[str, EspInventoryEntry],
         available_polars: set[str],
+        scanner_esp_ids: set[str] | None = None,
     ) -> dict[str, str]:
         """Compute ESP→Polar pairings (manual mappings first, then preserve existing, then lexicographic).
 
@@ -78,9 +79,15 @@ class PairingManager:
             Dict mapping esp_id to polar_id
         """
         pairings: dict[str, str] = {}
+        scanner_esp_ids = scanner_esp_ids or set()
 
         # Get available ESPs and Polars
-        available_esps = list(esp_inventory.keys())
+        all_available_esps = list(esp_inventory.keys())
+        non_scanner_esps = [
+            esp_id for esp_id in all_available_esps if esp_id not in scanner_esp_ids
+        ]
+        # Exclude scanner ESPs unless they are the only available candidates.
+        available_esps = non_scanner_esps if non_scanner_esps else all_available_esps
         available_polar_ids = list(available_polars)
 
         # Step 1: Apply manual ESP→device mappings from config (highest priority)
@@ -120,6 +127,7 @@ class PairingManager:
         self,
         get_inventory: Callable[[], dict[str, EspInventoryEntry]],
         get_polars: Callable[[], set[str]],
+        get_scanner_esps: Callable[[], set[str]],
         send_config: Callable[[str, str, str, int, int], Awaitable[None]],
     ) -> None:
         """Match ESPs with Polars and apply configs.
@@ -136,13 +144,18 @@ class PairingManager:
                 # Wait for initial data
                 esp_inventory = get_inventory()
                 available_polars = get_polars()
+                scanner_esp_ids = get_scanner_esps()
 
                 if not esp_inventory or not available_polars:
                     await asyncio.sleep(5.0)
                     continue
 
                 # Compute desired pairings
-                pairings = self.compute_pairings(esp_inventory, available_polars)
+                pairings = self.compute_pairings(
+                    esp_inventory,
+                    available_polars,
+                    scanner_esp_ids=scanner_esp_ids,
+                )
 
                 # Apply configs where needed
                 for esp_id, desired_target in pairings.items():
@@ -191,6 +204,7 @@ class PairingManager:
         self,
         get_inventory: Callable[[], dict[str, EspInventoryEntry]],
         get_polars: Callable[[], set[str]],
+        get_scanner_esps: Callable[[], set[str]],
         send_config: Callable[[str, str, str, int, int], Awaitable[None]],
     ) -> None:
         """Start pairing loop.
@@ -206,7 +220,7 @@ class PairingManager:
 
         self._running = True
         self._pairing_task = asyncio.create_task(
-            self._pairing_loop(get_inventory, get_polars, send_config)
+            self._pairing_loop(get_inventory, get_polars, get_scanner_esps, send_config)
         )
         logger.info("Started pairing loop")
 

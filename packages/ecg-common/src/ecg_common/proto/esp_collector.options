@@ -22,3 +22,16 @@ ecg_streaming.UsbConfigAck.target_device_id max_length:64
 
 # BleNotificationDebug
 ecg_streaming.BleNotificationDebug.device_id max_length:64
+
+# BleScanSighting
+ecg_streaming.BleScanSighting.device_id max_length:64
+ecg_streaming.BleScanSighting.name max_length:64
+ecg_streaming.BleScanSighting.address max_length:20
+
+# BleScanResult
+ecg_streaming.BleScanResult.esp_id max_length:64
+ecg_streaming.BleScanResult.sightings max_count:16
+
+# StartBleScan
+ecg_streaming.StartBleScan.esp_id max_length:64
+ecg_streaming.StartBleScan.name_prefix max_length:32

@@ -72,6 +72,8 @@ class EspDeviceInfo:
     current_target: str | None  # None when unassigned
     config_required: bool
     polar_connected: bool
+    scanner_active: bool = False
+    scanner_request_id: int = 0
 
 
 @dataclass

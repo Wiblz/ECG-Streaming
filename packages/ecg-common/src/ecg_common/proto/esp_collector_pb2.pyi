@@ -1,3 +1,4 @@
+from collections.abc import Iterable as _Iterable
 from collections.abc import Mapping as _Mapping
 from typing import (
     ClassVar as _ClassVar,
@@ -6,6 +7,7 @@ from typing import (
 import common_pb2 as _common_pb2
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
+from google.protobuf.internal import containers as _containers
 from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 
 DESCRIPTOR: _descriptor.FileDescriptor
@@ -79,6 +81,8 @@ class UsbDeviceInfo(_message.Message):
         "config_required",
         "polar_connected",
         "polar_status",
+        "scanner_active",
+        "scanner_request_id",
     )
     ESP_ID_FIELD_NUMBER: _ClassVar[int]
     APP_VERSION_FIELD_NUMBER: _ClassVar[int]
@@ -88,6 +92,8 @@ class UsbDeviceInfo(_message.Message):
     CONFIG_REQUIRED_FIELD_NUMBER: _ClassVar[int]
     POLAR_CONNECTED_FIELD_NUMBER: _ClassVar[int]
     POLAR_STATUS_FIELD_NUMBER: _ClassVar[int]
+    SCANNER_ACTIVE_FIELD_NUMBER: _ClassVar[int]
+    SCANNER_REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
     esp_id: str
     app_version: str
     idf_version: str
@@ -96,6 +102,8 @@ class UsbDeviceInfo(_message.Message):
     config_required: bool
     polar_connected: bool
     polar_status: _common_pb2.DeviceStatus
+    scanner_active: bool
+    scanner_request_id: int
 
     def __init__(
         self,
@@ -107,6 +115,8 @@ class UsbDeviceInfo(_message.Message):
         config_required: bool = ...,
         polar_connected: bool = ...,
         polar_status: _common_pb2.DeviceStatus | str | None = ...,
+        scanner_active: bool = ...,
+        scanner_request_id: int | None = ...,
     ) -> None: ...
 
 class UsbConfigAck(_message.Message):
@@ -176,12 +186,68 @@ class BleNotificationDebug(_message.Message):
         mtu: int | None = ...,
     ) -> None: ...
 
-class CollectorToEspMessage(_message.Message):
-    __slots__ = ("config",)
-    CONFIG_FIELD_NUMBER: _ClassVar[int]
-    config: UsbConfig
+class BleScanSighting(_message.Message):
+    __slots__ = ("device_id", "name", "address", "rssi", "seen_at_us")
+    DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    RSSI_FIELD_NUMBER: _ClassVar[int]
+    SEEN_AT_US_FIELD_NUMBER: _ClassVar[int]
+    device_id: str
+    name: str
+    address: str
+    rssi: int
+    seen_at_us: int
 
-    def __init__(self, config: UsbConfig | _Mapping | None = ...) -> None: ...
+    def __init__(
+        self,
+        device_id: str | None = ...,
+        name: str | None = ...,
+        address: str | None = ...,
+        rssi: int | None = ...,
+        seen_at_us: int | None = ...,
+    ) -> None: ...
+
+class BleScanResult(_message.Message):
+    __slots__ = ("request_id", "esp_id", "sightings", "duration_ms")
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    ESP_ID_FIELD_NUMBER: _ClassVar[int]
+    SIGHTINGS_FIELD_NUMBER: _ClassVar[int]
+    DURATION_MS_FIELD_NUMBER: _ClassVar[int]
+    request_id: int
+    esp_id: str
+    sightings: _containers.RepeatedCompositeFieldContainer[BleScanSighting]
+    duration_ms: int
+
+    def __init__(
+        self,
+        request_id: int | None = ...,
+        esp_id: str | None = ...,
+        sightings: _Iterable[BleScanSighting | _Mapping] | None = ...,
+        duration_ms: int | None = ...,
+    ) -> None: ...
+
+class EspDiscoveryMessage(_message.Message):
+    __slots__ = ("ble_scan_result",)
+    BLE_SCAN_RESULT_FIELD_NUMBER: _ClassVar[int]
+    ble_scan_result: BleScanResult
+
+    def __init__(
+        self, ble_scan_result: BleScanResult | _Mapping | None = ...
+    ) -> None: ...
+
+class CollectorToEspMessage(_message.Message):
+    __slots__ = ("config", "start_ble_scan")
+    CONFIG_FIELD_NUMBER: _ClassVar[int]
+    START_BLE_SCAN_FIELD_NUMBER: _ClassVar[int]
+    config: UsbConfig
+    start_ble_scan: StartBleScan
+
+    def __init__(
+        self,
+        config: UsbConfig | _Mapping | None = ...,
+        start_ble_scan: StartBleScan | _Mapping | None = ...,
+    ) -> None: ...
 
 class UsbConfig(_message.Message):
     __slots__ = ("esp_id", "target_device_id", "ecg_sample_rate", "acc_sample_rate", "persist")
@@ -203,4 +269,23 @@ class UsbConfig(_message.Message):
         ecg_sample_rate: int | None = ...,
         acc_sample_rate: int | None = ...,
         persist: bool = ...,
+    ) -> None: ...
+
+class StartBleScan(_message.Message):
+    __slots__ = ("esp_id", "request_id", "duration_ms", "name_prefix")
+    ESP_ID_FIELD_NUMBER: _ClassVar[int]
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    DURATION_MS_FIELD_NUMBER: _ClassVar[int]
+    NAME_PREFIX_FIELD_NUMBER: _ClassVar[int]
+    esp_id: str
+    request_id: int
+    duration_ms: int
+    name_prefix: str
+
+    def __init__(
+        self,
+        esp_id: str | None = ...,
+        request_id: int | None = ...,
+        duration_ms: int | None = ...,
+        name_prefix: str | None = ...,
     ) -> None: ...

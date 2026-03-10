@@ -79,13 +79,13 @@ menu "ECG Versioning"
 
 config ECG_APP_VERSION
     string "Firmware app version"
-    default "0.1.0"
+    default "0.2.0"
     help
         Firmware app version string reported to the collector.
 
 config ECG_PROTOCOL_VERSION
     int "USB protocol version"
-    default 1
+    default 2
     help
         Increment when USB protocol fields or semantics change.
 

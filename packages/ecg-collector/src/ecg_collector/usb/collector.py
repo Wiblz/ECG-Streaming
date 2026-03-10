@@ -16,6 +16,7 @@ import serial
 import serial_asyncio
 from ecg_common.logging import get_logger
 from ecg_common.proto import esp_collector_pb2, usb_transport_pb2
+from google.protobuf.message import Message
 
 from .models import (
     EspDeviceGroup,
@@ -37,8 +38,7 @@ class UsbCollector:
         self,
         device_path: str,
         baudrate: int = 115200,
-        message_callback: Callable[[esp_collector_pb2.EspMessage], Coroutine[None, None, None]]
-        | None = None,
+        message_callback: Callable[[Message], Coroutine[None, None, None]] | None = None,
         stats_interval_s: float = 5.0,
     ) -> None:
         """Initialize USB collector.
@@ -155,6 +155,13 @@ class UsbCollector:
                 # Invoke callback
                 if self.message_callback:
                     await self.message_callback(esp_msg)
+            elif usb_frame.payload_type == usb_transport_pb2.USB_PAYLOAD_TYPE_ESP_DISCOVERY_MESSAGE:
+                discovery_msg = esp_collector_pb2.EspDiscoveryMessage()
+                discovery_msg.ParseFromString(usb_frame.payload)
+                self.stats.messages_received += 1
+
+                if self.message_callback:
+                    await self.message_callback(discovery_msg)
 
             else:
                 logger.warning(f"Unknown payload type: {usb_frame.payload_type}")
@@ -554,6 +561,8 @@ async def probe_usb_device(
                         current_target=info.current_target if info.current_target else None,
                         config_required=info.config_required,
                         polar_connected=info.polar_connected,
+                        scanner_active=info.scanner_active,
+                        scanner_request_id=info.scanner_request_id,
                     )
                     return (device_info, None)
 

@@ -19,6 +19,7 @@ class BleDiscoveryManager:
         self._available: dict[str, PolarDeviceInfo] = {}
         self._running = False
         self._scan_task: asyncio.Task | None = None
+        self._host_ble_available: bool | None = None
 
     @property
     def available_polars(self) -> set[str]:
@@ -34,10 +35,21 @@ class BleDiscoveryManager:
         """Return a snapshot of the current discovered devices."""
         return dict(self._available)
 
+    @property
+    def host_ble_available(self) -> bool | None:
+        """Return host BLE scan capability state.
+
+        `True` means host BLE scanning succeeded recently.
+        `False` means host BLE scan attempts are failing.
+        `None` means capability has not been determined yet.
+        """
+        return self._host_ble_available
+
     async def scan_once(self) -> None:
         """Run a single scan and update cache."""
         devices = await scan_polar_devices(timeout=self._scan_timeout_s)
         self._available = {device.device_id: device for device in devices}
+        self._host_ble_available = True
 
     async def _scan_loop(self) -> None:
         while self._running:
@@ -52,6 +64,7 @@ class BleDiscoveryManager:
                 else:
                     logger.info("BLE scan found 0 Polar devices")
             except Exception as e:
+                self._host_ble_available = False
                 logger.error("Error in BLE scan loop: %s", e)
 
             await asyncio.sleep(self._scan_interval_s)

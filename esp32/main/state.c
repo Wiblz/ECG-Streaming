@@ -16,6 +16,10 @@ uint16_t g_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 
 bool g_connecting = false;
 bool g_connected = false;
+bool g_scanner_active = false;
+uint32_t g_scanner_request_id = 0;
+uint32_t g_scan_duration_ms = 5000;
+char g_scan_name_prefix[33] = "Polar";
 
 uint16_t g_pmd_start = 0;
 uint16_t g_pmd_end = 0;

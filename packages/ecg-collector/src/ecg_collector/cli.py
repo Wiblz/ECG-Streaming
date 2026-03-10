@@ -1,10 +1,11 @@
 """Unified CLI for ECG Collector."""
 
 import asyncio
+import contextlib
 import sys
 import time
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import typer
 from ecg_common import __version__
@@ -474,6 +475,14 @@ def usb_auto_pair(
     usb_timeout: Annotated[
         float, typer.Option("--usb-timeout", help="USB probe timeout per device (seconds)")
     ] = 12.0,
+    scan_source: Annotated[
+        Literal["host", "esp", "hybrid"],
+        typer.Option(
+            "--scan-source",
+            help="Polar discovery source: host BLE, ESP scanner mode, or both",
+            case_sensitive=False,
+        ),
+    ] = "hybrid",
     config: Annotated[
         Path, typer.Option("--config", "-c", help="Path to configuration file")
     ] = DEFAULT_CONFIG_PATH,
@@ -528,12 +537,22 @@ def usb_auto_pair(
     logger.info("Starting USB auto-pair command")
 
     async def _auto_pair() -> None:
+        from ecg_common.proto import esp_collector_pb2
         from rich.console import Group
 
-        from ecg_collector.usb.collector import discover_and_group_usb_interfaces, probe_usb_groups
+        from ecg_collector.usb.collector import (
+            UsbCollector,
+            discover_and_group_usb_interfaces,
+            probe_usb_groups,
+        )
         from ecg_collector.usb.inventory import EspInventoryEntry
         from ecg_collector.usb.models import EspDeviceGroup, ProbeStatus
         from ecg_collector.usb.pairing import PairingManager
+
+        expected_protocol_version = 2
+        esp_scan_duration_ms = 5000
+        esp_scan_timeout_s = 8.0
+        esp_scan_prefix = "Polar"
 
         # Discover USB devices first
         device_groups = await discover_and_group_usb_interfaces()
@@ -545,11 +564,33 @@ def usb_auto_pair(
         esp_by_polar: dict[str, str] = {}  # polar_id -> esp_id
         discovered_polar_ids: set[str] = set()
         ble_scan_done = False
+        esp_scan_done = False
+        esp_scan_failures: list[str] = []
+        scan_request_id = int(time.time() * 1000) & 0xFFFFFFFF
 
         def create_tables() -> Group:
             """Generate both tables from current state."""
+            if scan_source == "host":
+                scan_status = "host"
+            elif scan_source == "esp":
+                scan_status = "esp"
+            else:
+                scan_status = "host+esp"
+
+            progress_parts: list[str] = []
+            if scan_source in ("host", "hybrid"):
+                progress_parts.append("host:done" if ble_scan_done else "host:scanning")
+            if scan_source in ("esp", "hybrid"):
+                progress_parts.append("esp:done" if esp_scan_done else "esp:scanning")
+            progress_text = ", ".join(progress_parts)
+
             # Polar table
-            polar_table = Table(title=f"Polar Devices ({len(configured_polars)} configured)")
+            polar_table = Table(
+                title=(
+                    f"Polar Devices ({len(configured_polars)} configured) "
+                    f"[scan={scan_status} | {progress_text}]"
+                )
+            )
             polar_table.add_column("Polar ID", style="magenta")
             polar_table.add_column("Nickname", style="white")
             polar_table.add_column("Status", style="cyan")
@@ -580,7 +621,9 @@ def usb_auto_pair(
                 polar_table.add_row(polar_id, nickname, status, esp_id)
 
             # ESP table
-            esp_table = Table(title=f"ESP Devices ({len(device_groups)} found)")
+            esp_table = Table(
+                title=f"ESP Devices ({len(device_groups)} found) [scan={scan_status}]"
+            )
             esp_table.add_column("ESP ID", style="cyan")
             esp_table.add_column("Current Target", style="magenta")
             esp_table.add_column("App", style="yellow")
@@ -654,8 +697,8 @@ def usb_auto_pair(
                     device_groups, timeout_s=usb_timeout, on_update=update_display
                 )
 
-            # Task 2: Scan for Polar devices
-            async def scan_polars() -> None:
+            # Task 2a: Host BLE scan for Polar devices
+            async def scan_polars_host() -> None:
                 nonlocal ble_scan_done
                 polar_devices = await scan_polar_devices(timeout=ble_timeout)
 
@@ -667,11 +710,106 @@ def usb_auto_pair(
                 ble_scan_done = True
                 live.update(create_tables())
 
-            # Run probing and BLE scan in parallel
-            await asyncio.gather(probe_esps(), scan_polars())
+            async def scan_polars_via_esp() -> None:
+                nonlocal esp_scan_done, scan_request_id
+
+                async def scan_once(group: EspDeviceGroup) -> set[str]:
+                    nonlocal scan_request_id
+                    if not group.data_interface or not group.device_info:
+                        return set()
+                    info = group.device_info
+                    if info.polar_connected:
+                        return set()
+                    if info.protocol_version != expected_protocol_version:
+                        esp_scan_failures.append(
+                            f"{info.esp_id}: protocol {info.protocol_version} != {expected_protocol_version}"
+                        )
+                        return set()
+
+                    result_devices: set[str] = set()
+                    result_event = asyncio.Event()
+                    request_id = scan_request_id
+                    scan_request_id = (scan_request_id + 1) & 0xFFFFFFFF
+
+                    async def _callback(msg: esp_collector_pb2.EspMessage) -> None:
+                        msg_type = msg.WhichOneof("message")
+                        if msg_type != "ble_scan_result":
+                            return
+                        result = msg.ble_scan_result
+                        if result.esp_id != info.esp_id or result.request_id != request_id:
+                            return
+                        for sighting in result.sightings:
+                            if sighting.device_id:
+                                result_devices.add(sighting.device_id)
+                        result_event.set()
+
+                    usb_collector = UsbCollector(
+                        device_path=group.data_interface.device_path,
+                        message_callback=_callback,
+                        stats_interval_s=60.0,
+                    )
+                    run_task = asyncio.create_task(usb_collector.run())
+
+                    try:
+                        start_wait = time.monotonic()
+                        while usb_collector.writer is None:
+                            if run_task.done():
+                                raise RuntimeError("USB collector task ended before scan request")
+                            if (time.monotonic() - start_wait) > 2.0:
+                                raise TimeoutError("Timed out waiting for USB writer")
+                            await asyncio.sleep(0.05)
+
+                        req = esp_collector_pb2.StartBleScan(
+                            esp_id=info.esp_id,
+                            request_id=request_id,
+                            duration_ms=esp_scan_duration_ms,
+                            name_prefix=esp_scan_prefix,
+                        )
+                        outbound = esp_collector_pb2.CollectorToEspMessage()
+                        outbound.start_ble_scan.CopyFrom(req)
+                        await usb_collector.send_collector_to_esp_message(outbound)
+
+                        await asyncio.wait_for(result_event.wait(), timeout=esp_scan_timeout_s)
+                        return result_devices
+                    except Exception as e:
+                        esp_scan_failures.append(f"{info.esp_id}: {e}")
+                        return set()
+                    finally:
+                        await usb_collector.stop()
+                        run_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await run_task
+
+                candidates = [
+                    group
+                    for group in device_groups.values()
+                    if group.data_interface
+                    and group.device_info
+                    and not group.device_info.polar_connected
+                ]
+
+                for group in candidates:
+                    for device_id in await scan_once(group):
+                        discovered_polar_ids.add(device_id)
+                    live.update(create_tables())
+
+                esp_scan_done = True
+
+            if scan_source in ("host", "hybrid"):
+                # Run probe and host BLE scan in parallel
+                await asyncio.gather(probe_esps(), scan_polars_host())
+            else:
+                await probe_esps()
+                ble_scan_done = True
+                live.update(create_tables())
+
+            if scan_source in ("esp", "hybrid"):
+                await scan_polars_via_esp()
+                live.update(create_tables())
 
         # Show final summary
         console.print()
+        console.print(f"[dim]Scan source: {scan_source}[/dim]")
         connected_count = sum(1 for p in configured_polars if p in esp_by_polar)
         discovered_count = sum(
             1 for p in configured_polars if p in discovered_polar_ids and p not in esp_by_polar
@@ -681,6 +819,10 @@ def usb_auto_pair(
         console.print(f"[green]• {connected_count} connected to ESP[/green]")
         console.print(f"[yellow]• {discovered_count} discovered but not connected[/yellow]")
         console.print(f"[red]• {not_discovered_count} not discovered[/red]")
+        if esp_scan_done and esp_scan_failures:
+            console.print("[yellow]ESP scan issues:[/yellow]")
+            for failure in esp_scan_failures:
+                console.print(f"  - {failure}")
 
         app_versions = {
             g.device_info.app_version
@@ -709,9 +851,16 @@ def usb_auto_pair(
                 app_version=info.app_version,
                 idf_version=info.idf_version,
                 protocol_version=info.protocol_version,
+                scanner_active=info.scanner_active,
+                scanner_request_id=info.scanner_request_id,
             )
 
         available_polars = set(discovered_polar_ids)
+        scanner_esp_ids = {
+            group.device_info.esp_id
+            for group in device_groups.values()
+            if group.device_info and group.device_info.scanner_active
+        }
 
         console.print()
         console.print("[bold]Dry-run pairing suggestion:[/bold]")
@@ -722,7 +871,11 @@ def usb_auto_pair(
                 default_acc_sample_rate=settings.usb.acc_sample_rate,
                 esp_to_device_map=settings.get_esp_to_device_map(),
             )
-            suggested = pairing_mgr.compute_pairings(esp_inventory, available_polars)
+            suggested = pairing_mgr.compute_pairings(
+                esp_inventory,
+                available_polars,
+                scanner_esp_ids=scanner_esp_ids,
+            )
             if suggested:
                 for esp_id, target in sorted(suggested.items()):
                     console.print(f"  {esp_id} -> {target}")

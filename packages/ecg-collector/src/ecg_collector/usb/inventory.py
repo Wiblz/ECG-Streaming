@@ -2,6 +2,7 @@
 
 import time
 from dataclasses import dataclass
+from typing import cast
 
 from ecg_common.logging import get_logger
 from ecg_common.proto import esp_collector_pb2
@@ -9,6 +10,10 @@ from ecg_common.proto import esp_collector_pb2
 from ecg_collector.ble.discovery import BleDiscoveryManager
 
 logger = get_logger(__name__)
+
+type EspOperationalMessage = esp_collector_pb2.EspMessage
+type EspDiscoveryMessage = esp_collector_pb2.EspDiscoveryMessage
+type UsbInboundMessage = EspOperationalMessage | EspDiscoveryMessage
 
 
 @dataclass
@@ -24,16 +29,22 @@ class EspInventoryEntry:
     app_version: str
     idf_version: str
     protocol_version: int
+    scanner_active: bool
+    scanner_request_id: int
 
 
 class EspInventoryManager:
     """Manages ESP device inventory and BLE scanning."""
 
-    def __init__(self) -> None:
+    def __init__(self, scan_result_ttl_s: float = 30.0) -> None:
         """Initialize inventory manager."""
         self._esp_inventory: dict[str, EspInventoryEntry] = {}  # esp_id -> entry
         self._running = False
         self._ble_discovery = BleDiscoveryManager()
+        self._scan_result_ttl_s = scan_result_ttl_s
+        self._esp_scan_sightings: dict[
+            str, float
+        ] = {}  # polar device id -> last seen wall clock seconds
 
     @property
     def esp_inventory(self) -> dict[str, EspInventoryEntry]:
@@ -43,11 +54,30 @@ class EspInventoryManager:
     @property
     def available_polars(self) -> set[str]:
         """Get available Polar devices (read-only access)."""
-        return self._ble_discovery.available_polars
+        now = time.time()
+        stale_ids = [
+            device_id
+            for device_id, last_seen_ts in self._esp_scan_sightings.items()
+            if (now - last_seen_ts) > self._scan_result_ttl_s
+        ]
+        for device_id in stale_ids:
+            del self._esp_scan_sightings[device_id]
 
-    def update_cache_from_message(
-        self, esp_msg: esp_collector_pb2.EspMessage, device_path: str
-    ) -> None:
+        host_discovered = self._ble_discovery.available_polars
+        esp_discovered = set(self._esp_scan_sightings.keys())
+        return host_discovered | esp_discovered
+
+    @property
+    def scanner_esp_ids(self) -> set[str]:
+        """Get ESPs currently flagged as scanner active."""
+        return {esp_id for esp_id, entry in self._esp_inventory.items() if entry.scanner_active}
+
+    @property
+    def host_ble_available(self) -> bool | None:
+        """Return whether host BLE scanning capability is available."""
+        return self._ble_discovery.host_ble_available
+
+    def update_cache_from_message(self, esp_msg: UsbInboundMessage, device_path: str) -> None:
         """Update ESP inventory cache from any incoming message.
 
         Args:
@@ -57,7 +87,7 @@ class EspInventoryManager:
         msg_type = esp_msg.WhichOneof("message")
 
         if msg_type == "device_info":
-            info = esp_msg.device_info
+            info = cast(EspOperationalMessage, esp_msg).device_info
             self._esp_inventory[info.esp_id] = EspInventoryEntry(
                 esp_id=info.esp_id,
                 device_path=device_path,
@@ -68,7 +98,18 @@ class EspInventoryManager:
                 app_version=info.app_version,
                 idf_version=info.idf_version,
                 protocol_version=info.protocol_version,
+                scanner_active=info.scanner_active,
+                scanner_request_id=info.scanner_request_id,
             )
+        elif msg_type == "ble_scan_result":
+            now = time.time()
+            discovery_msg = cast(EspDiscoveryMessage, esp_msg)
+            esp_id = discovery_msg.ble_scan_result.esp_id
+            if esp_id in self._esp_inventory:
+                self._esp_inventory[esp_id].last_seen_ts = now
+            for sighting in discovery_msg.ble_scan_result.sightings:
+                if sighting.device_id:
+                    self._esp_scan_sightings[sighting.device_id] = now
         elif msg_type in ["sensor_frame"]:
             # Update timestamp for active streaming ESPs
             now = time.time()

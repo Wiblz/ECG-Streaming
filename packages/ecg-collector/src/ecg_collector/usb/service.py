@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import time
+from typing import cast
 
 from ecg_common.logging import get_logger
 from ecg_common.models import SensorFrame, SensorType
@@ -18,7 +19,10 @@ from ecg_collector.usb.pairing import PairingManager
 
 logger = get_logger(__name__)
 ble_debug_logger = get_logger("ecg_collector.ble_debug")
-EXPECTED_PROTOCOL_VERSION = 1
+EXPECTED_PROTOCOL_VERSION = 2
+type EspOperationalMessage = esp_collector_pb2.EspMessage
+type EspDiscoveryMessage = esp_collector_pb2.EspDiscoveryMessage
+type UsbInboundMessage = EspOperationalMessage | EspDiscoveryMessage
 
 
 class MultiUsbCollectorService(DataCollector):
@@ -88,6 +92,12 @@ class MultiUsbCollectorService(DataCollector):
         self._configured_esp_ids: set[str] = set()
         self._unmapped_esp_ids: set[str] = set()
         self._seen_app_versions: set[str] = set()
+        self._scan_request_seq = 0
+        self._scan_request_interval_s = 10.0
+        self._scan_duration_ms = 5000
+        self._scan_name_prefix = "Polar"
+        self._last_scan_request_ts = 0.0
+        self._pending_scanner_esp_ids: set[str] = set()
 
         # Initialize auto-pairing modules
         self._inventory_manager = EspInventoryManager()
@@ -98,11 +108,11 @@ class MultiUsbCollectorService(DataCollector):
             esp_to_device_map=settings.get_esp_to_device_map(),
         )
 
-    def _esp_message_device_id(self, esp_msg: esp_collector_pb2.EspMessage) -> str | None:
+    def _esp_message_device_id(self, esp_msg: UsbInboundMessage) -> str | None:
         """Extract device ID from ESP message."""
         msg_type = esp_msg.WhichOneof("message")
         if msg_type == "sensor_frame":
-            device_id = esp_msg.sensor_frame.device_id
+            device_id = cast(EspOperationalMessage, esp_msg).sensor_frame.device_id
             return str(device_id) if device_id else None
         return None
 
@@ -152,7 +162,7 @@ class MultiUsbCollectorService(DataCollector):
 
     async def _handle_message(
         self,
-        esp_msg: esp_collector_pb2.EspMessage,
+        esp_msg: UsbInboundMessage,
         usb_collector: UsbCollector | None = None,
         device_path: str | None = None,
     ) -> None:
@@ -165,7 +175,7 @@ class MultiUsbCollectorService(DataCollector):
         logger.debug("Received ESP message type: %s", msg_type)
 
         # Update ESP inventory cache
-        if device_path and msg_type in ["device_info", "sensor_frame"]:
+        if device_path and msg_type in ["device_info", "sensor_frame", "ble_scan_result"]:
             self._inventory_manager.update_cache_from_message(esp_msg, device_path)
 
         # Handle device info
@@ -175,7 +185,7 @@ class MultiUsbCollectorService(DataCollector):
 
         # Handle BLE debug
         if msg_type == "ble_debug":
-            dbg = esp_msg.ble_debug
+            dbg = cast(EspOperationalMessage, esp_msg).ble_debug
             ble_debug_logger.info(
                 "ble_debug",
                 extra={
@@ -197,12 +207,24 @@ class MultiUsbCollectorService(DataCollector):
 
         # Handle config ack
         if msg_type == "config_ack":
-            ack = esp_msg.config_ack
+            ack = cast(EspOperationalMessage, esp_msg).config_ack
             logger.info(
                 "USB config ack from %s: %s (accepted=%s)",
                 ack.esp_id,
                 ack.message or "ok",
                 ack.accepted,
+            )
+            return
+
+        # Handle scan results from scanner-mode ESPs
+        if msg_type == "ble_scan_result":
+            scan = cast(EspDiscoveryMessage, esp_msg).ble_scan_result
+            logger.info(
+                "BLE scan result from %s request=%s duration_ms=%s sightings=%s",
+                scan.esp_id,
+                scan.request_id,
+                scan.duration_ms,
+                len(scan.sightings),
             )
             return
 
@@ -223,12 +245,14 @@ class MultiUsbCollectorService(DataCollector):
         if msg_type == "sensor_frame":
             logger.debug(
                 "Received sensor_frame: device_id=%s sensor_type=%s sample_rate=%d",
-                esp_msg.sensor_frame.device_id,
-                esp_msg.sensor_frame.sensor_type,
-                esp_msg.sensor_frame.sample_rate,
+                cast(EspOperationalMessage, esp_msg).sensor_frame.device_id,
+                cast(EspOperationalMessage, esp_msg).sensor_frame.sensor_type,
+                cast(EspOperationalMessage, esp_msg).sensor_frame.sample_rate,
             )
             # Convert proto to Python dataclass at the wire boundary
-            python_frame = self._proto_to_dataclass(esp_msg.sensor_frame)
+            python_frame = self._proto_to_dataclass(
+                cast(EspOperationalMessage, esp_msg).sensor_frame
+            )
             try:
                 # Update registration if device list changed
                 if self.device_ids:
@@ -295,13 +319,20 @@ class MultiUsbCollectorService(DataCollector):
         if not esp_id:
             return
 
+        if info.scanner_active:
+            self._pending_scanner_esp_ids.add(esp_id)
+        else:
+            self._pending_scanner_esp_ids.discard(esp_id)
+
         logger.info(
             "USB device_info from %s: current_target=%s polar_connected=%s config_required=%s "
-            "app=%s idf=%s proto=%s",
+            "scanner_active=%s scanner_request_id=%s app=%s idf=%s proto=%s",
             esp_id,
             info.current_target or "(none)",
             info.polar_connected,
             info.config_required,
+            info.scanner_active,
+            info.scanner_request_id,
             info.app_version,
             info.idf_version,
             info.protocol_version,
@@ -401,6 +432,8 @@ class MultiUsbCollectorService(DataCollector):
                         self._usb_tasks[device_path] = asyncio.create_task(
                             self._run_usb_device(device_path)
                         )
+
+                await self._maybe_trigger_ble_scan()
             except Exception as e:
                 logger.error("USB discovery loop error: %s", e, exc_info=True)
 
@@ -441,7 +474,68 @@ class MultiUsbCollectorService(DataCollector):
         # This may raise - let caller handle
         await usb_collector.send_collector_to_esp_message(collector_to_esp_msg)
         self._configured_esp_ids.add(esp_id)
+        self._pending_scanner_esp_ids.discard(esp_id)
         logger.info(f"Sent config to ESP {esp_id}: target={target_device_id}")
+
+    async def _send_scan_request(self, esp_id: str, device_path: str) -> None:
+        """Send a one-shot BLE scan request to an idle ESP."""
+        usb_collector = self.usb_collectors.get(device_path)
+        if not usb_collector:
+            raise UsbConfigNotReadyError(f"No collector for {device_path}")
+        if usb_collector.writer is None or not usb_collector.running:
+            raise UsbConfigNotReadyError(f"USB writer not ready for {device_path}")
+
+        self._scan_request_seq = (self._scan_request_seq + 1) & 0xFFFFFFFF
+        scan_msg = esp_collector_pb2.StartBleScan(
+            esp_id=esp_id,
+            request_id=self._scan_request_seq,
+            duration_ms=self._scan_duration_ms,
+            name_prefix=self._scan_name_prefix,
+        )
+        collector_to_esp_msg = esp_collector_pb2.CollectorToEspMessage()
+        collector_to_esp_msg.start_ble_scan.CopyFrom(scan_msg)
+        await usb_collector.send_collector_to_esp_message(collector_to_esp_msg)
+        self._last_scan_request_ts = time.time()
+        self._pending_scanner_esp_ids.add(esp_id)
+        logger.info(
+            "Requested BLE scan from ESP %s request=%s duration_ms=%s",
+            esp_id,
+            self._scan_request_seq,
+            self._scan_duration_ms,
+        )
+
+    async def _maybe_trigger_ble_scan(self) -> None:
+        """Trigger a scanner ESP only when host BLE scanning is unavailable."""
+        now = time.time()
+        if (now - self._last_scan_request_ts) < self._scan_request_interval_s:
+            return
+
+        host_ble_available = self._inventory_manager.host_ble_available
+        if host_ble_available is not False:
+            return
+
+        inventory = self._inventory_manager.esp_inventory
+        if not inventory:
+            return
+
+        # Prefer ESPs that are idle and not currently marked scanner-active.
+        candidates = [
+            entry
+            for entry in inventory.values()
+            if not entry.polar_connected and not entry.scanner_active
+        ]
+        if not candidates:
+            candidates = [entry for entry in inventory.values() if not entry.polar_connected]
+        if not candidates:
+            return
+
+        selected = sorted(candidates, key=lambda entry: entry.last_seen_ts, reverse=True)[0]
+        try:
+            await self._send_scan_request(selected.esp_id, selected.device_path)
+        except UsbConfigNotReadyError as e:
+            logger.debug("Scanner ESP not ready for scan request: %s", e)
+        except Exception as e:
+            logger.error("Failed to request BLE scan from ESP %s: %s", selected.esp_id, e)
 
     async def start(self) -> None:
         logger.info("Starting multi-USB collector: %s", self.collector_id)
@@ -462,6 +556,9 @@ class MultiUsbCollectorService(DataCollector):
             self._pairing_manager.start(
                 get_inventory=lambda: self._inventory_manager.esp_inventory,
                 get_polars=lambda: self._inventory_manager.available_polars,
+                get_scanner_esps=lambda: (
+                    self._inventory_manager.scanner_esp_ids | self._pending_scanner_esp_ids
+                ),
                 send_config=self._send_esp_config,
             )
             logger.info("Started auto-pairing background loops")

@@ -2,6 +2,7 @@
 #include "freertos/task.h"
 
 #include "esp_log.h"
+#include "esp_system.h"
 #include "config_store.h"
 #include "state.h"
 #include "usb_cdc.h"
@@ -12,6 +13,45 @@
 #include "led_status.h"
 
 static const char *TAG = "H10_COMBINED";
+
+static const char *reset_reason_to_str(esp_reset_reason_t reason) {
+    switch (reason) {
+        case ESP_RST_UNKNOWN:
+            return "unknown";
+        case ESP_RST_POWERON:
+            return "poweron";
+        case ESP_RST_EXT:
+            return "external";
+        case ESP_RST_SW:
+            return "software";
+        case ESP_RST_PANIC:
+            return "panic";
+        case ESP_RST_INT_WDT:
+            return "int_wdt";
+        case ESP_RST_TASK_WDT:
+            return "task_wdt";
+        case ESP_RST_WDT:
+            return "wdt";
+        case ESP_RST_DEEPSLEEP:
+            return "deepsleep";
+        case ESP_RST_BROWNOUT:
+            return "brownout";
+        case ESP_RST_SDIO:
+            return "sdio";
+        case ESP_RST_USB:
+            return "usb";
+        case ESP_RST_JTAG:
+            return "jtag";
+        case ESP_RST_EFUSE:
+            return "efuse";
+        case ESP_RST_PWR_GLITCH:
+            return "power_glitch";
+        case ESP_RST_CPU_LOCKUP:
+            return "cpu_lockup";
+        default:
+            return "other";
+    }
+}
 
 // ============================================================================
 // Watchdog Task - Status every second
@@ -78,6 +118,15 @@ void app_main(void) {
 #endif
     esp_log_level_set("*", ESP_LOG_INFO);
     esp_log_level_set("NimBLE", ESP_LOG_WARN);
+    esp_reset_reason_t reset_reason = esp_reset_reason();
+    ESP_LOGI(
+        TAG,
+        "Booting app=%s proto=%d reset_reason=%s (%d)",
+        CONFIG_ECG_APP_VERSION,
+        CONFIG_ECG_PROTOCOL_VERSION,
+        reset_reason_to_str(reset_reason),
+        (int)reset_reason
+    );
     usb_transport_init();
     led_status_init();
 

@@ -1,5 +1,6 @@
 #include "usb_provision.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "esp_log.h"
@@ -31,11 +32,45 @@ static void send_usb_device_info(void) {
     info.polar_connected = g_connected;
     info.polar_status = g_connected ? ecg_streaming_DeviceStatus_DEVICE_STATUS_STREAMING :
                                       ecg_streaming_DeviceStatus_DEVICE_STATUS_DISCONNECTED;
+    info.scanner_active = g_scanner_active;
+    info.scanner_request_id = g_scanner_request_id;
 
     msg.which_message = ecg_streaming_EspMessage_device_info_tag;
     msg.message.device_info = info;
 
     usb_send_esp_message(&msg);
+}
+
+void usb_send_ble_scan_result(
+    uint32_t request_id,
+    const ecg_streaming_BleScanSighting *sightings,
+    size_t sighting_count,
+    uint32_t duration_ms
+) {
+    ecg_streaming_EspDiscoveryMessage *msg = calloc(1, sizeof(*msg));
+    if (!msg) {
+        ESP_LOGE(TAG, "Failed to allocate scan result message");
+        return;
+    }
+
+    *msg = (ecg_streaming_EspDiscoveryMessage)ecg_streaming_EspDiscoveryMessage_init_zero;
+    msg->which_message = ecg_streaming_EspDiscoveryMessage_ble_scan_result_tag;
+    msg->message.ble_scan_result.request_id = request_id;
+    msg->message.ble_scan_result.duration_ms = duration_ms;
+    strlcpy(msg->message.ble_scan_result.esp_id, g_esp_id, sizeof(msg->message.ble_scan_result.esp_id));
+
+    size_t max_sightings = sizeof(msg->message.ble_scan_result.sightings)
+        / sizeof(msg->message.ble_scan_result.sightings[0]);
+    if (sighting_count > max_sightings) {
+        sighting_count = max_sightings;
+    }
+    for (size_t i = 0; i < sighting_count; i++) {
+        msg->message.ble_scan_result.sightings[i] = sightings[i];
+    }
+    msg->message.ble_scan_result.sightings_count = (pb_size_t)sighting_count;
+
+    (void)usb_send_esp_discovery_message(msg);
+    free(msg);
 }
 
 static void send_usb_config_ack(bool accepted, const char *message, const char *target) {
@@ -92,23 +127,9 @@ static void apply_usb_config(const ecg_streaming_UsbConfig *cfg) {
 #endif
 
     g_config_required = false;
+    g_scanner_active = false;
 
-    if (changed) {
-        if (g_connected) {
-            ble_gap_terminate(g_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
-        } else {
-            ble_gap_disc_cancel();
-            start_scan();
-        }
-        return;
-    }
-
-    if (g_connected && !g_ecg_started && g_ecg_sample_rate_hz > 0) {
-        pmd_start_ecg(g_conn_handle, g_pmd_ctrl_handle);
-    }
-    if (g_connected && !g_acc_started && g_acc_sample_rate_hz > 0) {
-        pmd_start_acc(g_conn_handle, g_pmd_ctrl_handle);
-    }
+    ble_apply_updated_config(changed);
 }
 
 void usb_identity_task(void *param) {
@@ -132,6 +153,14 @@ void usb_rx_task(void *param) {
             }
             apply_usb_config(cfg);
             send_usb_config_ack(true, "config applied", cfg->target_device_id);
+            continue;
+        }
+        if (msg.which_message == ecg_streaming_CollectorToEspMessage_start_ble_scan_tag) {
+            ecg_streaming_StartBleScan *scan = &msg.message.start_ble_scan;
+            if (scan->esp_id[0] != '\0' && strcmp(scan->esp_id, g_esp_id) != 0) {
+                continue;
+            }
+            ble_start_scan_request(scan->request_id, scan->duration_ms, scan->name_prefix);
         }
     }
 }

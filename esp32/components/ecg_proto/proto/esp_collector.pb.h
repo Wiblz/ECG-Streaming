@@ -41,6 +41,8 @@ typedef struct _ecg_streaming_UsbDeviceInfo {
     bool config_required; /* True if ESP needs configuration before starting */
     bool polar_connected; /* True if currently connected to Polar device */
     ecg_streaming_DeviceStatus polar_status; /* Status of Polar device connection */
+    bool scanner_active; /* True if ESP is in BLE scanner mode */
+    uint32_t scanner_request_id; /* Last scan request id processed by ESP */
 } ecg_streaming_UsbDeviceInfo;
 
 /* Configuration acknowledgment from ESP32
@@ -77,6 +79,32 @@ typedef struct _ecg_streaming_EspMessage {
     } message;
 } ecg_streaming_EspMessage;
 
+/* BLE sighting captured during a scanner-mode discovery pass */
+typedef struct _ecg_streaming_BleScanSighting {
+    char device_id[65]; /* Canonical device ID/name from advertisement */
+    char name[65]; /* Advertisement local name */
+    char address[21]; /* BLE MAC address */
+    int32_t rssi; /* RSSI measured by scanning ESP */
+    uint64_t seen_at_us; /* ESP wall clock when seen (microseconds since boot) */
+} ecg_streaming_BleScanSighting;
+
+/* BLE scanner-mode result from ESP32 to collector */
+typedef struct _ecg_streaming_BleScanResult {
+    uint32_t request_id; /* Echoes StartBleScan.request_id */
+    char esp_id[65]; /* ESP32 identifier */
+    pb_size_t sightings_count;
+    ecg_streaming_BleScanSighting sightings[16];
+    uint32_t duration_ms; /* Actual scan duration used by ESP */
+} ecg_streaming_BleScanResult;
+
+/* ESP discovery/scanner reports sent separately from operational traffic */
+typedef struct _ecg_streaming_EspDiscoveryMessage {
+    pb_size_t which_message;
+    union {
+        ecg_streaming_BleScanResult ble_scan_result;
+    } message;
+} ecg_streaming_EspDiscoveryMessage;
+
 /* Configuration command for ESP32
  Tells ESP32 which Polar device to connect to and streaming parameters */
 typedef struct _ecg_streaming_UsbConfig {
@@ -87,10 +115,19 @@ typedef struct _ecg_streaming_UsbConfig {
     bool persist; /* If true, save config to ESP32 flash */
 } ecg_streaming_UsbConfig;
 
+/* Command ESP to run one bounded BLE discovery pass and report sightings */
+typedef struct _ecg_streaming_StartBleScan {
+    char esp_id[65]; /* Target ESP32 identifier */
+    uint32_t request_id; /* Collector-generated request id for idempotency */
+    uint32_t duration_ms; /* Scan duration */
+    char name_prefix[33]; /* Name filter (e.g., "Polar") */
+} ecg_streaming_StartBleScan;
+
 typedef struct _ecg_streaming_CollectorToEspMessage {
     pb_size_t which_message;
     union {
         ecg_streaming_UsbConfig config;
+        ecg_streaming_StartBleScan start_ble_scan;
     } message;
 } ecg_streaming_CollectorToEspMessage;
 
@@ -114,21 +151,33 @@ extern "C" {
 
 
 
+
+
+
+
 /* Initializer values for message structs */
 #define ecg_streaming_EspMessage_init_default    {0, {ecg_streaming_SensorFrame_init_default}}
 #define ecg_streaming_SensorFrame_init_default   {"", _ecg_streaming_SensorType_MIN, 0, 0, 0, {{NULL}, NULL}}
-#define ecg_streaming_UsbDeviceInfo_init_default {"", "", "", 0, "", 0, 0, _ecg_streaming_DeviceStatus_MIN}
+#define ecg_streaming_UsbDeviceInfo_init_default {"", "", "", 0, "", 0, 0, _ecg_streaming_DeviceStatus_MIN, 0, 0}
 #define ecg_streaming_UsbConfigAck_init_default  {"", 0, "", ""}
 #define ecg_streaming_BleNotificationDebug_init_default {"", 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define ecg_streaming_BleScanSighting_init_default {"", "", "", 0, 0}
+#define ecg_streaming_BleScanResult_init_default {0, "", 0, {ecg_streaming_BleScanSighting_init_default, ecg_streaming_BleScanSighting_init_default, ecg_streaming_BleScanSighting_init_default, ecg_streaming_BleScanSighting_init_default, ecg_streaming_BleScanSighting_init_default, ecg_streaming_BleScanSighting_init_default, ecg_streaming_BleScanSighting_init_default, ecg_streaming_BleScanSighting_init_default, ecg_streaming_BleScanSighting_init_default, ecg_streaming_BleScanSighting_init_default, ecg_streaming_BleScanSighting_init_default, ecg_streaming_BleScanSighting_init_default, ecg_streaming_BleScanSighting_init_default, ecg_streaming_BleScanSighting_init_default, ecg_streaming_BleScanSighting_init_default, ecg_streaming_BleScanSighting_init_default}, 0}
+#define ecg_streaming_EspDiscoveryMessage_init_default {0, {ecg_streaming_BleScanResult_init_default}}
 #define ecg_streaming_CollectorToEspMessage_init_default {0, {ecg_streaming_UsbConfig_init_default}}
 #define ecg_streaming_UsbConfig_init_default     {"", "", 0, 0, 0}
+#define ecg_streaming_StartBleScan_init_default  {"", 0, 0, ""}
 #define ecg_streaming_EspMessage_init_zero       {0, {ecg_streaming_SensorFrame_init_zero}}
 #define ecg_streaming_SensorFrame_init_zero      {"", _ecg_streaming_SensorType_MIN, 0, 0, 0, {{NULL}, NULL}}
-#define ecg_streaming_UsbDeviceInfo_init_zero    {"", "", "", 0, "", 0, 0, _ecg_streaming_DeviceStatus_MIN}
+#define ecg_streaming_UsbDeviceInfo_init_zero    {"", "", "", 0, "", 0, 0, _ecg_streaming_DeviceStatus_MIN, 0, 0}
 #define ecg_streaming_UsbConfigAck_init_zero     {"", 0, "", ""}
 #define ecg_streaming_BleNotificationDebug_init_zero {"", 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define ecg_streaming_BleScanSighting_init_zero  {"", "", "", 0, 0}
+#define ecg_streaming_BleScanResult_init_zero    {0, "", 0, {ecg_streaming_BleScanSighting_init_zero, ecg_streaming_BleScanSighting_init_zero, ecg_streaming_BleScanSighting_init_zero, ecg_streaming_BleScanSighting_init_zero, ecg_streaming_BleScanSighting_init_zero, ecg_streaming_BleScanSighting_init_zero, ecg_streaming_BleScanSighting_init_zero, ecg_streaming_BleScanSighting_init_zero, ecg_streaming_BleScanSighting_init_zero, ecg_streaming_BleScanSighting_init_zero, ecg_streaming_BleScanSighting_init_zero, ecg_streaming_BleScanSighting_init_zero, ecg_streaming_BleScanSighting_init_zero, ecg_streaming_BleScanSighting_init_zero, ecg_streaming_BleScanSighting_init_zero, ecg_streaming_BleScanSighting_init_zero}, 0}
+#define ecg_streaming_EspDiscoveryMessage_init_zero {0, {ecg_streaming_BleScanResult_init_zero}}
 #define ecg_streaming_CollectorToEspMessage_init_zero {0, {ecg_streaming_UsbConfig_init_zero}}
 #define ecg_streaming_UsbConfig_init_zero        {"", "", 0, 0, 0}
+#define ecg_streaming_StartBleScan_init_zero     {"", 0, 0, ""}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define ecg_streaming_SensorFrame_device_id_tag  1
@@ -145,6 +194,8 @@ extern "C" {
 #define ecg_streaming_UsbDeviceInfo_config_required_tag 6
 #define ecg_streaming_UsbDeviceInfo_polar_connected_tag 7
 #define ecg_streaming_UsbDeviceInfo_polar_status_tag 8
+#define ecg_streaming_UsbDeviceInfo_scanner_active_tag 9
+#define ecg_streaming_UsbDeviceInfo_scanner_request_id_tag 10
 #define ecg_streaming_UsbConfigAck_esp_id_tag    1
 #define ecg_streaming_UsbConfigAck_accepted_tag  2
 #define ecg_streaming_UsbConfigAck_message_tag   3
@@ -163,12 +214,27 @@ extern "C" {
 #define ecg_streaming_EspMessage_device_info_tag 2
 #define ecg_streaming_EspMessage_config_ack_tag  3
 #define ecg_streaming_EspMessage_ble_debug_tag   4
+#define ecg_streaming_BleScanSighting_device_id_tag 1
+#define ecg_streaming_BleScanSighting_name_tag   2
+#define ecg_streaming_BleScanSighting_address_tag 3
+#define ecg_streaming_BleScanSighting_rssi_tag   4
+#define ecg_streaming_BleScanSighting_seen_at_us_tag 5
+#define ecg_streaming_BleScanResult_request_id_tag 1
+#define ecg_streaming_BleScanResult_esp_id_tag   2
+#define ecg_streaming_BleScanResult_sightings_tag 3
+#define ecg_streaming_BleScanResult_duration_ms_tag 4
+#define ecg_streaming_EspDiscoveryMessage_ble_scan_result_tag 1
 #define ecg_streaming_UsbConfig_esp_id_tag       1
 #define ecg_streaming_UsbConfig_target_device_id_tag 2
 #define ecg_streaming_UsbConfig_ecg_sample_rate_tag 3
 #define ecg_streaming_UsbConfig_acc_sample_rate_tag 4
 #define ecg_streaming_UsbConfig_persist_tag      5
+#define ecg_streaming_StartBleScan_esp_id_tag    1
+#define ecg_streaming_StartBleScan_request_id_tag 2
+#define ecg_streaming_StartBleScan_duration_ms_tag 3
+#define ecg_streaming_StartBleScan_name_prefix_tag 4
 #define ecg_streaming_CollectorToEspMessage_config_tag 1
+#define ecg_streaming_CollectorToEspMessage_start_ble_scan_tag 2
 
 /* Struct field encoding specification for nanopb */
 #define ecg_streaming_EspMessage_FIELDLIST(X, a) \
@@ -201,7 +267,9 @@ X(a, STATIC,   SINGULAR, UINT32,   protocol_version,   4) \
 X(a, STATIC,   SINGULAR, STRING,   current_target,    5) \
 X(a, STATIC,   SINGULAR, BOOL,     config_required,   6) \
 X(a, STATIC,   SINGULAR, BOOL,     polar_connected,   7) \
-X(a, STATIC,   SINGULAR, UENUM,    polar_status,      8)
+X(a, STATIC,   SINGULAR, UENUM,    polar_status,      8) \
+X(a, STATIC,   SINGULAR, BOOL,     scanner_active,    9) \
+X(a, STATIC,   SINGULAR, UINT32,   scanner_request_id,  10)
 #define ecg_streaming_UsbDeviceInfo_CALLBACK NULL
 #define ecg_streaming_UsbDeviceInfo_DEFAULT NULL
 
@@ -227,11 +295,37 @@ X(a, STATIC,   SINGULAR, UINT32,   mtu,              10)
 #define ecg_streaming_BleNotificationDebug_CALLBACK NULL
 #define ecg_streaming_BleNotificationDebug_DEFAULT NULL
 
+#define ecg_streaming_BleScanSighting_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   device_id,         1) \
+X(a, STATIC,   SINGULAR, STRING,   name,              2) \
+X(a, STATIC,   SINGULAR, STRING,   address,           3) \
+X(a, STATIC,   SINGULAR, INT32,    rssi,              4) \
+X(a, STATIC,   SINGULAR, UINT64,   seen_at_us,        5)
+#define ecg_streaming_BleScanSighting_CALLBACK NULL
+#define ecg_streaming_BleScanSighting_DEFAULT NULL
+
+#define ecg_streaming_BleScanResult_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   request_id,        1) \
+X(a, STATIC,   SINGULAR, STRING,   esp_id,            2) \
+X(a, STATIC,   REPEATED, MESSAGE,  sightings,         3) \
+X(a, STATIC,   SINGULAR, UINT32,   duration_ms,       4)
+#define ecg_streaming_BleScanResult_CALLBACK NULL
+#define ecg_streaming_BleScanResult_DEFAULT NULL
+#define ecg_streaming_BleScanResult_sightings_MSGTYPE ecg_streaming_BleScanSighting
+
+#define ecg_streaming_EspDiscoveryMessage_FIELDLIST(X, a) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (message,ble_scan_result,message.ble_scan_result),   1)
+#define ecg_streaming_EspDiscoveryMessage_CALLBACK NULL
+#define ecg_streaming_EspDiscoveryMessage_DEFAULT NULL
+#define ecg_streaming_EspDiscoveryMessage_message_ble_scan_result_MSGTYPE ecg_streaming_BleScanResult
+
 #define ecg_streaming_CollectorToEspMessage_FIELDLIST(X, a) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (message,config,message.config),   1)
+X(a, STATIC,   ONEOF,    MESSAGE,  (message,config,message.config),   1) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (message,start_ble_scan,message.start_ble_scan),   2)
 #define ecg_streaming_CollectorToEspMessage_CALLBACK NULL
 #define ecg_streaming_CollectorToEspMessage_DEFAULT NULL
 #define ecg_streaming_CollectorToEspMessage_message_config_MSGTYPE ecg_streaming_UsbConfig
+#define ecg_streaming_CollectorToEspMessage_message_start_ble_scan_MSGTYPE ecg_streaming_StartBleScan
 
 #define ecg_streaming_UsbConfig_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, STRING,   esp_id,            1) \
@@ -242,13 +336,25 @@ X(a, STATIC,   SINGULAR, BOOL,     persist,           5)
 #define ecg_streaming_UsbConfig_CALLBACK NULL
 #define ecg_streaming_UsbConfig_DEFAULT NULL
 
+#define ecg_streaming_StartBleScan_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   esp_id,            1) \
+X(a, STATIC,   SINGULAR, UINT32,   request_id,        2) \
+X(a, STATIC,   SINGULAR, UINT32,   duration_ms,       3) \
+X(a, STATIC,   SINGULAR, STRING,   name_prefix,       4)
+#define ecg_streaming_StartBleScan_CALLBACK NULL
+#define ecg_streaming_StartBleScan_DEFAULT NULL
+
 extern const pb_msgdesc_t ecg_streaming_EspMessage_msg;
 extern const pb_msgdesc_t ecg_streaming_SensorFrame_msg;
 extern const pb_msgdesc_t ecg_streaming_UsbDeviceInfo_msg;
 extern const pb_msgdesc_t ecg_streaming_UsbConfigAck_msg;
 extern const pb_msgdesc_t ecg_streaming_BleNotificationDebug_msg;
+extern const pb_msgdesc_t ecg_streaming_BleScanSighting_msg;
+extern const pb_msgdesc_t ecg_streaming_BleScanResult_msg;
+extern const pb_msgdesc_t ecg_streaming_EspDiscoveryMessage_msg;
 extern const pb_msgdesc_t ecg_streaming_CollectorToEspMessage_msg;
 extern const pb_msgdesc_t ecg_streaming_UsbConfig_msg;
+extern const pb_msgdesc_t ecg_streaming_StartBleScan_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define ecg_streaming_EspMessage_fields &ecg_streaming_EspMessage_msg
@@ -256,18 +362,26 @@ extern const pb_msgdesc_t ecg_streaming_UsbConfig_msg;
 #define ecg_streaming_UsbDeviceInfo_fields &ecg_streaming_UsbDeviceInfo_msg
 #define ecg_streaming_UsbConfigAck_fields &ecg_streaming_UsbConfigAck_msg
 #define ecg_streaming_BleNotificationDebug_fields &ecg_streaming_BleNotificationDebug_msg
+#define ecg_streaming_BleScanSighting_fields &ecg_streaming_BleScanSighting_msg
+#define ecg_streaming_BleScanResult_fields &ecg_streaming_BleScanResult_msg
+#define ecg_streaming_EspDiscoveryMessage_fields &ecg_streaming_EspDiscoveryMessage_msg
 #define ecg_streaming_CollectorToEspMessage_fields &ecg_streaming_CollectorToEspMessage_msg
 #define ecg_streaming_UsbConfig_fields &ecg_streaming_UsbConfig_msg
+#define ecg_streaming_StartBleScan_fields &ecg_streaming_StartBleScan_msg
 
 /* Maximum encoded size of messages (where known) */
 /* ecg_streaming_EspMessage_size depends on runtime parameters */
 /* ecg_streaming_SensorFrame_size depends on runtime parameters */
-#define ECG_STREAMING_ESP_COLLECTOR_PB_H_MAX_SIZE ecg_streaming_UsbConfigAck_size
+#define ECG_STREAMING_ESP_COLLECTOR_PB_H_MAX_SIZE ecg_streaming_EspDiscoveryMessage_size
 #define ecg_streaming_BleNotificationDebug_size  130
+#define ecg_streaming_BleScanResult_size         2942
+#define ecg_streaming_BleScanSighting_size       176
 #define ecg_streaming_CollectorToEspMessage_size 159
+#define ecg_streaming_EspDiscoveryMessage_size   2945
+#define ecg_streaming_StartBleScan_size          112
 #define ecg_streaming_UsbConfigAck_size          265
 #define ecg_streaming_UsbConfig_size             156
-#define ecg_streaming_UsbDeviceInfo_size         212
+#define ecg_streaming_UsbDeviceInfo_size         220
 
 #ifdef __cplusplus
 } /* extern "C" */

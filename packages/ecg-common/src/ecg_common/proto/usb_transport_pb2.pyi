@@ -11,10 +11,12 @@ class UsbPayloadType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     USB_PAYLOAD_TYPE_UNKNOWN: _ClassVar[UsbPayloadType]
     USB_PAYLOAD_TYPE_ESP_MESSAGE: _ClassVar[UsbPayloadType]
     USB_PAYLOAD_TYPE_COLLECTOR_TO_ESP: _ClassVar[UsbPayloadType]
+    USB_PAYLOAD_TYPE_ESP_DISCOVERY_MESSAGE: _ClassVar[UsbPayloadType]
 
 USB_PAYLOAD_TYPE_UNKNOWN: UsbPayloadType
 USB_PAYLOAD_TYPE_ESP_MESSAGE: UsbPayloadType
 USB_PAYLOAD_TYPE_COLLECTOR_TO_ESP: UsbPayloadType
+USB_PAYLOAD_TYPE_ESP_DISCOVERY_MESSAGE: UsbPayloadType
 
 class UsbFrame(_message.Message):
     __slots__ = ("version", "payload_type", "seq", "crc32", "payload")

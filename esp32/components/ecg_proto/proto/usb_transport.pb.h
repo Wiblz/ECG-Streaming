@@ -12,8 +12,9 @@
 /* Enum definitions */
 typedef enum _ecg_streaming_UsbPayloadType {
     ecg_streaming_UsbPayloadType_USB_PAYLOAD_TYPE_UNKNOWN = 0,
-    ecg_streaming_UsbPayloadType_USB_PAYLOAD_TYPE_ESP_MESSAGE = 1, /* ESP32 -> Collector */
-    ecg_streaming_UsbPayloadType_USB_PAYLOAD_TYPE_COLLECTOR_TO_ESP = 2 /* Collector -> ESP32 */
+    ecg_streaming_UsbPayloadType_USB_PAYLOAD_TYPE_ESP_MESSAGE = 1, /* ESP32 -> Collector operational traffic */
+    ecg_streaming_UsbPayloadType_USB_PAYLOAD_TYPE_COLLECTOR_TO_ESP = 2, /* Collector -> ESP32 */
+    ecg_streaming_UsbPayloadType_USB_PAYLOAD_TYPE_ESP_DISCOVERY_MESSAGE = 3 /* ESP32 -> Collector discovery/scanner traffic */
 } ecg_streaming_UsbPayloadType;
 
 /* Struct definitions */
@@ -22,7 +23,7 @@ typedef struct _ecg_streaming_UsbFrame {
     ecg_streaming_UsbPayloadType payload_type; /* Type of message in payload */
     uint32_t seq; /* Sequence number for ordering/deduplication */
     uint32_t crc32; /* CRC32 checksum of payload */
-    pb_callback_t payload; /* Serialized EspMessage or CollectorToEspMessage */
+    pb_callback_t payload; /* Serialized ESP/collector transport payload */
 } ecg_streaming_UsbFrame;
 
 
@@ -32,8 +33,8 @@ extern "C" {
 
 /* Helper constants for enums */
 #define _ecg_streaming_UsbPayloadType_MIN ecg_streaming_UsbPayloadType_USB_PAYLOAD_TYPE_UNKNOWN
-#define _ecg_streaming_UsbPayloadType_MAX ecg_streaming_UsbPayloadType_USB_PAYLOAD_TYPE_COLLECTOR_TO_ESP
-#define _ecg_streaming_UsbPayloadType_ARRAYSIZE ((ecg_streaming_UsbPayloadType)(ecg_streaming_UsbPayloadType_USB_PAYLOAD_TYPE_COLLECTOR_TO_ESP+1))
+#define _ecg_streaming_UsbPayloadType_MAX ecg_streaming_UsbPayloadType_USB_PAYLOAD_TYPE_ESP_DISCOVERY_MESSAGE
+#define _ecg_streaming_UsbPayloadType_ARRAYSIZE ((ecg_streaming_UsbPayloadType)(ecg_streaming_UsbPayloadType_USB_PAYLOAD_TYPE_ESP_DISCOVERY_MESSAGE+1))
 
 #define ecg_streaming_UsbFrame_payload_type_ENUMTYPE ecg_streaming_UsbPayloadType
 

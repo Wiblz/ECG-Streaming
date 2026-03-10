@@ -34,6 +34,10 @@ extern uint16_t g_conn_handle;
 
 extern bool g_connecting;
 extern bool g_connected;
+extern bool g_scanner_active;
+extern uint32_t g_scanner_request_id;
+extern uint32_t g_scan_duration_ms;
+extern char g_scan_name_prefix[33];
 
 extern uint16_t g_pmd_start;
 extern uint16_t g_pmd_end;

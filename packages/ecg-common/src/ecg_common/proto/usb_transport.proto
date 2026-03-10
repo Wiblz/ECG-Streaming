@@ -15,11 +15,12 @@ message UsbFrame {
   UsbPayloadType payload_type = 2;    // Type of message in payload
   fixed32 seq = 3;                    // Sequence number for ordering/deduplication
   fixed32 crc32 = 4;                  // CRC32 checksum of payload
-  bytes payload = 5;                  // Serialized EspMessage or CollectorToEspMessage
+  bytes payload = 5;                  // Serialized ESP/collector transport payload
 }
 
 enum UsbPayloadType {
   USB_PAYLOAD_TYPE_UNKNOWN = 0;
-  USB_PAYLOAD_TYPE_ESP_MESSAGE = 1;           // ESP32 -> Collector
+  USB_PAYLOAD_TYPE_ESP_MESSAGE = 1;           // ESP32 -> Collector operational traffic
   USB_PAYLOAD_TYPE_COLLECTOR_TO_ESP = 2;      // Collector -> ESP32
+  USB_PAYLOAD_TYPE_ESP_DISCOVERY_MESSAGE = 3; // ESP32 -> Collector discovery/scanner traffic
 }

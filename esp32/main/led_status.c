@@ -35,6 +35,7 @@ typedef struct {
 static const rgb_u8_t k_yellow = {255, 120, 0};
 static const rgb_u8_t k_green = {0, 255, 0};
 static const rgb_u8_t k_blue = {0, 0, 255};
+static const rgb_u8_t k_cyan = {0, 255, 180};
 
 static rmt_channel_handle_t s_tx_chan = NULL;
 static rmt_encoder_handle_t s_encoder = NULL;
@@ -93,6 +94,7 @@ static void led_task(void *param) {
                                 s_last_stream_tick != 0 &&
                                 since_stream_ms < STREAM_ACTIVE_MS;
         bool polar_connected = s_polar_connected;
+        bool scanner_active = g_scanner_active;
 
         rgb_u8_t c = {0, 0, 0};
 
@@ -104,6 +106,12 @@ static void led_task(void *param) {
             uint32_t t = now_ms % 1000;
             if (t < 100) {
                 c = scale_color(k_green, BRIGHTNESS);
+            }
+        } else if (scanner_active) {
+            // Scanner mode: two short cyan pulses every 700ms
+            uint32_t t = now_ms % 700;
+            if ((t < 70) || (t >= 140 && t < 210)) {
+                c = scale_color(k_cyan, BRIGHTNESS);
             }
         } else if (!g_config_required) {
             // Configured but not connected: solid blue

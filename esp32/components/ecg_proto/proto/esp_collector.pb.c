@@ -21,10 +21,22 @@ PB_BIND(ecg_streaming_UsbConfigAck, ecg_streaming_UsbConfigAck, 2)
 PB_BIND(ecg_streaming_BleNotificationDebug, ecg_streaming_BleNotificationDebug, AUTO)
 
 
+PB_BIND(ecg_streaming_BleScanSighting, ecg_streaming_BleScanSighting, AUTO)
+
+
+PB_BIND(ecg_streaming_BleScanResult, ecg_streaming_BleScanResult, 2)
+
+
+PB_BIND(ecg_streaming_EspDiscoveryMessage, ecg_streaming_EspDiscoveryMessage, 2)
+
+
 PB_BIND(ecg_streaming_CollectorToEspMessage, ecg_streaming_CollectorToEspMessage, AUTO)
 
 
 PB_BIND(ecg_streaming_UsbConfig, ecg_streaming_UsbConfig, AUTO)
+
+
+PB_BIND(ecg_streaming_StartBleScan, ecg_streaming_StartBleScan, AUTO)
 
 
 
