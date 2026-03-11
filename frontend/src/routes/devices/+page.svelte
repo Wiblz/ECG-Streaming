@@ -7,8 +7,7 @@
 	import { formatTimeSince } from '$lib/utils/format';
 	import type { PageProps } from './$types';
 
-	let { data: initialData }: PageProps = $props();
-	let data = $state(initialData);
+	let { data }: PageProps = $props();
 
 	// Action to focus an element when it's mounted
 	function focusElement(node: HTMLElement) {

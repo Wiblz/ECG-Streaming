@@ -66,7 +66,9 @@
 
 	const baseClasses =
 		'inline-flex items-center justify-center gap-2 font-medium rounded-lg transition-colors';
-	const classes = `${baseClasses} ${variantClasses[variant]} ${sizeClasses[size]} ${className}`;
+	const classes = $derived(
+		`${baseClasses} ${variantClasses[variant]} ${sizeClasses[size]} ${className}`
+	);
 </script>
 
 <a {href} class={classes} {title} {target}>

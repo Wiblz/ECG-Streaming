@@ -6,8 +6,17 @@
 	import type { PlottableSample } from '$lib/types/api';
 	import { isPaused } from '$lib/state/pause.svelte';
 	import type { AlignMode } from '$lib/utils/samples';
-	import { alignSamplesToTimestamps } from '$lib/utils/samples';
 	import { SvelteMap } from 'svelte/reactivity';
+	import {
+		prepareChartData as prepareChartDataUtil,
+		extractVerifiedIndices
+	} from '$lib/waveforms/chart-data-transformer';
+	import { calculateTimeWindow } from '$lib/waveforms/time-window';
+	import {
+		isCacheValid as checkCacheValid,
+		findBaseDevice,
+		type AlignmentCache
+	} from '$lib/waveforms/alignment-cache';
 	import {
 		getCurrentPlaybackTime,
 		getSessionStartTime,
@@ -17,6 +26,7 @@
 	import Button from './buttons/Button.svelte';
 	import Card from './Card.svelte';
 	import WaveformPlot, { type WaveformPlotOptions } from './WaveformPlot.svelte';
+	import { buildPlotOptions } from '$lib/waveforms/plot-configuration';
 	import 'uplot/dist/uPlot.min.css';
 
 	interface Props {
@@ -80,15 +90,7 @@
 	let verifiedIndicesByDevice = new SvelteMap<string, number[]>();
 
 	// Cache for aligned data to avoid re-aligning on every frame
-	let alignmentCache = $state<{
-		deviceOrder: string[];
-		deviceSampleCounts: Map<string, number>;
-		timestamps: number[];
-		seriesData: (number | null)[][];
-		sampleByDeviceAndTime: Map<string, Map<number, T>>;
-		sessionStartTime: number;
-		baseDeviceId: string;
-	} | null>(null);
+	let alignmentCache = $state<AlignmentCache<T> | null>(null);
 
 	import { ConnectionState } from '$lib/state/websocket.svelte';
 
@@ -166,76 +168,12 @@
 	// Get current time window based on wall-clock progression (shared across all waveforms)
 	function getCurrentTimeWindow(): { minTime: number; maxTime: number } | null {
 		const currentTime = getCurrentPlaybackTime();
-
-		if (currentTime === null) {
-			return null;
-		}
-
-		// Always show a fixed WINDOW_DURATION window, even if it starts in the past
-		const window = {
-			minTime: currentTime - WINDOW_DURATION,
-			maxTime: currentTime
-		};
-		return window;
+		return calculateTimeWindow(currentTime, WINDOW_DURATION);
 	}
 
 	// Check if alignment cache is valid
 	function isCacheValid(sampleMap: Map<string, T[]>): boolean {
-		if (!alignmentCache) return false;
-
-		const devices = Array.from(sampleMap.keys()).sort();
-		const currentStartTime = sessionStartTime;
-
-		// Check if session start time changed
-		if (currentStartTime !== null && alignmentCache.sessionStartTime !== currentStartTime) {
-			return false;
-		}
-
-		// Check if device list changed
-		if (devices.length !== alignmentCache.deviceOrder.length) {
-			return false;
-		}
-		if (!devices.every((d, idx) => alignmentCache!.deviceOrder[idx] === d)) {
-			return false;
-		}
-
-		// Check if any device has different sample count OR different timestamps
-		for (const deviceId of devices) {
-			const currentSamples = sampleMap.get(deviceId) ?? [];
-			const cachedCount = alignmentCache.deviceSampleCounts.get(deviceId) ?? 0;
-
-			// Count changed - cache invalid
-			if (currentSamples.length !== cachedCount) {
-				return false;
-			}
-
-			// Count same but check if timestamps changed (samples dropped and added)
-			if (currentSamples.length > 0) {
-				const cachedDeviceSamples = alignmentCache.sampleByDeviceAndTime.get(deviceId);
-				if (!cachedDeviceSamples) return false;
-
-				// Check first and last sample timestamps
-				const firstCurrentTime = currentSamples[0].global_time - currentStartTime!;
-				const lastCurrentTime =
-					currentSamples[currentSamples.length - 1].global_time - currentStartTime!;
-
-				const cachedTimes = Array.from(cachedDeviceSamples.keys()).sort((a, b) => a - b);
-				if (cachedTimes.length === 0) return false;
-
-				const firstCachedTime = cachedTimes[0];
-				const lastCachedTime = cachedTimes[cachedTimes.length - 1];
-
-				// If first or last timestamp changed, samples have shifted
-				if (
-					Math.abs(firstCurrentTime - firstCachedTime) > 0.001 ||
-					Math.abs(lastCurrentTime - lastCachedTime) > 0.001
-				) {
-					return false;
-				}
-			}
-		}
-
-		return true;
+		return checkCacheValid(alignmentCache, sampleMap, sessionStartTime);
 	}
 
 	// Prepare data for uPlot from live samples, filtered by time window
@@ -314,14 +252,13 @@
 			// console.log(`[${title}] Rebuilding alignment cache for ${devices.length} devices`);
 
 			// Find the device with the most samples to use as time base
-			let maxDevice = devices[0];
-			let maxLength = 0;
-			for (const deviceId of devices) {
-				const len = sampleMap.get(deviceId)!.length;
-				if (len > maxLength) {
-					maxLength = len;
-					maxDevice = deviceId;
-				}
+			const maxDevice = findBaseDevice(sampleMap);
+			if (!maxDevice) {
+				alignmentCache = null;
+				deviceOrder = [];
+				sampleByDeviceAndTime = new SvelteMap();
+				verifiedIndicesByDevice = new SvelteMap();
+				return { data: [[], []], devices: [], samples: [] };
 			}
 
 			const baseSamples = sampleMap.get(maxDevice)!;
@@ -341,22 +278,20 @@
 			const alignStartTime = sessionStartTime ?? baseSamples[0].global_time;
 
 			// Build full alignment (no time window filtering)
-			const allTimestamps = baseSamples.map((s) => s.global_time - alignStartTime);
-			const aligned = alignSamplesToTimestamps(
-				sampleMap,
-				devices,
-				allTimestamps,
-				alignStartTime,
+			const aligned = prepareChartDataUtil({
+				samples: sampleMap,
 				getValue,
+				referenceTime: alignStartTime,
 				maxGapSeconds,
-				alignMode
-			);
+				alignMode,
+				deviceOrder: devices
+			});
 
 			// Update cache
 			alignmentCache = {
-				deviceOrder: [...devices],
+				deviceOrder: aligned.deviceOrder,
 				deviceSampleCounts: new Map(devices.map((d) => [d, sampleMap.get(d)!.length])),
-				timestamps: allTimestamps,
+				timestamps: aligned.timestamps,
 				seriesData: aligned.data.slice(1) as (number | null)[][],
 				sampleByDeviceAndTime: aligned.sampleByDeviceAndTime,
 				sessionStartTime: alignStartTime,
@@ -373,21 +308,14 @@
 		if (!timeWindow) {
 			deviceOrder = alignmentCache!.deviceOrder;
 			sampleByDeviceAndTime = cachedSampleByDevice;
-			const nextVerified = new SvelteMap<string, number[]>();
-			for (const deviceId of alignmentCache!.deviceOrder) {
-				const deviceSamples = cachedSampleByDevice.get(deviceId);
-				const indices: number[] = [];
-				if (deviceSamples) {
-					for (let i = 0; i < cachedTimestamps.length; i += 1) {
-						const sample = deviceSamples.get(cachedTimestamps[i]);
-						if (sample?.time_verified) {
-							indices.push(i);
-						}
-					}
-				}
-				nextVerified.set(deviceId, indices);
-			}
-			verifiedIndicesByDevice = nextVerified;
+			verifiedIndicesByDevice = new SvelteMap(
+				extractVerifiedIndices({
+					data: [cachedTimestamps, ...cachedSeriesData],
+					deviceOrder: alignmentCache!.deviceOrder,
+					sampleByDeviceAndTime: cachedSampleByDevice,
+					timestamps: cachedTimestamps
+				})
+			);
 
 			return {
 				data: [cachedTimestamps, ...cachedSeriesData],
@@ -413,21 +341,14 @@
 
 		deviceOrder = alignmentCache!.deviceOrder;
 		sampleByDeviceAndTime = cachedSampleByDevice;
-		const nextVerified = new SvelteMap<string, number[]>();
-		for (const deviceId of alignmentCache!.deviceOrder) {
-			const deviceSamples = cachedSampleByDevice.get(deviceId);
-			const indices: number[] = [];
-			if (deviceSamples) {
-				for (let i = 0; i < filteredTimestamps.length; i += 1) {
-					const sample = deviceSamples.get(filteredTimestamps[i]);
-					if (sample?.time_verified) {
-						indices.push(i);
-					}
-				}
-			}
-			nextVerified.set(deviceId, indices);
-		}
-		verifiedIndicesByDevice = nextVerified;
+		verifiedIndicesByDevice = new SvelteMap(
+			extractVerifiedIndices({
+				data: [filteredTimestamps, ...filteredSeriesData],
+				deviceOrder: alignmentCache!.deviceOrder,
+				sampleByDeviceAndTime: cachedSampleByDevice,
+				timestamps: filteredTimestamps
+			})
+		);
 
 		return {
 			data: [filteredTimestamps, ...filteredSeriesData],
@@ -437,20 +358,20 @@
 	}
 
 	function rebuildPlotOptions(devices: string[]) {
-		if (!createDeviceSeries || !createAxes || devices.length === 0) {
+		if (!createDeviceSeries || !createAxes) {
 			plotOptions = null;
 			return;
 		}
 
-		plotOptions = {
+		plotOptions = buildPlotOptions({
+			devices,
+			yAxisLabel,
 			height: 400,
-			series: createDeviceSeries(
-				devices,
-				showVerifiedPoints ? (deviceId) => verifiedIndicesByDevice.get(deviceId) ?? [] : undefined,
-				deviceNicknames,
-				true
-			),
-			axes: createAxes(yAxisLabel),
+			showVerifiedPoints,
+			getVerifiedIndices: (deviceId) => verifiedIndicesByDevice.get(deviceId) ?? [],
+			deviceNicknames,
+			spanGaps: true,
+			plugins: tooltipsPlugin ? [tooltipsPlugin] : [],
 			scales: {
 				x: {
 					time: false,
@@ -458,11 +379,12 @@
 					range: () => xAxisRange
 				}
 			},
-			plugins: tooltipsPlugin ? [tooltipsPlugin] : [],
 			legend: {
 				show: true
-			}
-		};
+			},
+			createDeviceSeries,
+			createAxes
+		});
 	}
 
 	// Update function for time-based chart updates using requestAnimationFrame

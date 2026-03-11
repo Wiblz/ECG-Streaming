@@ -4,17 +4,14 @@
 	import { browser } from '$app/environment';
 	import type { PlottableSample, Session } from '$lib/types/api';
 	import type { AlignMode } from '$lib/utils/samples';
-	import {
-		alignSamplesToTimestamps,
-		buildUnionTimestamps,
-		flattenGroupedSamples,
-		groupSamplesByDevice
-	} from '$lib/utils/samples';
+	import { flattenGroupedSamples } from '$lib/utils/samples';
 	import { SvelteMap } from 'svelte/reactivity';
 	import WaveformPlot, {
 		type WaveformPlotApi,
 		type WaveformPlotOptions
 	} from './WaveformPlot.svelte';
+	import { buildPlotOptions } from '$lib/waveforms/plot-configuration';
+	import { prepareChartData, extractVerifiedIndices } from '$lib/waveforms/chart-data-transformer';
 	let createDeviceSeries = $state<
 		| ((
 				deviceIds: string[],
@@ -136,7 +133,7 @@
 			loadedSamples = samples;
 			loadedTimeRange = { start: startTime, end: endTime };
 
-			const chartData = prepareChartData(loadedSamples);
+			const chartData = prepareChartDataLocal(loadedSamples);
 			plotData = chartData.data;
 			plotDevices = chartData.devices;
 			rebuildPlotOptions(chartData.devices);
@@ -156,7 +153,7 @@
 	};
 
 	// Prepare data for uPlot (convert to relative session time)
-	const prepareChartData = (samples: T[]): { data: uPlot.AlignedData; devices: string[] } => {
+	const prepareChartDataLocal = (samples: T[]): { data: uPlot.AlignedData; devices: string[] } => {
 		if (samples.length === 0) {
 			deviceOrder = [];
 			sampleByDeviceAndTime = new SvelteMap();
@@ -167,40 +164,23 @@
 		const inferredDevices = [...new Set(samples.map((s) => s.device_id))];
 		const stableDeviceOrder = session.devices?.length ? session.devices : inferredDevices.sort();
 
-		const samplesByDevice = groupSamplesByDevice(samples);
-		const timestamps = buildUnionTimestamps(samples, session.start_time);
-		const aligned = alignSamplesToTimestamps(
-			samplesByDevice,
-			stableDeviceOrder,
-			timestamps,
-			session.start_time,
+		const chartData = prepareChartData({
+			samples,
 			getValue,
+			referenceTime: session.start_time,
 			maxGapSeconds,
-			alignMode
-		);
+			alignMode,
+			deviceOrder: stableDeviceOrder
+		});
 
-		deviceOrder = aligned.deviceOrder;
-		sampleByDeviceAndTime = aligned.sampleByDeviceAndTime;
-
-		const nextVerified = new SvelteMap<string, number[]>();
-		for (const deviceId of aligned.deviceOrder) {
-			const deviceSamples = aligned.sampleByDeviceAndTime.get(deviceId);
-			const indices: number[] = [];
-			if (deviceSamples) {
-				for (let i = 0; i < aligned.timestamps.length; i += 1) {
-					const sample = deviceSamples.get(aligned.timestamps[i]);
-					if (sample?.time_verified) {
-						indices.push(i);
-					}
-				}
-			}
-			nextVerified.set(deviceId, indices);
-		}
-		verifiedIndicesByDevice = nextVerified;
+		// Update component state
+		deviceOrder = chartData.deviceOrder;
+		sampleByDeviceAndTime = chartData.sampleByDeviceAndTime;
+		verifiedIndicesByDevice = new SvelteMap(extractVerifiedIndices(chartData));
 
 		return {
-			data: aligned.data,
-			devices: aligned.deviceOrder
+			data: chartData.data,
+			devices: chartData.deviceOrder
 		};
 	};
 
@@ -306,7 +286,7 @@
 	}
 
 	function rebuildPlotOptions(devices: string[]) {
-		if (!createDeviceSeries || !createAxes || devices.length === 0) {
+		if (!createDeviceSeries || !createAxes) {
 			plotOptions = null;
 			plotOptionsKey = '';
 			return;
@@ -325,21 +305,20 @@
 		}
 		plotOptionsKey = nextKey;
 
-		plotOptions = {
+		plotOptions = buildPlotOptions({
+			devices,
+			yAxisLabel,
 			height: 400,
-			series: createDeviceSeries(
-				devices,
-				showVerifiedPoints ? (deviceId) => verifiedIndicesByDevice.get(deviceId) ?? [] : undefined,
-				deviceNicknames,
-				true
-			),
-			axes: createAxes(yAxisLabel),
+			showVerifiedPoints,
+			getVerifiedIndices: (deviceId) => verifiedIndicesByDevice.get(deviceId) ?? [],
+			deviceNicknames,
+			spanGaps: true,
+			plugins: tooltipsPlugin ? [wheelZoomPlugin(), tooltipsPlugin] : [wheelZoomPlugin()],
 			scales: {
 				x: {
 					time: false
 				}
 			},
-			plugins: tooltipsPlugin ? [wheelZoomPlugin(), tooltipsPlugin] : [wheelZoomPlugin()],
 			hooks: {
 				setScale: [
 					(u) => {
@@ -397,8 +376,10 @@
 			},
 			legend: {
 				show: true
-			}
-		};
+			},
+			createDeviceSeries,
+			createAxes
+		});
 	}
 
 	// Initialize: load first window of data

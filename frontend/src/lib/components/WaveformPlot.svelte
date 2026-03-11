@@ -116,7 +116,7 @@
 	$effect(() => {
 		// Must read data[0]?.length to track the data array as a dependency.
 		// Without this, just checking `if (data)` doesn't register data as a dependency.
-		const _forceTracking = data[0]?.length;
+		void data[0]?.length;
 		if (chart && data) {
 			chart.setData(data);
 		}

@@ -52,8 +52,8 @@ class StatusEventsClient {
 
 			this.eventSource = new EventSource(url);
 
-			this.eventSource.addEventListener('connected', (event) => {
-				this.handleConnected(event);
+			this.eventSource.addEventListener('connected', () => {
+				this.handleConnected();
 			});
 
 			this.eventSource.addEventListener('collector_update', (event) => {
@@ -68,8 +68,8 @@ class StatusEventsClient {
 				this.handleBufferStats(event);
 			});
 
-			this.eventSource.addEventListener('heartbeat', (event) => {
-				this.handleHeartbeat(event);
+			this.eventSource.addEventListener('heartbeat', () => {
+				this.handleHeartbeat();
 			});
 
 			this.eventSource.onerror = (event) => {

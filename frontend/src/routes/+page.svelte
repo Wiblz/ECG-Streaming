@@ -11,13 +11,30 @@
 	import LiveWaveforms from '$lib/components/LiveWaveforms.svelte';
 	import SessionControl from '$lib/components/SessionControl.svelte';
 	import StatsPanel from '$lib/components/StatsPanel.svelte';
+	import LiveActivityMonitor from '$lib/components/LiveActivityMonitor.svelte';
 	import { getDevices, setDevices } from '$lib/state/devices.svelte';
+	import { samples as ecgSamples } from '$lib/state/ecg-data.svelte';
+	import { samples as accSamples } from '$lib/state/acc-data.svelte';
 
 	let ecgWs: ECGWebSocket;
 	let accWs: AccelerometerWebSocket;
 
 	// Reactive derived devices
 	const devices = $derived(Array.from(getDevices().values()));
+
+	// Get first device samples for activity monitors
+	// Create stable getters that LiveActivityMonitor can poll
+	function getFirstEcgSamples() {
+		const deviceIds = Array.from(ecgSamples.keys());
+		if (deviceIds.length === 0) return [];
+		return ecgSamples.get(deviceIds[0]) ?? [];
+	}
+
+	function getFirstAccSamples() {
+		const deviceIds = Array.from(accSamples.keys());
+		if (deviceIds.length === 0) return [];
+		return accSamples.get(deviceIds[0]) ?? [];
+	}
 
 	onMount(async () => {
 		// Load device info with nicknames
@@ -60,6 +77,27 @@
 			<!-- Sidebar (1/3 width) -->
 			<div class="space-y-6">
 				<SessionControl />
+
+				<Card title="Activity Monitor">
+					<div class="space-y-4">
+						<LiveActivityMonitor
+							getSamples={getFirstEcgSamples}
+							getValue={(s) => s.raw_value}
+							label="ECG"
+							height={50}
+							color="#ef4444"
+							windowDuration={30}
+						/>
+						<LiveActivityMonitor
+							getSamples={getFirstAccSamples}
+							getValue={(s) => s.magnitude}
+							label="Accelerometer"
+							height={50}
+							color="#3b82f6"
+							windowDuration={30}
+						/>
+					</div>
+				</Card>
 
 				<StatsPanel />
 
