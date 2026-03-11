@@ -240,19 +240,24 @@ class EspDiscoveryMessage(_message.Message):
     BLE_SCAN_RESULT_FIELD_NUMBER: _ClassVar[int]
     ble_scan_result: BleScanResult
 
-    def __init__(self, ble_scan_result: BleScanResult | _Mapping | None = ...) -> None: ...
+    def __init__(
+        self, ble_scan_result: BleScanResult | _Mapping | None = ...
+    ) -> None: ...
 
 class CollectorToEspMessage(_message.Message):
-    __slots__ = ("config", "start_ble_scan")
+    __slots__ = ("config", "start_ble_scan", "trigger_led_signal")
     CONFIG_FIELD_NUMBER: _ClassVar[int]
     START_BLE_SCAN_FIELD_NUMBER: _ClassVar[int]
+    TRIGGER_LED_SIGNAL_FIELD_NUMBER: _ClassVar[int]
     config: UsbConfig
     start_ble_scan: StartBleScan
+    trigger_led_signal: TriggerLedSignal
 
     def __init__(
         self,
         config: UsbConfig | _Mapping | None = ...,
         start_ble_scan: StartBleScan | _Mapping | None = ...,
+        trigger_led_signal: TriggerLedSignal | _Mapping | None = ...,
     ) -> None: ...
 
 class UsbConfig(_message.Message):
@@ -295,3 +300,10 @@ class StartBleScan(_message.Message):
         duration_ms: int | None = ...,
         name_prefix: str | None = ...,
     ) -> None: ...
+
+class TriggerLedSignal(_message.Message):
+    __slots__ = ("esp_id",)
+    ESP_ID_FIELD_NUMBER: _ClassVar[int]
+    esp_id: str
+
+    def __init__(self, esp_id: str | None = ...) -> None: ...

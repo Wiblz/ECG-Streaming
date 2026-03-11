@@ -113,6 +113,7 @@ message CollectorToEspMessage {
   oneof message {
     UsbConfig config = 1;
     StartBleScan start_ble_scan = 2;
+    TriggerLedSignal trigger_led_signal = 3;
   }
 }
 
@@ -132,4 +133,9 @@ message StartBleScan {
   uint32 request_id = 2;              // Collector-generated request id for idempotency
   uint32 duration_ms = 3;             // Scan duration
   string name_prefix = 4;             // Name filter (e.g., "Polar")
+}
+
+// Trigger a short LED identification signal on the ESP
+message TriggerLedSignal {
+  string esp_id = 1;                  // Target ESP32 identifier
 }

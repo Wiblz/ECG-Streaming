@@ -125,11 +125,17 @@ typedef struct _ecg_streaming_StartBleScan {
     char name_prefix[33]; /* Name filter (e.g., "Polar") */
 } ecg_streaming_StartBleScan;
 
+/* Trigger a short LED identification signal on the ESP */
+typedef struct _ecg_streaming_TriggerLedSignal {
+    char esp_id[65]; /* Target ESP32 identifier */
+} ecg_streaming_TriggerLedSignal;
+
 typedef struct _ecg_streaming_CollectorToEspMessage {
     pb_size_t which_message;
     union {
         ecg_streaming_UsbConfig config;
         ecg_streaming_StartBleScan start_ble_scan;
+        ecg_streaming_TriggerLedSignal trigger_led_signal;
     } message;
 } ecg_streaming_CollectorToEspMessage;
 
@@ -157,6 +163,7 @@ extern "C" {
 
 
 
+
 /* Initializer values for message structs */
 #define ecg_streaming_EspMessage_init_default    {0, {ecg_streaming_SensorFrame_init_default}}
 #define ecg_streaming_SensorFrame_init_default   {"", _ecg_streaming_SensorType_MIN, 0, 0, 0, {{NULL}, NULL}}
@@ -169,6 +176,7 @@ extern "C" {
 #define ecg_streaming_CollectorToEspMessage_init_default {0, {ecg_streaming_UsbConfig_init_default}}
 #define ecg_streaming_UsbConfig_init_default     {"", "", 0, 0, 0}
 #define ecg_streaming_StartBleScan_init_default  {"", 0, 0, ""}
+#define ecg_streaming_TriggerLedSignal_init_default {""}
 #define ecg_streaming_EspMessage_init_zero       {0, {ecg_streaming_SensorFrame_init_zero}}
 #define ecg_streaming_SensorFrame_init_zero      {"", _ecg_streaming_SensorType_MIN, 0, 0, 0, {{NULL}, NULL}}
 #define ecg_streaming_UsbDeviceInfo_init_zero    {"", "", "", 0, "", 0, 0, _ecg_streaming_DeviceStatus_MIN, 0, 0, 0, 0}
@@ -180,6 +188,7 @@ extern "C" {
 #define ecg_streaming_CollectorToEspMessage_init_zero {0, {ecg_streaming_UsbConfig_init_zero}}
 #define ecg_streaming_UsbConfig_init_zero        {"", "", 0, 0, 0}
 #define ecg_streaming_StartBleScan_init_zero     {"", 0, 0, ""}
+#define ecg_streaming_TriggerLedSignal_init_zero {""}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define ecg_streaming_SensorFrame_device_id_tag  1
@@ -237,8 +246,10 @@ extern "C" {
 #define ecg_streaming_StartBleScan_request_id_tag 2
 #define ecg_streaming_StartBleScan_duration_ms_tag 3
 #define ecg_streaming_StartBleScan_name_prefix_tag 4
+#define ecg_streaming_TriggerLedSignal_esp_id_tag 1
 #define ecg_streaming_CollectorToEspMessage_config_tag 1
 #define ecg_streaming_CollectorToEspMessage_start_ble_scan_tag 2
+#define ecg_streaming_CollectorToEspMessage_trigger_led_signal_tag 3
 
 /* Struct field encoding specification for nanopb */
 #define ecg_streaming_EspMessage_FIELDLIST(X, a) \
@@ -327,11 +338,13 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (message,ble_scan_result,message.ble_scan_res
 
 #define ecg_streaming_CollectorToEspMessage_FIELDLIST(X, a) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (message,config,message.config),   1) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (message,start_ble_scan,message.start_ble_scan),   2)
+X(a, STATIC,   ONEOF,    MESSAGE,  (message,start_ble_scan,message.start_ble_scan),   2) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (message,trigger_led_signal,message.trigger_led_signal),   3)
 #define ecg_streaming_CollectorToEspMessage_CALLBACK NULL
 #define ecg_streaming_CollectorToEspMessage_DEFAULT NULL
 #define ecg_streaming_CollectorToEspMessage_message_config_MSGTYPE ecg_streaming_UsbConfig
 #define ecg_streaming_CollectorToEspMessage_message_start_ble_scan_MSGTYPE ecg_streaming_StartBleScan
+#define ecg_streaming_CollectorToEspMessage_message_trigger_led_signal_MSGTYPE ecg_streaming_TriggerLedSignal
 
 #define ecg_streaming_UsbConfig_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, STRING,   esp_id,            1) \
@@ -350,6 +363,11 @@ X(a, STATIC,   SINGULAR, STRING,   name_prefix,       4)
 #define ecg_streaming_StartBleScan_CALLBACK NULL
 #define ecg_streaming_StartBleScan_DEFAULT NULL
 
+#define ecg_streaming_TriggerLedSignal_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   esp_id,            1)
+#define ecg_streaming_TriggerLedSignal_CALLBACK NULL
+#define ecg_streaming_TriggerLedSignal_DEFAULT NULL
+
 extern const pb_msgdesc_t ecg_streaming_EspMessage_msg;
 extern const pb_msgdesc_t ecg_streaming_SensorFrame_msg;
 extern const pb_msgdesc_t ecg_streaming_UsbDeviceInfo_msg;
@@ -361,6 +379,7 @@ extern const pb_msgdesc_t ecg_streaming_EspDiscoveryMessage_msg;
 extern const pb_msgdesc_t ecg_streaming_CollectorToEspMessage_msg;
 extern const pb_msgdesc_t ecg_streaming_UsbConfig_msg;
 extern const pb_msgdesc_t ecg_streaming_StartBleScan_msg;
+extern const pb_msgdesc_t ecg_streaming_TriggerLedSignal_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define ecg_streaming_EspMessage_fields &ecg_streaming_EspMessage_msg
@@ -374,6 +393,7 @@ extern const pb_msgdesc_t ecg_streaming_StartBleScan_msg;
 #define ecg_streaming_CollectorToEspMessage_fields &ecg_streaming_CollectorToEspMessage_msg
 #define ecg_streaming_UsbConfig_fields &ecg_streaming_UsbConfig_msg
 #define ecg_streaming_StartBleScan_fields &ecg_streaming_StartBleScan_msg
+#define ecg_streaming_TriggerLedSignal_fields &ecg_streaming_TriggerLedSignal_msg
 
 /* Maximum encoded size of messages (where known) */
 /* ecg_streaming_EspMessage_size depends on runtime parameters */
@@ -385,6 +405,7 @@ extern const pb_msgdesc_t ecg_streaming_StartBleScan_msg;
 #define ecg_streaming_CollectorToEspMessage_size 159
 #define ecg_streaming_EspDiscoveryMessage_size   2945
 #define ecg_streaming_StartBleScan_size          112
+#define ecg_streaming_TriggerLedSignal_size      66
 #define ecg_streaming_UsbConfigAck_size          265
 #define ecg_streaming_UsbConfig_size             156
 #define ecg_streaming_UsbDeviceInfo_size         228

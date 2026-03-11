@@ -35,3 +35,6 @@ ecg_streaming.BleScanResult.sightings max_count:16
 # StartBleScan
 ecg_streaming.StartBleScan.esp_id max_length:64
 ecg_streaming.StartBleScan.name_prefix max_length:32
+
+# TriggerLedSignal
+ecg_streaming.TriggerLedSignal.esp_id max_length:64

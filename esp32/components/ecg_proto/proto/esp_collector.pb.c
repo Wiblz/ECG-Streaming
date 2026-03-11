@@ -39,6 +39,9 @@ PB_BIND(ecg_streaming_UsbConfig, ecg_streaming_UsbConfig, AUTO)
 PB_BIND(ecg_streaming_StartBleScan, ecg_streaming_StartBleScan, AUTO)
 
 
+PB_BIND(ecg_streaming_TriggerLedSignal, ecg_streaming_TriggerLedSignal, AUTO)
+
+
 
 
 

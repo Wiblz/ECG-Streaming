@@ -467,6 +467,70 @@ def usb_run(
     asyncio.run(_run())
 
 
+@usb_app.command("signal")
+def usb_signal(
+    esp_id: Annotated[str, typer.Option("--esp-id", help="Target ESP identifier")],
+    timeout: Annotated[
+        float, typer.Option("--timeout", "-t", help="Probe timeout per device (seconds)")
+    ] = 8.0,
+) -> None:
+    """Trigger a 2-second LED identify signal on a specific ESP."""
+    from ecg_common.proto import esp_collector_pb2
+
+    from ecg_collector.usb.collector import (
+        UsbCollector,
+        discover_and_group_usb_interfaces,
+        probe_usb_groups,
+    )
+
+    async def _signal() -> None:
+        device_groups = await discover_and_group_usb_interfaces()
+        if not device_groups:
+            console.print("[yellow]No USB devices found[/yellow]")
+            raise typer.Exit(code=1)
+
+        await probe_usb_groups(device_groups, timeout_s=timeout)
+
+        target_group = next(
+            (
+                group
+                for group in device_groups.values()
+                if group.device_info and group.data_interface and group.device_info.esp_id == esp_id
+            ),
+            None,
+        )
+        if not target_group or not target_group.data_interface:
+            console.print(f"[red]ESP {esp_id} not found[/red]")
+            raise typer.Exit(code=1)
+
+        usb_collector = UsbCollector(
+            device_path=target_group.data_interface.device_path,
+            stats_interval_s=60.0,
+        )
+        run_task = asyncio.create_task(usb_collector.run())
+        try:
+            start_wait = time.monotonic()
+            while usb_collector.writer is None:
+                if run_task.done():
+                    raise RuntimeError("USB collector task ended before LED signal request")
+                if (time.monotonic() - start_wait) > 2.0:
+                    raise TimeoutError("Timed out waiting for USB writer")
+                await asyncio.sleep(0.05)
+
+            outbound = esp_collector_pb2.CollectorToEspMessage()
+            outbound.trigger_led_signal.CopyFrom(esp_collector_pb2.TriggerLedSignal(esp_id=esp_id))
+            await usb_collector.send_collector_to_esp_message(outbound)
+            console.print(f"[green]Triggered LED signal on {esp_id}[/green]")
+            await asyncio.sleep(0.25)
+        finally:
+            await usb_collector.stop()
+            run_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await run_task
+
+    asyncio.run(_signal())
+
+
 @usb_app.command("auto-pair")
 def usb_auto_pair(
     ble_timeout: Annotated[
@@ -549,7 +613,7 @@ def usb_auto_pair(
         from ecg_collector.usb.models import EspDeviceGroup, ProbeStatus
         from ecg_collector.usb.pairing import PairingManager
 
-        expected_protocol_version = 3
+        expected_protocol_version = 4
         esp_scan_duration_ms = 5000
         esp_scan_timeout_s = 8.0
         esp_scan_prefix = "Polar"

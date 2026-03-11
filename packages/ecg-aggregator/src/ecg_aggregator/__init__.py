@@ -1,3 +1,3 @@
 """ECG-Aggregator: Data aggregation, synchronization, and dashboard module."""
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"

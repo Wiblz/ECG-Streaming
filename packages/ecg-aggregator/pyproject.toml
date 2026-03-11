@@ -1,6 +1,6 @@
 [project]
 name = "ecg-aggregator"
-version = "0.3.0"
+version = "0.4.0"
 description = "Aggregator + Dashboard for ECG-Streaming - receives data, syncs timing, stores in DB, serves API"
 readme = "README.md"
 requires-python = ">=3.14"

@@ -22,9 +22,11 @@ static const char *TAG = "LED_STATUS";
 // Timing
 static const uint32_t FRAME_MS = 15;
 static const uint32_t STREAM_ACTIVE_MS = 1000;
+static const uint32_t IDENTIFY_DURATION_MS = 3000;
 
 // Brightness shaping (0..1)
 static const float BRIGHTNESS = 0.08f;
+static const float IDENTIFY_BRIGHTNESS = 0.22f;
 
 typedef struct {
     uint8_t r;
@@ -42,6 +44,7 @@ static rmt_encoder_handle_t s_encoder = NULL;
 static uint8_t s_pixel_buf[NUM_LEDS * 3];
 static volatile bool s_polar_connected = false;
 static volatile TickType_t s_last_stream_tick = 0;
+static volatile TickType_t s_identify_until_tick = 0;
 
 void led_status_set_polar_connected(bool connected) {
     s_polar_connected = connected;
@@ -52,6 +55,10 @@ void led_status_set_polar_connected(bool connected) {
 
 void led_status_mark_stream_activity(void) {
     s_last_stream_tick = xTaskGetTickCount();
+}
+
+void led_status_trigger_identify(void) {
+    s_identify_until_tick = xTaskGetTickCount() + pdMS_TO_TICKS(IDENTIFY_DURATION_MS);
 }
 
 static rgb_u8_t scale_color(rgb_u8_t c, float scale) {
@@ -86,19 +93,51 @@ static void set_led(rgb_u8_t c) {
     esp_rom_delay_us(60);
 }
 
+static rgb_u8_t rainbow_color(uint32_t phase_ms) {
+    // Run two full hue rotations over the identify window so the signal reads
+    // as intentional motion rather than a slow color drift.
+    uint32_t wheel = (phase_ms * 512u) / IDENTIFY_DURATION_MS;
+    wheel &= 0xFFu;
+
+    rgb_u8_t c = {0, 0, 0};
+    if (wheel < 85u) {
+        c.r = (uint8_t)(255u - wheel * 3u);
+        c.g = (uint8_t)(wheel * 3u);
+        c.b = 0;
+    } else if (wheel < 170u) {
+        wheel -= 85u;
+        c.r = 0;
+        c.g = (uint8_t)(255u - wheel * 3u);
+        c.b = (uint8_t)(wheel * 3u);
+    } else {
+        wheel -= 170u;
+        c.r = (uint8_t)(wheel * 3u);
+        c.g = 0;
+        c.b = (uint8_t)(255u - wheel * 3u);
+    }
+
+    return scale_color(c, IDENTIFY_BRIGHTNESS);
+}
+
 static void led_task(void *param) {
     while (1) {
-        uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
-        uint32_t since_stream_ms = (uint32_t)(xTaskGetTickCount() - s_last_stream_tick) * portTICK_PERIOD_MS;
+        TickType_t now_tick = xTaskGetTickCount();
+        uint32_t now_ms = now_tick * portTICK_PERIOD_MS;
+        uint32_t since_stream_ms = (uint32_t)(now_tick - s_last_stream_tick) * portTICK_PERIOD_MS;
         bool streaming_active = s_polar_connected &&
                                 s_last_stream_tick != 0 &&
                                 since_stream_ms < STREAM_ACTIVE_MS;
         bool polar_connected = s_polar_connected;
         bool scanner_active = g_scanner_active;
+        bool identify_active = s_identify_until_tick != 0 && now_tick < s_identify_until_tick;
 
         rgb_u8_t c = {0, 0, 0};
 
-        if (streaming_active) {
+        if (identify_active) {
+            TickType_t remaining_ticks = s_identify_until_tick - now_tick;
+            uint32_t elapsed_ms = IDENTIFY_DURATION_MS - (remaining_ticks * portTICK_PERIOD_MS);
+            c = rainbow_color(elapsed_ms);
+        } else if (streaming_active) {
             // Streaming: solid green (data received in last 500ms)
             c = scale_color(k_green, BRIGHTNESS);
         } else if (polar_connected) {

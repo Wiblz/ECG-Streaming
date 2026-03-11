@@ -16,6 +16,7 @@
 #include "esp_collector.pb.h"
 #include "state.h"
 #include "usb_transport.h"
+#include "led_status.h"
 
 static const char *TAG = "usb_provision";
 
@@ -167,6 +168,15 @@ void usb_rx_task(void *param) {
                 continue;
             }
             ble_start_scan_request(scan->request_id, scan->duration_ms, scan->name_prefix);
+            continue;
+        }
+        if (msg.which_message == ecg_streaming_CollectorToEspMessage_trigger_led_signal_tag) {
+            ecg_streaming_TriggerLedSignal *signal = &msg.message.trigger_led_signal;
+            if (signal->esp_id[0] != '\0' && strcmp(signal->esp_id, g_esp_id) != 0) {
+                continue;
+            }
+            ESP_LOGI(TAG, "Triggering LED identify signal");
+            led_status_trigger_identify();
         }
     }
 }

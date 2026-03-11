@@ -19,7 +19,7 @@ from ecg_collector.usb.pairing import PairingManager
 
 logger = get_logger(__name__)
 ble_debug_logger = get_logger("ecg_collector.ble_debug")
-EXPECTED_PROTOCOL_VERSION = 3
+EXPECTED_PROTOCOL_VERSION = 4
 type EspOperationalMessage = esp_collector_pb2.EspMessage
 type EspDiscoveryMessage = esp_collector_pb2.EspDiscoveryMessage
 type UsbInboundMessage = EspOperationalMessage | EspDiscoveryMessage
