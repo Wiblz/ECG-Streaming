@@ -74,6 +74,8 @@ class EspDeviceInfo:
     polar_connected: bool
     scanner_active: bool = False
     scanner_request_id: int = 0
+    polar_battery_known: bool = False
+    polar_battery_percent: int = 0
 
 
 @dataclass

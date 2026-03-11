@@ -73,6 +73,16 @@ static void watchdog_task(void *param) {
             ble_schedule_start_acc();
             // Note: g_acc_started is set to true in pmd_start_acc() after START command is sent
         }
+
+        if (
+            g_connected
+            && g_ecg_started
+            && !g_polar_battery_known
+            && g_battery_start > 0
+            && (g_acc_sample_rate_hz <= 0 || g_acc_started)
+        ) {
+            ble_schedule_read_battery();
+        }
         
         // Calculate rates
         float elapsed_sec = 0;

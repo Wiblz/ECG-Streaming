@@ -43,6 +43,8 @@ typedef struct _ecg_streaming_UsbDeviceInfo {
     ecg_streaming_DeviceStatus polar_status; /* Status of Polar device connection */
     bool scanner_active; /* True if ESP is in BLE scanner mode */
     uint32_t scanner_request_id; /* Last scan request id processed by ESP */
+    bool polar_battery_known; /* True if battery level has been read for current Polar connection */
+    uint32_t polar_battery_percent; /* Battery percentage (0-100) when known */
 } ecg_streaming_UsbDeviceInfo;
 
 /* Configuration acknowledgment from ESP32
@@ -158,7 +160,7 @@ extern "C" {
 /* Initializer values for message structs */
 #define ecg_streaming_EspMessage_init_default    {0, {ecg_streaming_SensorFrame_init_default}}
 #define ecg_streaming_SensorFrame_init_default   {"", _ecg_streaming_SensorType_MIN, 0, 0, 0, {{NULL}, NULL}}
-#define ecg_streaming_UsbDeviceInfo_init_default {"", "", "", 0, "", 0, 0, _ecg_streaming_DeviceStatus_MIN, 0, 0}
+#define ecg_streaming_UsbDeviceInfo_init_default {"", "", "", 0, "", 0, 0, _ecg_streaming_DeviceStatus_MIN, 0, 0, 0, 0}
 #define ecg_streaming_UsbConfigAck_init_default  {"", 0, "", ""}
 #define ecg_streaming_BleNotificationDebug_init_default {"", 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define ecg_streaming_BleScanSighting_init_default {"", "", "", 0, 0}
@@ -169,7 +171,7 @@ extern "C" {
 #define ecg_streaming_StartBleScan_init_default  {"", 0, 0, ""}
 #define ecg_streaming_EspMessage_init_zero       {0, {ecg_streaming_SensorFrame_init_zero}}
 #define ecg_streaming_SensorFrame_init_zero      {"", _ecg_streaming_SensorType_MIN, 0, 0, 0, {{NULL}, NULL}}
-#define ecg_streaming_UsbDeviceInfo_init_zero    {"", "", "", 0, "", 0, 0, _ecg_streaming_DeviceStatus_MIN, 0, 0}
+#define ecg_streaming_UsbDeviceInfo_init_zero    {"", "", "", 0, "", 0, 0, _ecg_streaming_DeviceStatus_MIN, 0, 0, 0, 0}
 #define ecg_streaming_UsbConfigAck_init_zero     {"", 0, "", ""}
 #define ecg_streaming_BleNotificationDebug_init_zero {"", 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define ecg_streaming_BleScanSighting_init_zero  {"", "", "", 0, 0}
@@ -196,6 +198,8 @@ extern "C" {
 #define ecg_streaming_UsbDeviceInfo_polar_status_tag 8
 #define ecg_streaming_UsbDeviceInfo_scanner_active_tag 9
 #define ecg_streaming_UsbDeviceInfo_scanner_request_id_tag 10
+#define ecg_streaming_UsbDeviceInfo_polar_battery_known_tag 11
+#define ecg_streaming_UsbDeviceInfo_polar_battery_percent_tag 12
 #define ecg_streaming_UsbConfigAck_esp_id_tag    1
 #define ecg_streaming_UsbConfigAck_accepted_tag  2
 #define ecg_streaming_UsbConfigAck_message_tag   3
@@ -269,7 +273,9 @@ X(a, STATIC,   SINGULAR, BOOL,     config_required,   6) \
 X(a, STATIC,   SINGULAR, BOOL,     polar_connected,   7) \
 X(a, STATIC,   SINGULAR, UENUM,    polar_status,      8) \
 X(a, STATIC,   SINGULAR, BOOL,     scanner_active,    9) \
-X(a, STATIC,   SINGULAR, UINT32,   scanner_request_id,  10)
+X(a, STATIC,   SINGULAR, UINT32,   scanner_request_id,  10) \
+X(a, STATIC,   SINGULAR, BOOL,     polar_battery_known,  11) \
+X(a, STATIC,   SINGULAR, UINT32,   polar_battery_percent,  12)
 #define ecg_streaming_UsbDeviceInfo_CALLBACK NULL
 #define ecg_streaming_UsbDeviceInfo_DEFAULT NULL
 
@@ -381,7 +387,7 @@ extern const pb_msgdesc_t ecg_streaming_StartBleScan_msg;
 #define ecg_streaming_StartBleScan_size          112
 #define ecg_streaming_UsbConfigAck_size          265
 #define ecg_streaming_UsbConfig_size             156
-#define ecg_streaming_UsbDeviceInfo_size         220
+#define ecg_streaming_UsbDeviceInfo_size         228
 
 #ifdef __cplusplus
 } /* extern "C" */

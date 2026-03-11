@@ -19,7 +19,7 @@ from ecg_collector.usb.pairing import PairingManager
 
 logger = get_logger(__name__)
 ble_debug_logger = get_logger("ecg_collector.ble_debug")
-EXPECTED_PROTOCOL_VERSION = 2
+EXPECTED_PROTOCOL_VERSION = 3
 type EspOperationalMessage = esp_collector_pb2.EspMessage
 type EspDiscoveryMessage = esp_collector_pb2.EspDiscoveryMessage
 type UsbInboundMessage = EspOperationalMessage | EspDiscoveryMessage
@@ -326,13 +326,14 @@ class MultiUsbCollectorService(DataCollector):
 
         logger.info(
             "USB device_info from %s: current_target=%s polar_connected=%s config_required=%s "
-            "scanner_active=%s scanner_request_id=%s app=%s idf=%s proto=%s",
+            "scanner_active=%s scanner_request_id=%s battery=%s app=%s idf=%s proto=%s",
             esp_id,
             info.current_target or "(none)",
             info.polar_connected,
             info.config_required,
             info.scanner_active,
             info.scanner_request_id,
+            f"{info.polar_battery_percent}%" if info.polar_battery_known else "unknown",
             info.app_version,
             info.idf_version,
             info.protocol_version,
@@ -365,7 +366,7 @@ class MultiUsbCollectorService(DataCollector):
     async def _run_usb_device(self, device_path: str) -> None:
         first_message = asyncio.Event()
 
-        async def _callback(msg: esp_collector_pb2.EspMessage) -> None:
+        async def _callback(msg: UsbInboundMessage) -> None:
             if not first_message.is_set():
                 msg_type = msg.WhichOneof("message")
                 if msg_type == "device_info":

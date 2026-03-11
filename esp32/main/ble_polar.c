@@ -57,11 +57,13 @@ static struct ble_npl_event g_start_ecg_ev;
 static struct ble_npl_event g_start_acc_ev;
 static struct ble_npl_event g_apply_config_ev;
 static struct ble_npl_event g_start_scan_request_ev;
+static struct ble_npl_event g_read_battery_ev;
 static bool g_start_ecg_pending = false;
 static bool g_start_acc_pending = false;
 static bool g_apply_config_pending = false;
 static bool g_apply_config_changed = false;
 static bool g_start_scan_request_pending = false;
+static bool g_read_battery_pending = false;
 static bool g_start_ecg_wait_encryption = false;
 static bool g_link_encrypted = false;
 static bool g_cccd_pending = false;
@@ -75,14 +77,21 @@ static bool g_acc_rate_warned = false;
 static void schedule_start_ecg(void);
 static void schedule_start_acc(void);
 static void schedule_apply_config(bool changed);
+static void schedule_read_battery(void);
 static void start_ecg_ev_cb(struct ble_npl_event *ev);
 static void start_acc_ev_cb(struct ble_npl_event *ev);
 static void apply_config_ev_cb(struct ble_npl_event *ev);
 static void start_scan_request_ev_cb(struct ble_npl_event *ev);
+static void read_battery_ev_cb(struct ble_npl_event *ev);
+static int chr_disc_cb(uint16_t conn_handle,
+                       const struct ble_gatt_error *error,
+                       const struct ble_gatt_chr *chr, void *arg);
 void ble_schedule_start_acc(void);
 static void pmd_get_settings(uint16_t conn_handle, uint16_t ctrl_handle, uint8_t pmd_type);
 static void pmd_try_enable_cccds(uint16_t conn_handle);
 static void pmd_try_start_streams(uint16_t conn_handle);
+static int battery_read_cb(uint16_t conn_handle, const struct ble_gatt_error *error,
+                           struct ble_gatt_attr *attr, void *arg);
 
 static void addr_to_str(const ble_addr_t *addr, char *out, size_t out_len) {
     snprintf(out, out_len, "%02x:%02x:%02x:%02x:%02x:%02x",
@@ -504,6 +513,14 @@ static void schedule_apply_config(bool changed) {
     ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &g_apply_config_ev);
 }
 
+static void schedule_read_battery(void) {
+    if (g_read_battery_pending) {
+        return;
+    }
+    g_read_battery_pending = true;
+    ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &g_read_battery_ev);
+}
+
 static void start_ecg_ev_cb(struct ble_npl_event *ev) {
     struct ble_gap_conn_desc desc;
     g_start_ecg_pending = false;
@@ -571,6 +588,44 @@ void ble_apply_updated_config(bool changed) {
     schedule_apply_config(changed);
 }
 
+void ble_schedule_read_battery(void) {
+    schedule_read_battery();
+}
+
+static void read_battery_ev_cb(struct ble_npl_event *ev) {
+    (void)ev;
+    g_read_battery_pending = false;
+
+    if (!g_connected || g_conn_handle == BLE_HS_CONN_HANDLE_NONE) {
+        ESP_LOGW(TAG, "Battery workflow skipped: not connected");
+        return;
+    }
+    if (g_polar_battery_known) {
+        ESP_LOGI(TAG, "Battery workflow skipped: battery already known");
+        return;
+    }
+    if (g_battery_start == 0 || g_battery_end == 0) {
+        ESP_LOGW(TAG, "Battery workflow skipped: Battery Service not discovered");
+        return;
+    }
+
+    if (g_battery_level_handle == 0) {
+        ESP_LOGI(TAG, "Discovering Battery Service characteristics...");
+        int rc = ble_gattc_disc_all_chrs(g_conn_handle, g_battery_start, g_battery_end,
+                                         chr_disc_cb, (void *)2u);
+        if (rc != 0) {
+            ESP_LOGW(TAG, "Battery characteristic discovery failed: %d", rc);
+        }
+        return;
+    }
+
+    ESP_LOGI(TAG, "Starting battery read: handle=0x%04X", g_battery_level_handle);
+    int rc = ble_gattc_read(g_conn_handle, g_battery_level_handle, battery_read_cb, NULL);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "Battery read start failed: %d", rc);
+    }
+}
+
 static void pmd_try_enable_cccds(uint16_t conn_handle) {
     if (!g_link_encrypted) {
         g_cccd_pending = true;
@@ -615,7 +670,9 @@ static void pmd_try_start_streams(uint16_t conn_handle) {
         // Per official Polar PMD spec Table 2: ECG=0x00, PPG=0x01, ACC=0x02
         // Query only the official measurement types (no heuristic type detection)
         pmd_get_settings(conn_handle, g_pmd_ctrl_handle, PMD_TYPE_ECG);  // 0x00
-        pmd_get_settings(conn_handle, g_pmd_ctrl_handle, PMD_TYPE_ACC);  // 0x02
+        if (g_acc_sample_rate_hz > 0) {
+            pmd_get_settings(conn_handle, g_pmd_ctrl_handle, PMD_TYPE_ACC);  // 0x02
+        }
     }
 }
 
@@ -648,35 +705,81 @@ static int dsc_disc_cb(uint16_t conn_handle,
     return 0;
 }
 
+static int battery_read_cb(uint16_t conn_handle, const struct ble_gatt_error *error,
+                           struct ble_gatt_attr *attr, void *arg) {
+    (void)conn_handle;
+    (void)arg;
+
+    ESP_LOGI(TAG, "Battery read callback: status=%d", error->status);
+
+    if (error->status != 0) {
+        ESP_LOGW(TAG, "Battery read failed: %d", error->status);
+        return 0;
+    }
+
+    if (!attr || !attr->om || OS_MBUF_PKTLEN(attr->om) < 1) {
+        ESP_LOGW(TAG, "Battery read returned empty payload");
+        return 0;
+    }
+
+    uint8_t battery_percent = 0;
+    if (os_mbuf_copydata(attr->om, 0, 1, &battery_percent) != 0) {
+        ESP_LOGW(TAG, "Battery read copy failed");
+        return 0;
+    }
+
+    g_polar_battery_known = true;
+    g_polar_battery_percent = battery_percent;
+    ESP_LOGI(TAG, "Polar battery level: %u%%", (unsigned)battery_percent);
+    usb_send_device_info_update();
+    return 0;
+}
+
 static int chr_disc_cb(uint16_t conn_handle,
                        const struct ble_gatt_error *error,
                        const struct ble_gatt_chr *chr, void *arg) {
+    uintptr_t service_kind = (uintptr_t)arg;
+
     if (error->status == 0) {
-        if (ble_uuid_cmp(&chr->uuid.u, &UUID_PMD_CTRL.u) == 0) {
-            g_pmd_ctrl_handle = chr->val_handle;
-        } else if (ble_uuid_cmp(&chr->uuid.u, &UUID_PMD_DATA.u) == 0) {
-            g_pmd_data_handle = chr->val_handle;
+        if (service_kind == 1u) {
+            if (ble_uuid_cmp(&chr->uuid.u, &UUID_PMD_CTRL.u) == 0) {
+                g_pmd_ctrl_handle = chr->val_handle;
+            } else if (ble_uuid_cmp(&chr->uuid.u, &UUID_PMD_DATA.u) == 0) {
+                g_pmd_data_handle = chr->val_handle;
+            }
+        } else if (service_kind == 2u) {
+            if (ble_uuid_u16(&chr->uuid.u) == 0x2A19) {
+                g_battery_level_handle = chr->val_handle;
+                ESP_LOGI(TAG, "Battery level handle: 0x%04X", g_battery_level_handle);
+            }
         }
         return 0;
     }
 
     if (error->status == BLE_HS_EDONE) {
-        if (g_pmd_ctrl_handle) {
+        if (service_kind == 1u && g_pmd_ctrl_handle) {
             int rc = ble_gattc_disc_all_dscs(conn_handle, g_pmd_ctrl_handle,
                                             g_pmd_end, dsc_disc_cb, NULL);
             if (rc != 0) {
                 ESP_LOGE(TAG, "Descriptor discovery (ctrl) failed: %d", rc);
             }
         }
-        if (g_pmd_data_handle) {
+        if (service_kind == 1u && g_pmd_data_handle) {
             int rc = ble_gattc_disc_all_dscs(conn_handle, g_pmd_data_handle,
                                             g_pmd_end, dsc_disc_cb, NULL);
             if (rc != 0) {
                 ESP_LOGE(TAG, "Descriptor discovery (data) failed: %d", rc);
             }
         }
-        ESP_LOGI(TAG, "PMD handles: ctrl=0x%04X data=0x%04X ctrl_cccd=0x%04X data_cccd=0x%04X",
-                 g_pmd_ctrl_handle, g_pmd_data_handle, g_pmd_ctrl_cccd_handle, g_pmd_cccd_handle);
+        if (service_kind == 1u) {
+            ESP_LOGI(TAG, "PMD handles: ctrl=0x%04X data=0x%04X ctrl_cccd=0x%04X data_cccd=0x%04X",
+                     g_pmd_ctrl_handle, g_pmd_data_handle, g_pmd_ctrl_cccd_handle, g_pmd_cccd_handle);
+        } else if (service_kind == 2u && g_battery_level_handle) {
+            ESP_LOGI(TAG, "Battery characteristic discovery complete");
+            schedule_read_battery();
+        } else if (service_kind == 2u) {
+            ESP_LOGW(TAG, "Battery characteristic discovery complete but level handle not found");
+        }
         return 0;
     }
 
@@ -690,6 +793,10 @@ static int svc_disc_cb(uint16_t conn_handle,
         if (ble_uuid_cmp(&svc->uuid.u, &UUID_PMD_SVC.u) == 0) {
             g_pmd_start = svc->start_handle;
             g_pmd_end   = svc->end_handle;
+        } else if (ble_uuid_u16(&svc->uuid.u) == 0x180F) {
+            g_battery_start = svc->start_handle;
+            g_battery_end = svc->end_handle;
+            ESP_LOGI(TAG, "Battery Service found: start=0x%04X end=0x%04X", g_battery_start, g_battery_end);
         }
         return 0;
     }
@@ -697,12 +804,15 @@ static int svc_disc_cb(uint16_t conn_handle,
     if (error->status == BLE_HS_EDONE) {
         if (g_pmd_start > 0) {
             int rc = ble_gattc_disc_all_chrs(conn_handle, g_pmd_start, g_pmd_end,
-                                            chr_disc_cb, NULL);
+                                            chr_disc_cb, (void *)1u);
             if (rc != 0) {
                 ESP_LOGE(TAG, "Characteristic discovery failed: %d", rc);
             }
         } else {
             ESP_LOGE(TAG, "PMD Service not found!");
+        }
+        if (g_battery_start == 0) {
+            ESP_LOGW(TAG, "Battery Service not found");
         }
         return 0;
     }
@@ -819,6 +929,8 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
             }
 
             g_pmd_start = g_pmd_end = 0;
+            g_battery_start = g_battery_end = 0;
+            g_battery_level_handle = 0;
             g_pmd_ctrl_handle = 0;
             g_pmd_data_handle = 0;
             g_pmd_cccd_handle = 0;
@@ -846,6 +958,8 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
             g_acc_rate_warned = false;
             g_ecg_pmd_type = PMD_TYPE_ECG;  // Reset to default, will be detected
             g_acc_pmd_type = PMD_TYPE_ACC;
+            g_polar_battery_known = false;
+            g_polar_battery_percent = 0;
 
             rc = ble_gattc_disc_all_svcs(g_conn_handle, svc_disc_cb, NULL);
             if (rc != 0) {
@@ -889,7 +1003,13 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         g_acc_rate_warned = false;
         g_ecg_pmd_type = PMD_TYPE_ECG;  // Reset to default
         g_acc_pmd_type = PMD_TYPE_ACC;
+        g_battery_start = 0;
+        g_battery_end = 0;
+        g_battery_level_handle = 0;
+        g_polar_battery_known = false;
+        g_polar_battery_percent = 0;
         led_status_set_polar_connected(false);
+        usb_send_device_info_update();
         start_scan();
         return 0;
     }
@@ -1080,6 +1200,7 @@ void ble_init(void) {
 
     ble_npl_event_init(&g_start_ecg_ev, start_ecg_ev_cb, NULL);
     ble_npl_event_init(&g_start_acc_ev, start_acc_ev_cb, NULL);
+    ble_npl_event_init(&g_read_battery_ev, read_battery_ev_cb, NULL);
     ble_npl_event_init(&g_apply_config_ev, apply_config_ev_cb, NULL);
     ble_npl_event_init(&g_start_scan_request_ev, start_scan_request_ev_cb, NULL);
 

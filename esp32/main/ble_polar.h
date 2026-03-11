@@ -10,3 +10,4 @@ void ble_start_scan_request(uint32_t request_id, uint32_t duration_ms, const cha
 void pmd_start_ecg(uint16_t conn_handle, uint16_t ctrl_handle);
 void pmd_start_acc(uint16_t conn_handle, uint16_t ctrl_handle);
 void ble_schedule_start_acc(void);
+void ble_schedule_read_battery(void);

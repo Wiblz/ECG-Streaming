@@ -563,6 +563,8 @@ async def probe_usb_device(
                         polar_connected=info.polar_connected,
                         scanner_active=info.scanner_active,
                         scanner_request_id=info.scanner_request_id,
+                        polar_battery_known=info.polar_battery_known,
+                        polar_battery_percent=info.polar_battery_percent,
                     )
                     return (device_info, None)
 

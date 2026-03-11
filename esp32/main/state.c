@@ -20,9 +20,14 @@ bool g_scanner_active = false;
 uint32_t g_scanner_request_id = 0;
 uint32_t g_scan_duration_ms = 5000;
 char g_scan_name_prefix[33] = "Polar";
+bool g_polar_battery_known = false;
+uint8_t g_polar_battery_percent = 0;
 
 uint16_t g_pmd_start = 0;
 uint16_t g_pmd_end = 0;
+uint16_t g_battery_start = 0;
+uint16_t g_battery_end = 0;
+uint16_t g_battery_level_handle = 0;
 uint16_t g_pmd_ctrl_handle = 0;
 uint16_t g_pmd_data_handle = 0;
 uint16_t g_pmd_cccd_handle = 0;

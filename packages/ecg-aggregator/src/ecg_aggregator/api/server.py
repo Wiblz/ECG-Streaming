@@ -122,7 +122,7 @@ class ECGStreamingServer:
         self.app = FastAPI(
             title="ECG Streaming API",
             description="Real-time ECG data streaming from multiple devices",
-            version="0.1.0",
+            version=__version__,
         )
 
         # Setup CORS
@@ -153,7 +153,7 @@ class ECGStreamingServer:
             """Root endpoint."""
             return RootResponse(
                 service="ECG Streaming API",
-                version="0.1.0",
+                version=__version__,
                 endpoints=RootEndpoints(
                     websocket_ecg="/ws/ecg",
                     websocket_accelerometer="/ws/accelerometer",

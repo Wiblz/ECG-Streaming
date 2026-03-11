@@ -34,11 +34,17 @@ static void send_usb_device_info(void) {
                                       ecg_streaming_DeviceStatus_DEVICE_STATUS_DISCONNECTED;
     info.scanner_active = g_scanner_active;
     info.scanner_request_id = g_scanner_request_id;
+    info.polar_battery_known = g_polar_battery_known;
+    info.polar_battery_percent = g_polar_battery_percent;
 
     msg.which_message = ecg_streaming_EspMessage_device_info_tag;
     msg.message.device_info = info;
 
     usb_send_esp_message(&msg);
+}
+
+void usb_send_device_info_update(void) {
+    send_usb_device_info();
 }
 
 void usb_send_ble_scan_result(

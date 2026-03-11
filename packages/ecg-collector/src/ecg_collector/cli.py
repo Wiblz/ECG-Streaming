@@ -549,7 +549,7 @@ def usb_auto_pair(
         from ecg_collector.usb.models import EspDeviceGroup, ProbeStatus
         from ecg_collector.usb.pairing import PairingManager
 
-        expected_protocol_version = 2
+        expected_protocol_version = 3
         esp_scan_duration_ms = 5000
         esp_scan_timeout_s = 8.0
         esp_scan_prefix = "Polar"
@@ -731,7 +731,9 @@ def usb_auto_pair(
                     request_id = scan_request_id
                     scan_request_id = (scan_request_id + 1) & 0xFFFFFFFF
 
-                    async def _callback(msg: esp_collector_pb2.EspMessage) -> None:
+                    async def _callback(
+                        msg: esp_collector_pb2.EspMessage | esp_collector_pb2.EspDiscoveryMessage,
+                    ) -> None:
                         msg_type = msg.WhichOneof("message")
                         if msg_type != "ble_scan_result":
                             return
@@ -853,6 +855,8 @@ def usb_auto_pair(
                 protocol_version=info.protocol_version,
                 scanner_active=info.scanner_active,
                 scanner_request_id=info.scanner_request_id,
+                polar_battery_known=info.polar_battery_known,
+                polar_battery_percent=info.polar_battery_percent,
             )
 
         available_polars = set(discovered_polar_ids)

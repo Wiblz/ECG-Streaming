@@ -31,6 +31,8 @@ class EspInventoryEntry:
     protocol_version: int
     scanner_active: bool
     scanner_request_id: int
+    polar_battery_known: bool
+    polar_battery_percent: int
 
 
 class EspInventoryManager:
@@ -100,6 +102,8 @@ class EspInventoryManager:
                 protocol_version=info.protocol_version,
                 scanner_active=info.scanner_active,
                 scanner_request_id=info.scanner_request_id,
+                polar_battery_known=info.polar_battery_known,
+                polar_battery_percent=info.polar_battery_percent,
             )
         elif msg_type == "ble_scan_result":
             now = time.time()

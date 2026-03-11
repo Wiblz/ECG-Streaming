@@ -53,6 +53,8 @@ message UsbDeviceInfo {
   DeviceStatus polar_status = 8;      // Status of Polar device connection
   bool scanner_active = 9;            // True if ESP is in BLE scanner mode
   uint32 scanner_request_id = 10;     // Last scan request id processed by ESP
+  bool polar_battery_known = 11;      // True if battery level has been read for current Polar connection
+  uint32 polar_battery_percent = 12;  // Battery percentage (0-100) when known
 }
 
 // Configuration acknowledgment from ESP32

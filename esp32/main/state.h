@@ -38,9 +38,14 @@ extern bool g_scanner_active;
 extern uint32_t g_scanner_request_id;
 extern uint32_t g_scan_duration_ms;
 extern char g_scan_name_prefix[33];
+extern bool g_polar_battery_known;
+extern uint8_t g_polar_battery_percent;
 
 extern uint16_t g_pmd_start;
 extern uint16_t g_pmd_end;
+extern uint16_t g_battery_start;
+extern uint16_t g_battery_end;
+extern uint16_t g_battery_level_handle;
 extern uint16_t g_pmd_ctrl_handle;
 extern uint16_t g_pmd_data_handle;
 extern uint16_t g_pmd_cccd_handle;

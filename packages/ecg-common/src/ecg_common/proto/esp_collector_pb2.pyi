@@ -83,6 +83,8 @@ class UsbDeviceInfo(_message.Message):
         "polar_status",
         "scanner_active",
         "scanner_request_id",
+        "polar_battery_known",
+        "polar_battery_percent",
     )
     ESP_ID_FIELD_NUMBER: _ClassVar[int]
     APP_VERSION_FIELD_NUMBER: _ClassVar[int]
@@ -94,6 +96,8 @@ class UsbDeviceInfo(_message.Message):
     POLAR_STATUS_FIELD_NUMBER: _ClassVar[int]
     SCANNER_ACTIVE_FIELD_NUMBER: _ClassVar[int]
     SCANNER_REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    POLAR_BATTERY_KNOWN_FIELD_NUMBER: _ClassVar[int]
+    POLAR_BATTERY_PERCENT_FIELD_NUMBER: _ClassVar[int]
     esp_id: str
     app_version: str
     idf_version: str
@@ -104,6 +108,8 @@ class UsbDeviceInfo(_message.Message):
     polar_status: _common_pb2.DeviceStatus
     scanner_active: bool
     scanner_request_id: int
+    polar_battery_known: bool
+    polar_battery_percent: int
 
     def __init__(
         self,
@@ -117,6 +123,8 @@ class UsbDeviceInfo(_message.Message):
         polar_status: _common_pb2.DeviceStatus | str | None = ...,
         scanner_active: bool = ...,
         scanner_request_id: int | None = ...,
+        polar_battery_known: bool = ...,
+        polar_battery_percent: int | None = ...,
     ) -> None: ...
 
 class UsbConfigAck(_message.Message):
@@ -232,9 +240,7 @@ class EspDiscoveryMessage(_message.Message):
     BLE_SCAN_RESULT_FIELD_NUMBER: _ClassVar[int]
     ble_scan_result: BleScanResult
 
-    def __init__(
-        self, ble_scan_result: BleScanResult | _Mapping | None = ...
-    ) -> None: ...
+    def __init__(self, ble_scan_result: BleScanResult | _Mapping | None = ...) -> None: ...
 
 class CollectorToEspMessage(_message.Message):
     __slots__ = ("config", "start_ble_scan")
