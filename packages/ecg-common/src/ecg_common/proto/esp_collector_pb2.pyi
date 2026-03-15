@@ -240,9 +240,7 @@ class EspDiscoveryMessage(_message.Message):
     BLE_SCAN_RESULT_FIELD_NUMBER: _ClassVar[int]
     ble_scan_result: BleScanResult
 
-    def __init__(
-        self, ble_scan_result: BleScanResult | _Mapping | None = ...
-    ) -> None: ...
+    def __init__(self, ble_scan_result: BleScanResult | _Mapping | None = ...) -> None: ...
 
 class CollectorToEspMessage(_message.Message):
     __slots__ = ("config", "start_ble_scan", "trigger_led_signal")

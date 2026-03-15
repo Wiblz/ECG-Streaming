@@ -3,6 +3,7 @@ members = [
     "packages/ecg-common",
     "packages/ecg-collector",
     "packages/ecg-aggregator",
+    "packages/ecg-simulator",
 ]
 
 # Shared tool configurations for all packages
