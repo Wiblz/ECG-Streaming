@@ -573,6 +573,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
             device_id=device_id,
             device_timestamp=last_sample.polar_clock_us,
             host_receive_time=wall_clock_s,
+            sensor_type="ecg",
         )
 
         # Process each sample (samples already have individual timestamps)
@@ -673,6 +674,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
             device_id=device_id,
             device_timestamp=last_sample.polar_clock_us,
             host_receive_time=wall_clock_s,
+            sensor_type="acc",
         )
 
         # Process each sample (samples already have individual timestamps and x,y,z values)

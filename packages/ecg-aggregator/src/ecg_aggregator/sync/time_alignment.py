@@ -61,16 +61,19 @@ class DeviceTimeModel:
         self._sample_count: int = 0
         self._offset_version: int = 0  # Increments each time offset is recalculated
 
-        # Dropout detection
-        self._last_device_time: float | None = None
+        # Dropout detection - track separately per stream to handle ECG+ACC interleaving
+        self._last_device_time_by_stream: dict[str, float] = {}
         self._dropout_count = 0
 
-    def add_sample(self, device_timestamp: float, host_receive_time: float) -> None:
+    def add_sample(
+        self, device_timestamp: float, host_receive_time: float, sensor_type: str = "unknown"
+    ) -> None:
         """Add a timestamp pair to the model.
 
         Args:
             device_timestamp: Device timestamp in microseconds
             host_receive_time: Host receive time in seconds since epoch
+            sensor_type: Sensor type ("ecg" or "acc") to track timestamps separately per sensor
         """
         # Convert from microseconds to seconds
         device_time_s = device_timestamp / 1_000_000.0
@@ -78,9 +81,10 @@ class DeviceTimeModel:
             f"[TIME_ALIGN] {self.device_id} add_sample: device_ts_us={device_timestamp:.0f}, device_ts_s={device_time_s:.2f}, host_time={host_receive_time:.2f}"
         )
 
-        # Detect potential dropout/reconnection
-        if self._last_device_time is not None:
-            time_jump = device_timestamp - self._last_device_time
+        # Detect potential dropout/reconnection - check per sensor to handle ECG+ACC interleaving
+        if sensor_type in self._last_device_time_by_stream:
+            last_time = self._last_device_time_by_stream[sensor_type]
+            time_jump = device_timestamp - last_time
             # If time jumped backwards or more than 10 seconds, likely a reconnection
             if time_jump < 0 or time_jump > 10_000_000:  # 10 seconds in microseconds
                 logger.warning(
@@ -93,7 +97,7 @@ class DeviceTimeModel:
                 self._offset = None
                 self._sample_count = 0
 
-        self._last_device_time = device_timestamp
+        self._last_device_time_by_stream[sensor_type] = device_timestamp
 
         # Add to list if offset not yet calculated
         if self._offset is None:
@@ -242,7 +246,11 @@ class TimeAlignmentService:
             logger.info(f"Registered device {device_id} for time sync")
 
     def add_timestamp_pair(
-        self, device_id: str, device_timestamp: float, host_receive_time: float
+        self,
+        device_id: str,
+        device_timestamp: float,
+        host_receive_time: float,
+        sensor_type: str = "unknown",
     ) -> None:
         """Add a timestamp pair for synchronization.
 
@@ -250,12 +258,13 @@ class TimeAlignmentService:
             device_id: Device identifier
             device_timestamp: Device timestamp in microseconds
             host_receive_time: Host receive time in seconds since epoch
+            sensor_type: Sensor type ("ecg" or "acc")
         """
         # Auto-register device if not already registered
         if device_id not in self._device_models:
             self.register_device(device_id)
 
-        self._device_models[device_id].add_sample(device_timestamp, host_receive_time)
+        self._device_models[device_id].add_sample(device_timestamp, host_receive_time, sensor_type)
 
     def sync_timestamp(self, device_id: str, device_timestamp: float) -> SyncedTimestamp | None:
         """Convert device timestamp to global time.
