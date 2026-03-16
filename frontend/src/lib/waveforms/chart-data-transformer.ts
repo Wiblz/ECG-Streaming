@@ -12,8 +12,8 @@ export interface ChartDataResult<T extends PlottableSample> {
 	data: uPlot.AlignedData;
 	/** Ordered list of device IDs */
 	deviceOrder: string[];
-	/** Map of device ID to map of timestamp to sample */
-	sampleByDeviceAndTime: Map<string, Map<number, T>>;
+	/** Array of samples per device [deviceIdx][timestampIdx] → sample or null */
+	samplesByDevice: (T | null)[][];
 	/** Timestamps array (same as data[0]) */
 	timestamps: number[];
 }
@@ -57,7 +57,7 @@ export function prepareChartData<T extends PlottableSample>(
 		return {
 			data: [[], []],
 			deviceOrder: [],
-			sampleByDeviceAndTime: new Map(),
+			samplesByDevice: [],
 			timestamps: []
 		};
 	}
@@ -87,7 +87,7 @@ export function prepareChartData<T extends PlottableSample>(
 	return {
 		data: aligned.data,
 		deviceOrder: aligned.deviceOrder,
-		sampleByDeviceAndTime: aligned.sampleByDeviceAndTime,
+		samplesByDevice: aligned.samplesByDevice,
 		timestamps: aligned.timestamps
 	};
 }
@@ -100,7 +100,7 @@ export function filterChartDataByTimeWindow<T extends PlottableSample>(
 	chartData: ChartDataResult<T>,
 	timeWindow: { minTime: number; maxTime: number }
 ): ChartDataResult<T> {
-	const { data, deviceOrder, sampleByDeviceAndTime, timestamps } = chartData;
+	const { data, deviceOrder, samplesByDevice, timestamps } = chartData;
 
 	// Find indices within time window
 	const filteredIndices: number[] = [];
@@ -111,14 +111,17 @@ export function filterChartDataByTimeWindow<T extends PlottableSample>(
 		}
 	}
 
-	// Filter all series data
+	// Filter all series data and samples
 	const filteredTimestamps = filteredIndices.map((i) => timestamps[i]);
 	const filteredSeriesData = data.slice(1).map((series) => filteredIndices.map((i) => series[i]));
+	const filteredSamplesByDevice = samplesByDevice.map((deviceSamples) =>
+		filteredIndices.map((i) => deviceSamples[i])
+	);
 
 	return {
 		data: [filteredTimestamps, ...filteredSeriesData],
 		deviceOrder,
-		sampleByDeviceAndTime, // Note: not filtered, contains full dataset for lookups
+		samplesByDevice: filteredSamplesByDevice,
 		timestamps: filteredTimestamps
 	};
 }
@@ -130,16 +133,17 @@ export function filterChartDataByTimeWindow<T extends PlottableSample>(
 export function extractVerifiedIndices<T extends PlottableSample>(
 	chartData: ChartDataResult<T>
 ): Map<string, number[]> {
-	const { deviceOrder, sampleByDeviceAndTime, timestamps } = chartData;
+	const { deviceOrder, samplesByDevice } = chartData;
 	const verifiedIndicesByDevice = new Map<string, number[]>();
 
-	for (const deviceId of deviceOrder) {
-		const deviceSamples = sampleByDeviceAndTime.get(deviceId);
+	for (let deviceIdx = 0; deviceIdx < deviceOrder.length; deviceIdx++) {
+		const deviceId = deviceOrder[deviceIdx];
+		const deviceSamples = samplesByDevice[deviceIdx];
 		const indices: number[] = [];
 
 		if (deviceSamples) {
-			for (let i = 0; i < timestamps.length; i++) {
-				const sample = deviceSamples.get(timestamps[i]);
+			for (let i = 0; i < deviceSamples.length; i++) {
+				const sample = deviceSamples[i];
 				if (sample?.time_verified) {
 					indices.push(i);
 				}

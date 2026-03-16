@@ -5,7 +5,16 @@
 import type uPlot from 'uplot';
 
 // Standard color palette for device waveforms
-export const DEVICE_COLORS = ['#ff3e00', '#40b3ff', '#676778', '#ff6b6b', '#4ecdc4'];
+export const DEVICE_COLORS = [
+	'#ff3e00', // Red-orange
+	'#40b3ff', // Blue
+	'#676778', // Gray
+	'#ff6b6b', // Coral
+	'#4ecdc4', // Teal
+	'#a29bfe', // Purple
+	'#fdcb6e', // Yellow
+	'#55efc4' // Mint
+];
 
 /**
  * Get color for device by index

@@ -1,5 +1,5 @@
 import { mergeDevice } from '$lib/state/devices.svelte';
-import { addSamples } from '$lib/state/ecg-data.svelte';
+import { addSamples } from '$lib/state/ecg-data';
 import { ConnectionState, setWsError, setWsState } from '$lib/state/websocket.svelte';
 import type { BufferedECGSample, DataMessage, InitMessage } from '$lib/types/api';
 import { flattenGroupedSamples } from '$lib/utils/samples';
@@ -36,6 +36,7 @@ export class ECGWebSocket {
 	private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
 	private url: string;
 	private shouldReconnect: boolean = true;
+	private messageCount: number = 0;
 
 	constructor(url: string = resolveDefaultUrl()) {
 		this.url = url;
@@ -56,12 +57,31 @@ export class ECGWebSocket {
 			};
 
 			this.ws.onmessage = (event) => {
+				const receiveTime = performance.now();
 				const msg = JSON.parse(event.data);
 
 				if (msg.type === 'init') {
 					this.handleInit(msg as InitMessage);
 				} else if (msg.type === 'data') {
+					const processStart = performance.now();
 					this.handleData(msg as DataMessage);
+					const processDuration = performance.now() - processStart;
+
+					const parseAndProcessTime = performance.now() - receiveTime;
+					if (parseAndProcessTime > 16) {
+						console.warn(
+							`[WebSocket] Slow message processing: ${parseAndProcessTime.toFixed(1)}ms (parse+process: ${processDuration.toFixed(1)}ms), samples: ${msg.count}`
+						);
+					}
+
+					// Log every 60 messages (~2 seconds at 30 FPS)
+					if (!this.messageCount) this.messageCount = 0;
+					this.messageCount++;
+					if (this.messageCount % 60 === 0) {
+						console.log(
+							`[WebSocket] Received ${this.messageCount} messages, last had ${msg.count} samples`
+						);
+					}
 				}
 			};
 

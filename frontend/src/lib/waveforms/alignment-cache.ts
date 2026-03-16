@@ -9,17 +9,16 @@ export interface AlignmentCache<T extends PlottableSample> {
 	deviceSampleCounts: Map<string, number>;
 	timestamps: number[];
 	seriesData: (number | null)[][];
-	sampleByDeviceAndTime: Map<string, Map<number, T>>;
+	samplesByDevice: (T | null)[][];
 	sessionStartTime: number;
 	baseDeviceId: string;
+	timestampRange: { min: number; max: number };
 }
 
 /**
  * Checks if the alignment cache is still valid for the current samples.
  * Cache is invalid if:
  * - Device list changed
- * - Sample counts changed
- * - Timestamps changed (samples shifted)
  * - Session start time changed
  */
 export function isCacheValid<T extends PlottableSample>(
@@ -42,43 +41,6 @@ export function isCacheValid<T extends PlottableSample>(
 	}
 	if (!devices.every((d, idx) => cache.deviceOrder[idx] === d)) {
 		return false;
-	}
-
-	// Check if any device has different sample count OR different timestamps
-	for (const deviceId of devices) {
-		const currentSamples = sampleMap.get(deviceId) ?? [];
-		const cachedCount = cache.deviceSampleCounts.get(deviceId) ?? 0;
-
-		// Count changed - cache invalid
-		if (currentSamples.length !== cachedCount) {
-			return false;
-		}
-
-		// Count same but check if timestamps changed (samples dropped and added)
-		if (currentSamples.length > 0 && sessionStartTime !== null) {
-			const cachedDeviceSamples = cache.sampleByDeviceAndTime.get(deviceId);
-			if (!cachedDeviceSamples) return false;
-
-			// Check first and last sample timestamps
-			const firstCurrentTime = currentSamples[0].global_time - sessionStartTime;
-			const lastCurrentTime =
-				currentSamples[currentSamples.length - 1].global_time - sessionStartTime;
-
-			const cachedTimes = Array.from(cachedDeviceSamples.keys()).sort((a, b) => a - b);
-			if (cachedTimes.length === 0) return false;
-
-			const firstCachedTime = cachedTimes[0];
-			const lastCachedTime = cachedTimes[cachedTimes.length - 1];
-
-			// If first or last timestamp changed, samples have shifted
-			const EPSILON = 0.001;
-			if (
-				Math.abs(firstCurrentTime - firstCachedTime) > EPSILON ||
-				Math.abs(lastCurrentTime - lastCachedTime) > EPSILON
-			) {
-				return false;
-			}
-		}
 	}
 
 	return true;

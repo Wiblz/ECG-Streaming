@@ -20,7 +20,7 @@ export interface AlignedDeviceSeries<T> {
 	data: uPlot.AlignedData;
 	deviceOrder: string[];
 	timestamps: number[];
-	sampleByDeviceAndTime: Map<string, Map<number, T>>;
+	samplesByDevice: (T | null)[][];
 }
 
 export function groupSamplesByDevice<T extends { device_id: string }>(
@@ -90,7 +90,7 @@ function findNearestSampleIndex<T extends { global_time: number }>(
 /**
  * Align multi-device samples onto a shared time axis (relative to session start).
  */
-export type AlignMode = 'nearest' | 'linear';
+export type AlignMode = 'nearest' | 'linear' | 'exact';
 
 function pickNearestSample<T extends { global_time: number }>(
 	prev: T | null,
@@ -105,6 +105,49 @@ function pickNearestSample<T extends { global_time: number }>(
 	return prevDiff <= nextDiff ? prev : next;
 }
 
+export function alignSamplesExact<T extends { device_id: string; global_time: number }>(
+	samplesByDevice: Map<string, T[]>,
+	deviceOrder: string[],
+	timestamps: number[],
+	sessionStartTime: number,
+	getValue: (sample: T) => number
+): AlignedDeviceSeries<T> {
+	const samplesArray: (T | null)[][] = [];
+
+	const seriesData = deviceOrder.map((deviceId) => {
+		const deviceSamples = samplesByDevice.get(deviceId) ?? [];
+
+		// Build a map of global_time -> sample for O(1) lookup
+		const timeToSample = new Map<number, T>();
+		for (const sample of deviceSamples) {
+			timeToSample.set(sample.global_time, sample);
+		}
+
+		const deviceSamplesArray: (T | null)[] = [];
+		const series = timestamps.map((relTime) => {
+			const targetAbsTime = sessionStartTime + relTime;
+			const sample = timeToSample.get(targetAbsTime);
+
+			deviceSamplesArray.push(sample ?? null);
+
+			if (sample) {
+				return getValue(sample);
+			}
+			return null;
+		});
+
+		samplesArray.push(deviceSamplesArray);
+		return series;
+	});
+
+	return {
+		data: [timestamps, ...seriesData] as uPlot.AlignedData,
+		deviceOrder,
+		timestamps,
+		samplesByDevice: samplesArray
+	};
+}
+
 export function alignSamplesNearest<T extends { device_id: string; global_time: number }>(
 	samplesByDevice: Map<string, T[]>,
 	deviceOrder: string[],
@@ -113,30 +156,32 @@ export function alignSamplesNearest<T extends { device_id: string; global_time: 
 	getValue: (sample: T) => number,
 	maxGapSeconds: number
 ): AlignedDeviceSeries<T> {
-	const sampleByDeviceAndTime = new Map<string, Map<number, T>>();
+	const samplesArray: (T | null)[][] = [];
 
 	const seriesData = deviceOrder.map((deviceId) => {
 		const deviceSamples = samplesByDevice.get(deviceId) ?? [];
 		deviceSamples.sort((a, b) => a.global_time - b.global_time);
 
-		const deviceLookup = new Map<number, T>();
+		const deviceSamplesArray: (T | null)[] = [];
 		const series = timestamps.map((relTime) => {
 			if (deviceSamples.length === 0) {
+				deviceSamplesArray.push(null);
 				return null;
 			}
 
 			const targetAbsTime = sessionStartTime + relTime;
 			const nearest = findNearestSampleIndex(deviceSamples, targetAbsTime);
 			if (!nearest || nearest.diff > maxGapSeconds) {
+				deviceSamplesArray.push(null);
 				return null;
 			}
 
 			const sample = deviceSamples[nearest.index];
-			deviceLookup.set(relTime, sample);
+			deviceSamplesArray.push(sample);
 			return getValue(sample);
 		});
 
-		sampleByDeviceAndTime.set(deviceId, deviceLookup);
+		samplesArray.push(deviceSamplesArray);
 		return series;
 	});
 
@@ -144,7 +189,7 @@ export function alignSamplesNearest<T extends { device_id: string; global_time: 
 		data: [timestamps, ...seriesData] as uPlot.AlignedData,
 		deviceOrder,
 		timestamps,
-		sampleByDeviceAndTime
+		samplesByDevice: samplesArray
 	};
 }
 
@@ -156,15 +201,15 @@ export function alignSamplesLinear<T extends { device_id: string; global_time: n
 	getValue: (sample: T) => number,
 	maxGapSeconds: number
 ): AlignedDeviceSeries<T> {
-	const sampleByDeviceAndTime = new Map<string, Map<number, T>>();
+	const samplesArray: (T | null)[][] = [];
 
 	const seriesData = deviceOrder.map((deviceId) => {
 		const deviceSamples = samplesByDevice.get(deviceId) ?? [];
 		deviceSamples.sort((a, b) => a.global_time - b.global_time);
 
-		const deviceLookup = new Map<number, T>();
+		const deviceSamplesArray: (T | null)[] = [];
 		if (deviceSamples.length === 0) {
-			sampleByDeviceAndTime.set(deviceId, deviceLookup);
+			samplesArray.push(timestamps.map(() => null));
 			return timestamps.map(() => null);
 		}
 
@@ -184,35 +229,40 @@ export function alignSamplesLinear<T extends { device_id: string; global_time: n
 
 			if (!prev || !next) {
 				const nearest = pickNearestSample(prev, next, targetAbsTime);
-				if (!nearest) return null;
+				if (!nearest) {
+					deviceSamplesArray.push(null);
+					return null;
+				}
 				const diff = Math.abs(nearest.global_time - targetAbsTime);
-				if (diff > maxGapSeconds) return null;
-				deviceLookup.set(relTime, nearest);
+				if (diff > maxGapSeconds) {
+					deviceSamplesArray.push(null);
+					return null;
+				}
+				deviceSamplesArray.push(nearest);
 				return getValue(nearest);
 			}
 
 			const beforeGap = targetAbsTime - prev.global_time;
 			const afterGap = next.global_time - targetAbsTime;
 			if (beforeGap > maxGapSeconds || afterGap > maxGapSeconds) {
+				deviceSamplesArray.push(null);
 				return null;
 			}
 
 			const timeSpan = next.global_time - prev.global_time;
 			if (timeSpan === 0) {
-				deviceLookup.set(relTime, prev);
+				deviceSamplesArray.push(prev);
 				return getValue(prev);
 			}
 
 			const t = (targetAbsTime - prev.global_time) / timeSpan;
 			const value = getValue(prev) + t * (getValue(next) - getValue(prev));
 			const nearest = pickNearestSample(prev, next, targetAbsTime);
-			if (nearest) {
-				deviceLookup.set(relTime, nearest);
-			}
+			deviceSamplesArray.push(nearest);
 			return value;
 		});
 
-		sampleByDeviceAndTime.set(deviceId, deviceLookup);
+		samplesArray.push(deviceSamplesArray);
 		return series;
 	});
 
@@ -220,7 +270,7 @@ export function alignSamplesLinear<T extends { device_id: string; global_time: n
 		data: [timestamps, ...seriesData] as uPlot.AlignedData,
 		deviceOrder,
 		timestamps,
-		sampleByDeviceAndTime
+		samplesByDevice: samplesArray
 	};
 }
 
@@ -233,6 +283,10 @@ export function alignSamplesToTimestamps<T extends { device_id: string; global_t
 	maxGapSeconds: number,
 	alignMode: AlignMode = 'linear'
 ): AlignedDeviceSeries<T> {
+	if (alignMode === 'exact') {
+		return alignSamplesExact(samplesByDevice, deviceOrder, timestamps, sessionStartTime, getValue);
+	}
+
 	if (alignMode === 'nearest') {
 		return alignSamplesNearest(
 			samplesByDevice,

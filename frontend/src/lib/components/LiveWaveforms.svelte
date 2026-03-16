@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { samples as accSamples } from '$lib/state/acc-data.svelte';
-	import { samples as ecgSamples } from '$lib/state/ecg-data.svelte';
+	import { samples as accSamples } from '$lib/state/acc-data';
+	import { samples as ecgSamples } from '$lib/state/ecg-data';
 	import { getDevices } from '$lib/state/devices.svelte';
 	import { ConnectionState, getAccWsState, getWsState } from '$lib/state/websocket.svelte';
 	import { createDeviceNicknameMap } from '$lib/utils/device-names';
@@ -18,12 +18,19 @@
 	const devices = $derived(getDevices());
 	const deviceNicknames = $derived(createDeviceNicknameMap(Array.from(devices.values())));
 
-	// Determine streaming status
-	const ecgStreaming = $derived(ecgWsState === ConnectionState.CONNECTED && ecgSamples.size > 0);
-	const accStreaming = $derived(accWsState === ConnectionState.CONNECTED && accSamples.size > 0);
-
 	// Shared state for verified points toggle
 	let showVerifiedPoints = $state(false);
+
+	// Streaming status indicators - poll instead of derive
+	// (LiveWaveform handles actual streaming status internally via polling)
+	let ecgStreaming = $state(false);
+	let accStreaming = $state(false);
+
+	// Poll for status indicator updates (every 500ms is sufficient for UI)
+	setInterval(() => {
+		ecgStreaming = ecgWsState === ConnectionState.CONNECTED && ecgSamples.size > 0;
+		accStreaming = accWsState === ConnectionState.CONNECTED && accSamples.size > 0;
+	}, 500);
 </script>
 
 <Card title="Live Waveforms">

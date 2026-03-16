@@ -13,8 +13,8 @@
 	import StatsPanel from '$lib/components/StatsPanel.svelte';
 	import LiveActivityMonitor from '$lib/components/LiveActivityMonitor.svelte';
 	import { getDevices, setDevices } from '$lib/state/devices.svelte';
-	import { samples as ecgSamples } from '$lib/state/ecg-data.svelte';
-	import { samples as accSamples } from '$lib/state/acc-data.svelte';
+	import { samples as ecgSamples } from '$lib/state/ecg-data';
+	import { samples as accSamples } from '$lib/state/acc-data';
 
 	let ecgWs: ECGWebSocket;
 	let accWs: AccelerometerWebSocket;

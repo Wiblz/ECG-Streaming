@@ -81,8 +81,7 @@
 	let plotOptions: WaveformPlotOptions | null = $state(null);
 	let plotOptionsKey = $state('');
 
-	let deviceOrder: string[] = $state([]);
-	let sampleByDeviceAndTime: Map<string, Map<number, T>> = new Map();
+	let samplesByDevice: (T | null)[][] = $state([]);
 	let verifiedIndicesByDevice = new SvelteMap<string, number[]>();
 
 	// Track the currently loaded time range
@@ -155,8 +154,7 @@
 	// Prepare data for uPlot (convert to relative session time)
 	const prepareChartDataLocal = (samples: T[]): { data: uPlot.AlignedData; devices: string[] } => {
 		if (samples.length === 0) {
-			deviceOrder = [];
-			sampleByDeviceAndTime = new SvelteMap();
+			samplesByDevice = [];
 			verifiedIndicesByDevice = new SvelteMap();
 			return { data: [[], []], devices: [] };
 		}
@@ -174,8 +172,7 @@
 		});
 
 		// Update component state
-		deviceOrder = chartData.deviceOrder;
-		sampleByDeviceAndTime = chartData.sampleByDeviceAndTime;
+		samplesByDevice = chartData.samplesByDevice;
 		verifiedIndicesByDevice = new SvelteMap(extractVerifiedIndices(chartData));
 
 		return {
@@ -438,9 +435,9 @@
 		tooltipsPlugin = tooltipsModule.tooltipsPlugin({
 			showSeriesPoints: true,
 			showCursorPosition: false,
-			formatValue: (xVal, yVal, seriesIdx) => {
-				const deviceId = deviceOrder[seriesIdx - 1];
-				const sample = deviceId ? sampleByDeviceAndTime.get(deviceId)?.get(xVal) : undefined;
+			formatValue: (xVal, yVal, seriesIdx, dataIdx) => {
+				const deviceIdx = seriesIdx - 1;
+				const sample = samplesByDevice[deviceIdx]?.[dataIdx];
 				if (sample && formatTooltip) {
 					return formatTooltip(sample, xVal, yVal);
 				} else if (sample) {
