@@ -15,6 +15,7 @@
 	import { getDevices, setDevices } from '$lib/state/devices.svelte';
 	import { samples as ecgSamples } from '$lib/state/ecg-data';
 	import { samples as accSamples } from '$lib/state/acc-data';
+	import { DEVICE_COLORS } from '$lib/utils/uplot';
 
 	let ecgWs: ECGWebSocket;
 	let accWs: AccelerometerWebSocket;
@@ -22,18 +23,8 @@
 	// Reactive derived devices
 	const devices = $derived(Array.from(getDevices().values()));
 
-	// Get first device samples for activity monitors
-	// Create stable getters that LiveActivityMonitor can poll
-	function getFirstEcgSamples() {
-		const deviceIds = Array.from(ecgSamples.keys());
-		if (deviceIds.length === 0) return [];
-		return ecgSamples.get(deviceIds[0]) ?? [];
-	}
-
-	function getFirstAccSamples() {
-		const deviceIds = Array.from(accSamples.keys());
-		if (deviceIds.length === 0) return [];
-		return accSamples.get(deviceIds[0]) ?? [];
+	function getDeviceNickname(id: string): string {
+		return getDevices().get(id)?.nickname ?? id;
 	}
 
 	onMount(async () => {
@@ -81,19 +72,21 @@
 				<Card title="Activity Monitor">
 					<div class="space-y-4">
 						<LiveActivityMonitor
-							getSamples={getFirstEcgSamples}
+							getSamplesMap={() => ecgSamples}
 							getValue={(s) => s.raw_value}
 							label="ECG"
+							getDeviceNickname={getDeviceNickname}
 							height={50}
-							color="#ef4444"
+							colors={DEVICE_COLORS}
 							windowDuration={30}
 						/>
 						<LiveActivityMonitor
-							getSamples={getFirstAccSamples}
+							getSamplesMap={() => accSamples}
 							getValue={(s) => s.magnitude}
 							label="Accelerometer"
+							getDeviceNickname={getDeviceNickname}
 							height={50}
-							color="#3b82f6"
+							colors={DEVICE_COLORS}
 							windowDuration={30}
 						/>
 					</div>

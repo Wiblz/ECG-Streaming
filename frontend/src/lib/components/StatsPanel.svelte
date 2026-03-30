@@ -27,12 +27,22 @@
 				<dd class="text-xl font-bold text-gray-900">
 					{ecgStats.samples_per_second.toFixed(1)} Hz
 				</dd>
+				{#if ecgStats.device_count > 1}
+					<div class="mt-1 text-xs text-gray-400">
+						{(ecgStats.samples_per_second / ecgStats.device_count).toFixed(1)} Hz avg/device
+					</div>
+				{/if}
 			</div>
 			<div class="bg-gray-50 rounded-lg p-4">
 				<dt class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">ACC Rate</dt>
 				<dd class="text-xl font-bold text-gray-900">
 					{accStats.samples_per_second.toFixed(1)} Hz
 				</dd>
+				{#if accStats.device_count > 1}
+					<div class="mt-1 text-xs text-gray-400">
+						{(accStats.samples_per_second / accStats.device_count).toFixed(1)} Hz avg/device
+					</div>
+				{/if}
 			</div>
 			<div class="bg-gray-50 rounded-lg p-4">
 				<dt class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Buffer</dt>
@@ -57,16 +67,16 @@
 		<div class="flex items-center justify-center py-8">
 			<div class="text-center">
 				{#if connectionStatus === 'error'}
-					<p class="text-sm text-red-600">Connection error</p>
-					<p class="text-xs text-gray-500 mt-1">Check console for details</p>
+					<p class="text-sm text-status-error-fg">Connection error</p>
+					<p class="text-xs text-text-muted mt-1">Check console for details</p>
 				{:else if connectionStatus === 'disconnected'}
-					<p class="text-sm text-yellow-600">Disconnected</p>
-					<p class="text-xs text-gray-500 mt-1">Reconnecting...</p>
+					<p class="text-sm text-status-warning-fg">Disconnected</p>
+					<p class="text-xs text-text-muted mt-1">Reconnecting...</p>
 				{:else}
 					<div
 						class="inline-block w-8 h-8 border-4 border-gray-200 border-t-gray-600 rounded-full animate-spin"
 					></div>
-					<p class="text-sm text-gray-500 mt-2">
+					<p class="text-sm text-text-secondary mt-2">
 						Loading stats... ({connectionStatus})
 					</p>
 				{/if}

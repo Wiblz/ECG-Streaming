@@ -2,6 +2,8 @@
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api/client';
 	import { getActiveSession, isRecording, setActiveSession } from '$lib/state/session.svelte';
+	import Button from './buttons/Button.svelte';
+	import Card from './Card.svelte';
 	import SessionDuration from './SessionDuration.svelte';
 
 	const recording = $derived(isRecording());
@@ -65,24 +67,25 @@
 	}
 </script>
 
-<div class="bg-white rounded-lg border border-gray-200 p-4">
-	<div class="flex items-center justify-between mb-3">
-		<h3 class="text-sm font-semibold text-gray-900">Recording Session</h3>
+<Card title="Recording Session">
+	{#snippet headerActions()}
 		{#if recording}
 			<div class="flex items-center gap-2">
-				<div class="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-				<span class="text-xs font-medium text-red-600">Recording</span>
+				<div class="w-1.5 h-1.5 bg-status-error-fg rounded-full animate-pulse"></div>
+				<span class="text-xs font-medium text-status-error-fg">Recording</span>
 			</div>
 		{:else}
 			<div class="flex items-center gap-2">
-				<div class="w-2 h-2 bg-gray-400 rounded-full"></div>
-				<span class="text-xs font-medium text-gray-500">Not Recording</span>
+				<div class="w-1.5 h-1.5 bg-status-neutral-fg rounded-full"></div>
+				<span class="text-xs font-medium text-text-secondary">Not Recording</span>
 			</div>
 		{/if}
-	</div>
+	{/snippet}
 
 	{#if error}
-		<div class="mb-3 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+		<div
+			class="mb-3 p-2 bg-status-error border border-status-error-border rounded text-xs text-status-error-fg"
+		>
 			{error}
 		</div>
 	{/if}
@@ -111,13 +114,9 @@
 				{/if}
 			</div>
 
-			<button
-				onclick={handleStop}
-				disabled={loading}
-				class="w-full px-4 py-2 bg-red-500 hover:bg-red-600 disabled:bg-gray-300 text-white text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed"
-			>
+			<Button variant="danger" size="md" onclick={handleStop} disabled={loading} class="w-full">
 				{loading ? 'Stopping...' : 'Stop Recording'}
-			</button>
+			</Button>
 		</div>
 	{:else}
 		<div class="space-y-3">
@@ -130,23 +129,19 @@
 					type="text"
 					bind:value={notes}
 					placeholder="e.g., Exercise test, resting ECG..."
-					class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+					class="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-focus focus:border-transparent disabled:bg-surface-muted disabled:text-text-disabled"
 					disabled={loading}
 				/>
 			</div>
 
-			<button
-				onclick={handleStart}
-				disabled={loading}
-				class="w-full px-4 py-2 bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed"
-			>
+			<Button variant="success" size="md" onclick={handleStart} disabled={loading} class="w-full">
 				{loading ? 'Starting...' : 'Start Recording'}
-			</button>
+			</Button>
 
-			<p class="text-xs text-gray-500">
+			<p class="text-xs text-text-secondary">
 				Start recording to save samples to the database. Samples will continue streaming to the
 				dashboard whether or not recording is active.
 			</p>
 		</div>
 	{/if}
-</div>
+</Card>

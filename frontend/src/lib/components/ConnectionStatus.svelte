@@ -12,19 +12,18 @@
 		}[state]
 	);
 
-	const statusColor = $derived(
+	const statusClass = $derived(
 		{
-			[ConnectionState.DISCONNECTED]: '#4b5563',
-			[ConnectionState.CONNECTING]: '#eab308',
-			[ConnectionState.CONNECTED]: '#16a34a',
-			[ConnectionState.ERROR]: '#dc2626'
+			[ConnectionState.DISCONNECTED]: 'bg-status-neutral-fg',
+			[ConnectionState.CONNECTING]: 'bg-status-warning-fg',
+			[ConnectionState.CONNECTED]: 'bg-status-success-fg',
+			[ConnectionState.ERROR]: 'bg-status-error-fg'
 		}[state]
 	);
 </script>
 
 <div
-	class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-white text-sm font-medium shadow-sm"
-	style="background-color: {statusColor}"
+	class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-white text-sm font-medium shadow-sm {statusClass}"
 >
 	<span
 		class="w-1.5 h-1.5 rounded-full bg-white block"

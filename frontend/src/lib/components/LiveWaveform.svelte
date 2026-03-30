@@ -778,7 +778,7 @@
 				<WaveformPlot
 					data={plotData}
 					options={plotOptions}
-					plotClass="w-full h-[400px]"
+					plotClass="w-full"
 					onReady={(api) => {
 						chartApi = api;
 						plotReady = true;
@@ -801,7 +801,7 @@
 			<WaveformPlot
 				data={plotData}
 				options={plotOptions}
-				plotClass="w-full h-[400px]"
+				plotClass="w-full"
 				onReady={(api) => {
 					chartApi = api;
 					plotReady = true;

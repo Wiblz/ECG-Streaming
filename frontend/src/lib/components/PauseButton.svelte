@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { isPaused, togglePause } from '$lib/state/pause.svelte';
+	import Button from './buttons/Button.svelte';
 
 	const paused = $derived(isPaused());
 
@@ -8,15 +9,10 @@
 	}
 </script>
 
-<button
+<Button
+	variant={paused ? 'warning' : 'ghost'}
+	size="sm"
 	onclick={handleToggle}
-	class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-xs transition-colors"
-	class:bg-yellow-500={paused}
-	class:hover:bg-yellow-600={paused}
-	class:text-white={paused}
-	class:bg-gray-200={!paused}
-	class:hover:bg-gray-300={!paused}
-	class:text-gray-700={!paused}
 	title={paused ? 'Resume data streaming' : 'Pause data streaming'}
 >
 	{#if paused}
@@ -30,4 +26,4 @@
 		</svg>
 		Pause
 	{/if}
-</button>
+</Button>

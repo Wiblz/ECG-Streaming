@@ -3,6 +3,8 @@
 	 * Unified Card component for consistent styling across the application
 	 */
 
+	import Badge from './Badge.svelte';
+
 	interface Props {
 		/**
 		 * Optional title for the card header
@@ -65,9 +67,9 @@
 				{/if}
 				<div class="flex items-center gap-3">
 					{#if badge !== undefined}
-						<span class="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+						<Badge variant="neutral" size="md">
 							{badge}
-						</span>
+						</Badge>
 					{/if}
 					{#if headerActions}
 						{@render headerActions()}

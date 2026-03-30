@@ -47,14 +47,14 @@
 		target
 	}: Props = $props();
 
-	// Variant classes
+	// Variant classes using theme colors
 	const variantClasses = {
-		primary: 'bg-blue-600 hover:bg-blue-700 text-white',
-		secondary: 'bg-gray-200 hover:bg-gray-300 text-gray-700',
-		success: 'bg-status-success-fg hover:bg-status-success-border text-white',
-		danger: 'bg-status-error-fg hover:bg-status-error-border text-white',
-		warning: 'bg-status-warning-fg hover:bg-status-warning-border text-gray-900',
-		ghost: 'bg-transparent hover:bg-gray-100 text-gray-700'
+		primary: 'bg-primary-fg hover:bg-primary-hover text-white',
+		secondary: 'bg-surface-muted hover:bg-secondary-hover text-text',
+		success: 'bg-status-success-fg hover:bg-status-success-hover text-white',
+		danger: 'bg-status-error-fg hover:bg-status-error-hover text-white',
+		warning: 'bg-status-warning-fg hover:bg-status-warning-hover text-text',
+		ghost: 'bg-transparent hover:bg-surface-muted text-text'
 	};
 
 	// Size classes

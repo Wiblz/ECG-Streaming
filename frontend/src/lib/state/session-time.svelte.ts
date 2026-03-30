@@ -18,14 +18,23 @@ export function setSessionStartTime(time: number): void {
 		_sessionStartTime = time;
 		_wallClockStartTime = Date.now() / 1000; // Record wall-clock time
 		_initialOffset = _wallClockStartTime - time; // Save the offset
-		// console.log(
-		// 	'[session-time] Session start - sample time:',
-		// 	time,
-		// 	'wall-clock:',
-		// 	_wallClockStartTime,
-		// 	'fixed offset:',
-		// 	_initialOffset
-		// )
+		console.log(
+			'[session-time] Session start - sample time:',
+			time,
+			'wall-clock:',
+			_wallClockStartTime,
+			'age:',
+			(_wallClockStartTime - time).toFixed(1) + 's'
+		);
+	} else {
+		console.log(
+			'[session-time] Attempted to set session time to',
+			time,
+			'but already set to',
+			_sessionStartTime,
+			'(diff:',
+			(time - _sessionStartTime).toFixed(1) + 's)'
+		);
 	}
 }
 

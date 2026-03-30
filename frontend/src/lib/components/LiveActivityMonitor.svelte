@@ -5,18 +5,21 @@
 	import { calculateTimeWindow } from '$lib/waveforms/time-window';
 	import { getCurrentPlaybackTime, getSessionStartTime } from '$lib/state/session-time.svelte';
 	import { filterSingleDeviceSamples } from '$lib/waveforms/chart-data-transformer';
+	import { DEVICE_COLORS } from '$lib/utils/uplot';
 
 	interface Props {
-		/** Function that returns sample array for single device */
-		getSamples: () => T[];
+		/** Function that returns map of deviceId -> samples for all devices */
+		getSamplesMap: () => Map<string, T[]>;
 		/** Function to extract value from sample */
 		getValue: (sample: T) => number;
-		/** Label for the monitor */
+		/** Section label e.g. "ECG" / "Accelerometer" */
 		label: string;
+		/** Optional display name resolver */
+		getDeviceNickname?: (id: string) => string;
 		/** Monitor height in pixels */
 		height?: number;
-		/** Line color */
-		color?: string;
+		/** Per-device colors */
+		colors?: string[];
 		/** Time window duration in seconds */
 		windowDuration?: number;
 		/** Width in pixels (determines resolution) */
@@ -26,71 +29,75 @@
 	}
 
 	let {
-		getSamples,
+		getSamplesMap,
 		getValue,
 		label,
+		getDeviceNickname,
 		height = 60,
-		color = '#10b981',
+		colors = DEVICE_COLORS,
 		windowDuration = 30,
 		width = 200,
 		pixelsPerBucket = 3
 	}: Props = $props();
 
-	// State for rendered samples with timestamps (updated every second)
-	let displaySamples = $state<Array<{ timestamp: number; value: number }>>([]);
-	let samplingRate = $state<number | null>(null);
-	let updateIntervalId: number | null = null;
-
-	// Update display samples (called every second)
-	function updateDisplayValues() {
-		// Call the getter to get current samples
-		const samples = getSamples();
-
-		if (!samples || samples.length === 0) {
-			displaySamples = [];
-			samplingRate = null;
-			return;
-		}
-
-		// Get current time window
-		const currentTime = getCurrentPlaybackTime();
-		const timeWindow = calculateTimeWindow(currentTime, windowDuration);
-
-		if (!timeWindow) {
-			displaySamples = [];
-			samplingRate = null;
-			return;
-		}
-
-		// Get session start time from shared session state
-		const sessionStartTime = getSessionStartTime();
-		if (sessionStartTime === null) {
-			displaySamples = [];
-			samplingRate = null;
-			return;
-		}
-
-		// Use shared utility for filtering and decimation
-		const result = filterSingleDeviceSamples(samples, sessionStartTime, timeWindow, {
-			maxSamples: 500,
-			maxSamplesToProcess: 5000
-		});
-
-		samplingRate = result.samplingRate;
-
-		// Extract timestamp and value for rendering
-		displaySamples = result.samples.map((s) => ({
-			timestamp: s.global_time - sessionStartTime,
-			value: getValue(s)
-		}));
+	interface PerDeviceData {
+		deviceId: string;
+		label: string;
+		color: string;
+		samples: Array<{ timestamp: number; value: number }>;
+		samplingRate: number | null;
 	}
 
-	// Start update interval when component mounts
-	onMount(() => {
-		// Initial update
-		updateDisplayValues();
+	let perDeviceData = $state<PerDeviceData[]>([]);
+	let updateIntervalId: number | null = null;
 
-		// Update every 1 second
+	function updateDisplayValues() {
+		const samplesMap = getSamplesMap();
+		const currentTime = getCurrentPlaybackTime();
+		const timeWindow = calculateTimeWindow(currentTime, windowDuration);
+		const sessionStartTime = getSessionStartTime();
+
+		if (!timeWindow || sessionStartTime === null) {
+			perDeviceData = [];
+			return;
+		}
+
+		const deviceIds = Array.from(samplesMap.keys());
+		const updated: PerDeviceData[] = [];
+
+		for (let i = 0; i < deviceIds.length; i++) {
+			const deviceId = deviceIds[i];
+			const samples = samplesMap.get(deviceId) ?? [];
+			const color = colors[i % colors.length];
+			const deviceLabel = getDeviceNickname ? getDeviceNickname(deviceId) : deviceId;
+
+			if (samples.length === 0) {
+				updated.push({ deviceId, label: deviceLabel, color, samples: [], samplingRate: null });
+				continue;
+			}
+
+			const result = filterSingleDeviceSamples(samples, sessionStartTime, timeWindow, {
+				maxSamples: 500,
+				maxSamplesToProcess: 5000
+			});
+
+			updated.push({
+				deviceId,
+				label: deviceLabel,
+				color,
+				samples: result.samples.map((s) => ({
+					timestamp: s.global_time - sessionStartTime,
+					value: getValue(s)
+				})),
+				samplingRate: result.samplingRate
+			});
+		}
+
+		perDeviceData = updated;
+	}
+
+	onMount(() => {
+		updateDisplayValues();
 		updateIntervalId = window.setInterval(updateDisplayValues, 1000);
 	});
 
@@ -101,12 +108,16 @@
 	});
 </script>
 
-<ActivityMonitor
-	samples={displaySamples}
-	{label}
-	{height}
-	{color}
-	{width}
-	{pixelsPerBucket}
-	{samplingRate}
-/>
+{#each perDeviceData as device (device.deviceId)}
+	<ActivityMonitor
+		samples={device.samples}
+		label={device.label}
+		color={device.color}
+		{height}
+		{width}
+		{pixelsPerBucket}
+		samplingRate={device.samplingRate}
+	/>
+{:else}
+	<ActivityMonitor samples={[]} {label} {height} {width} {pixelsPerBucket} />
+{/each}

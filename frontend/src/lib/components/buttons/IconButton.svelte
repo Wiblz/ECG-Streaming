@@ -53,14 +53,14 @@
 		lg: 'w-12 h-12 text-base'
 	};
 
-	// Variant styles
+	// Variant styles using theme colors
 	const variantClasses = {
-		primary: 'bg-blue-600 hover:bg-blue-700 text-white',
-		secondary: 'bg-gray-600 hover:bg-gray-700 text-white',
-		success: 'bg-green-600 hover:bg-green-700 text-white',
-		danger: 'bg-red-600 hover:bg-red-700 text-white',
-		warning: 'bg-yellow-600 hover:bg-yellow-700 text-white',
-		ghost: 'bg-transparent hover:bg-gray-100 text-gray-700'
+		primary: 'bg-primary-fg hover:bg-primary-hover text-white',
+		secondary: 'bg-secondary-fg hover:bg-secondary-hover text-white',
+		success: 'bg-status-success-fg hover:bg-status-success-hover text-white',
+		danger: 'bg-status-error-fg hover:bg-status-error-hover text-white',
+		warning: 'bg-status-warning-fg hover:bg-status-warning-hover text-text',
+		ghost: 'bg-transparent hover:bg-surface-muted text-text'
 	};
 
 	const buttonClasses = $derived(

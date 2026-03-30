@@ -21,95 +21,139 @@
 	// Shared state for verified points toggle
 	let showVerifiedPoints = $state(false);
 
-	// Streaming status indicators - poll instead of derive
-	// (LiveWaveform handles actual streaming status internally via polling)
+	// Collapsible state - will auto-collapse when >4 devices
+	let isExpanded = $state(true);
+
+	// Polling-based state (plain Maps have no reactivity)
 	let ecgStreaming = $state(false);
 	let accStreaming = $state(false);
+	let activeDeviceCount = $state(0);
+	let tooManyDevices = $state(false);
 
-	// Poll for status indicator updates (every 500ms is sufficient for UI)
+	// Poll for updates every 500ms (matches polling architecture)
 	setInterval(() => {
+		// Update streaming indicators
 		ecgStreaming = ecgWsState === ConnectionState.CONNECTED && ecgSamples.size > 0;
 		accStreaming = accWsState === ConnectionState.CONNECTED && accSamples.size > 0;
+
+		// Count unique devices across both ECG and ACC
+		const ecgDevices = Array.from(ecgSamples.keys());
+		const accDevices = Array.from(accSamples.keys());
+		const allDevices = [...ecgDevices, ...accDevices];
+		const newCount = new Set(allDevices).size;
+
+		// Update device count and auto-collapse if needed
+		if (newCount !== activeDeviceCount) {
+			activeDeviceCount = newCount;
+			tooManyDevices = activeDeviceCount > 4;
+
+			// Auto-collapse when exceeding threshold
+			if (tooManyDevices && isExpanded) {
+				isExpanded = false;
+			}
+		}
 	}, 500);
 </script>
 
-<Card title="Live Waveforms">
+<Card title="Live Waveforms" padding={isExpanded ? 'normal' : 'none'}>
 	{#snippet headerActions()}
+		{#if isExpanded}
+			<Button
+				variant={showVerifiedPoints ? 'success' : 'ghost'}
+				size="sm"
+				disabled={tooManyDevices}
+				onclick={() => {
+					showVerifiedPoints = !showVerifiedPoints;
+				}}
+				title={tooManyDevices
+					? `Verified points disabled with ${activeDeviceCount} devices (max 4 for performance)`
+					: 'Toggle verified sample points (samples with direct Polar timestamps)'}
+			>
+				Verified Points
+			</Button>
+			<PauseButton />
+		{/if}
 		<Button
-			variant={showVerifiedPoints ? 'success' : 'ghost'}
+			variant="ghost"
 			size="sm"
+			disabled={tooManyDevices && !isExpanded}
 			onclick={() => {
-				showVerifiedPoints = !showVerifiedPoints;
+				isExpanded = !isExpanded;
 			}}
-			title="Toggle verified sample points (samples with direct Polar timestamps)"
+			title={tooManyDevices && !isExpanded
+				? `Waveforms disabled with ${activeDeviceCount} devices (max 4 for performance)`
+				: isExpanded
+					? 'Collapse waveforms'
+					: 'Expand waveforms'}
 		>
-			Verified Points
+			{isExpanded ? 'Collapse' : 'Expand'}
 		</Button>
-		<PauseButton />
 	{/snippet}
 
-	<div class="space-y-6">
-		<!-- ECG Waveform -->
-		<div>
-			<div class="flex items-center justify-between mb-3">
-				<h3 class="text-sm font-semibold text-gray-900">ECG</h3>
-				{#if ecgStreaming}
-					<div class="flex items-center gap-1.5 text-xs text-gray-500">
-						<div class="w-1.5 h-1.5 bg-status-success-fg rounded-full animate-pulse"></div>
-						<span>Active</span>
-					</div>
-				{:else}
-					<div class="flex items-center gap-1.5 text-xs text-gray-400">
-						<div class="w-1.5 h-1.5 bg-status-neutral-fg rounded-full"></div>
-						<span>Idle</span>
-					</div>
-				{/if}
+	{#if isExpanded}
+		<div class="space-y-6">
+			<!-- ECG Waveform -->
+			<div>
+				<div class="flex items-center justify-between mb-3">
+					<h3 class="text-sm font-semibold text-gray-900">ECG</h3>
+					{#if ecgStreaming}
+						<div class="flex items-center gap-1.5 text-xs text-text-secondary">
+							<div class="w-1.5 h-1.5 bg-status-success-fg rounded-full animate-pulse"></div>
+							<span>Active</span>
+						</div>
+					{:else}
+						<div class="flex items-center gap-1.5 text-xs text-text-muted">
+							<div class="w-1.5 h-1.5 bg-status-neutral-fg rounded-full"></div>
+							<span>Idle</span>
+						</div>
+					{/if}
+				</div>
+				<LiveWaveform
+					samples={ecgSamples}
+					wsState={ecgWsState}
+					{deviceNicknames}
+					getValue={(s) => s.raw_value}
+					yAxisLabel="Amplitude (mV)"
+					title="ECG"
+					emptyMessage="Waiting for ECG data..."
+					standalone={false}
+					alignMode="linear"
+					{showVerifiedPoints}
+				/>
 			</div>
-			<LiveWaveform
-				samples={ecgSamples}
-				wsState={ecgWsState}
-				{deviceNicknames}
-				getValue={(s) => s.raw_value}
-				yAxisLabel="Amplitude (mV)"
-				title="ECG"
-				emptyMessage="Waiting for ECG data..."
-				standalone={false}
-				alignMode="linear"
-				{showVerifiedPoints}
-			/>
-		</div>
 
-		<!-- Divider -->
-		<div class="border-t border-gray-200"></div>
+			<!-- Divider -->
+			<div class="border-t border-gray-200"></div>
 
-		<!-- Accelerometer Waveform -->
-		<div>
-			<div class="flex items-center justify-between mb-3">
-				<h3 class="text-sm font-semibold text-gray-900">Accelerometer</h3>
-				{#if accStreaming}
-					<div class="flex items-center gap-1.5 text-xs text-gray-500">
-						<div class="w-1.5 h-1.5 bg-status-success-fg rounded-full animate-pulse"></div>
-						<span>Active</span>
-					</div>
-				{:else}
-					<div class="flex items-center gap-1.5 text-xs text-gray-400">
-						<div class="w-1.5 h-1.5 bg-status-neutral-fg rounded-full"></div>
-						<span>Idle</span>
-					</div>
-				{/if}
+			<!-- Accelerometer Waveform -->
+			<div>
+				<div class="flex items-center justify-between mb-3">
+					<h3 class="text-sm font-semibold text-gray-900">Accelerometer</h3>
+					{#if accStreaming}
+						<div class="flex items-center gap-1.5 text-xs text-text-secondary">
+							<div class="w-1.5 h-1.5 bg-status-success-fg rounded-full animate-pulse"></div>
+							<span>Active</span>
+						</div>
+					{:else}
+						<div class="flex items-center gap-1.5 text-xs text-text-muted">
+							<div class="w-1.5 h-1.5 bg-status-neutral-fg rounded-full"></div>
+							<span>Idle</span>
+						</div>
+					{/if}
+				</div>
+				<LiveWaveform
+					samples={accSamples}
+					wsState={accWsState}
+					{deviceNicknames}
+					getValue={(s) => s.magnitude}
+					yAxisLabel="Magnitude (g)"
+					title="Accelerometer"
+					emptyMessage="Waiting for accelerometer data..."
+					standalone={false}
+					alignMode="linear"
+					{showVerifiedPoints}
+				/>
 			</div>
-			<LiveWaveform
-				samples={accSamples}
-				wsState={accWsState}
-				{deviceNicknames}
-				getValue={(s) => s.magnitude}
-				yAxisLabel="Magnitude (g)"
-				title="Accelerometer"
-				emptyMessage="Waiting for accelerometer data..."
-				standalone={false}
-				alignMode="linear"
-				{showVerifiedPoints}
-			/>
 		</div>
-	</div>
+	{/if}
 </Card>

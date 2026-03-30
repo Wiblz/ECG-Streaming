@@ -32,7 +32,7 @@ export function createDeviceSeries(
 	deviceNicknames?: Map<string, string>,
 	spanGaps: boolean = true
 ): uPlot.Series[] {
-	const series: uPlot.Series[] = [{ label: 'Time' }];
+	const series: uPlot.Series[] = [{}];
 
 	deviceIds.forEach((deviceId, idx) => {
 		const displayName = deviceNicknames?.get(deviceId) || deviceId;
