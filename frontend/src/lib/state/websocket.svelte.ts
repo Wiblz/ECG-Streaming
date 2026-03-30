@@ -1,8 +1,8 @@
 export const ConnectionState = {
-	DISCONNECTED: 'disconnected',
-	CONNECTING: 'connecting',
-	CONNECTED: 'connected',
-	ERROR: 'error'
+  DISCONNECTED: 'disconnected',
+  CONNECTING: 'connecting',
+  CONNECTED: 'connected',
+  ERROR: 'error'
 } as const;
 
 export type ConnectionStateType = (typeof ConnectionState)[keyof typeof ConnectionState];
@@ -17,34 +17,34 @@ let _accError = $state<string | null>(null);
 
 // ECG WebSocket getters and setters
 export function getWsState() {
-	return _state;
+  return _state;
 }
 
 export function setWsState(newState: ConnectionStateType) {
-	_state = newState;
+  _state = newState;
 }
 
 export function getWsError() {
-	return _error;
+  return _error;
 }
 
 export function setWsError(err: string | null) {
-	_error = err;
+  _error = err;
 }
 
 // Accelerometer WebSocket getters and setters
 export function getAccWsState() {
-	return _accState;
+  return _accState;
 }
 
 export function setAccWsState(newState: ConnectionStateType) {
-	_accState = newState;
+  _accState = newState;
 }
 
 export function getAccWsError() {
-	return _accError;
+  return _accError;
 }
 
 export function setAccWsError(err: string | null) {
-	_accError = err;
+  _accError = err;
 }

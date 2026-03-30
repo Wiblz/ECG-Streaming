@@ -7,161 +7,161 @@
 
 /* Fix for Tailwind v4 missing cursor pointer on buttons */
 @layer base {
-	button:not(:disabled),
-	[role='button']:not(:disabled) {
-		cursor: pointer;
-	}
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
 }
 
 @theme {
-	/* Status colors - Semantic naming for different states */
+  /* Status colors - Semantic naming for different states */
 
-	/* Success state: streaming, healthy, active, start actions */
-	--color-status-success: oklch(0.85 0.15 145);
-	--color-status-success-fg: oklch(0.5 0.15 145); /* Lighter green for buttons */
-	--color-status-success-border: oklch(0.75 0.12 145);
-	--color-status-success-hover: oklch(0.45 0.15 145); /* Slightly darker on hover */
+  /* Success state: streaming, healthy, active, start actions */
+  --color-status-success: oklch(0.85 0.15 145);
+  --color-status-success-fg: oklch(0.5 0.15 145); /* Lighter green for buttons */
+  --color-status-success-border: oklch(0.75 0.12 145);
+  --color-status-success-hover: oklch(0.45 0.15 145); /* Slightly darker on hover */
 
-	/* Info state: connected, ready, primary actions */
-	--color-status-info: oklch(0.85 0.12 230);
-	--color-status-info-fg: oklch(0.55 0.15 230); /* Lighter blue for buttons */
-	--color-status-info-border: oklch(0.75 0.1 230);
-	--color-status-info-hover: oklch(0.5 0.15 230); /* Slightly darker on hover */
+  /* Info state: connected, ready, primary actions */
+  --color-status-info: oklch(0.85 0.12 230);
+  --color-status-info-fg: oklch(0.55 0.15 230); /* Lighter blue for buttons */
+  --color-status-info-border: oklch(0.75 0.1 230);
+  --color-status-info-hover: oklch(0.5 0.15 230); /* Slightly darker on hover */
 
-	/* Warning state: connecting, degraded, caution */
-	--color-status-warning: oklch(0.9 0.15 85);
-	--color-status-warning-fg: oklch(0.55 0.18 85); /* Lighter yellow/orange for buttons */
-	--color-status-warning-border: oklch(0.8 0.12 85);
-	--color-status-warning-hover: oklch(0.5 0.18 85);
+  /* Warning state: connecting, degraded, caution */
+  --color-status-warning: oklch(0.9 0.15 85);
+  --color-status-warning-fg: oklch(0.55 0.18 85); /* Lighter yellow/orange for buttons */
+  --color-status-warning-border: oklch(0.8 0.12 85);
+  --color-status-warning-hover: oklch(0.5 0.18 85);
 
-	/* Error state: error, failed, destructive actions, stop */
-	--color-status-error: oklch(0.85 0.18 25);
-	--color-status-error-fg: oklch(0.55 0.2 25); /* Lighter red for buttons */
-	--color-status-error-border: oklch(0.75 0.15 25);
-	--color-status-error-hover: oklch(0.5 0.2 25);
+  /* Error state: error, failed, destructive actions, stop */
+  --color-status-error: oklch(0.85 0.18 25);
+  --color-status-error-fg: oklch(0.55 0.2 25); /* Lighter red for buttons */
+  --color-status-error-border: oklch(0.75 0.15 25);
+  --color-status-error-hover: oklch(0.5 0.2 25);
 
-	/* Neutral state: disconnected, idle, unknown, secondary actions */
-	--color-status-neutral: oklch(0.9 0 0);
-	--color-status-neutral-fg: oklch(0.45 0 0);
-	--color-status-neutral-border: oklch(0.8 0 0);
-	--color-status-neutral-hover: oklch(0.85 0 0);
+  /* Neutral state: disconnected, idle, unknown, secondary actions */
+  --color-status-neutral: oklch(0.9 0 0);
+  --color-status-neutral-fg: oklch(0.45 0 0);
+  --color-status-neutral-border: oklch(0.8 0 0);
+  --color-status-neutral-hover: oklch(0.85 0 0);
 
-	/* UI element colors */
+  /* UI element colors */
 
-	/* Primary interactive elements (buttons, links, focus states) */
-	--color-primary: oklch(0.85 0.12 230);
-	--color-primary-fg: oklch(0.55 0.15 230); /* Lighter blue for primary buttons */
-	--color-primary-hover: oklch(0.5 0.15 230);
+  /* Primary interactive elements (buttons, links, focus states) */
+  --color-primary: oklch(0.85 0.12 230);
+  --color-primary-fg: oklch(0.55 0.15 230); /* Lighter blue for primary buttons */
+  --color-primary-hover: oklch(0.5 0.15 230);
 
-	/* Secondary interactive elements */
-	--color-secondary: oklch(0.9 0 0);
-	--color-secondary-fg: oklch(0.45 0 0);
-	--color-secondary-hover: oklch(0.85 0 0);
+  /* Secondary interactive elements */
+  --color-secondary: oklch(0.9 0 0);
+  --color-secondary-fg: oklch(0.45 0 0);
+  --color-secondary-hover: oklch(0.85 0 0);
 
-	/* Surface colors */
-	--color-surface: oklch(1 0 0); /* white */
-	--color-surface-hover: oklch(0.97 0 0);
-	--color-surface-muted: oklch(0.95 0 0);
+  /* Surface colors */
+  --color-surface: oklch(1 0 0); /* white */
+  --color-surface-hover: oklch(0.97 0 0);
+  --color-surface-muted: oklch(0.95 0 0);
 
-	/* Border colors */
-	--color-border: oklch(0.88 0 0);
-	--color-border-hover: oklch(0.75 0 0);
+  /* Border colors */
+  --color-border: oklch(0.88 0 0);
+  --color-border-hover: oklch(0.75 0 0);
 
-	/* Text colors */
-	--color-text: oklch(0.3 0 0);
-	--color-text-secondary: oklch(0.5 0 0);
-	--color-text-muted: oklch(0.6 0 0);
-	--color-text-disabled: oklch(0.7 0 0);
+  /* Text colors */
+  --color-text: oklch(0.3 0 0);
+  --color-text-secondary: oklch(0.5 0 0);
+  --color-text-muted: oklch(0.6 0 0);
+  --color-text-disabled: oklch(0.7 0 0);
 
-	/* Focus ring */
-	--color-focus: oklch(0.75 0.1 230);
+  /* Focus ring */
+  --color-focus: oklch(0.75 0.1 230);
 }
 
 /* Pulse ripple animation for sync metronome */
 @keyframes pulse-ripple {
-	0% {
-		transform: scale(0.85);
-		box-shadow: 0 0 0 0 oklch(0.55 0.18 230 / 0.8);
-	}
-	50% {
-		transform: scale(1);
-	}
-	100% {
-		transform: scale(0.85);
-		box-shadow: 0 0 0 80px oklch(0.55 0.18 230 / 0);
-	}
+  0% {
+    transform: scale(0.85);
+    box-shadow: 0 0 0 0 oklch(0.55 0.18 230 / 0.8);
+  }
+  50% {
+    transform: scale(1);
+  }
+  100% {
+    transform: scale(0.85);
+    box-shadow: 0 0 0 80px oklch(0.55 0.18 230 / 0);
+  }
 }
 
 /* uPlot legend customization - force wrapping layout */
 .u-legend {
-	border-top: 1px solid oklch(0.93 0 0) !important;
-	padding: 0.5rem !important;
-	margin-top: 0.5rem !important;
+  border-top: 1px solid var(--color-border) !important;
+  padding: 0.5rem !important;
+  margin-top: 0.5rem !important;
 }
 
 /* Hide the first series (x-axis/Time) from legend */
 .u-legend .u-series:first-child {
-	display: none !important;
+  display: none !important;
 }
 
 .u-legend > table > tbody,
 .u-legend > table > thead {
-	display: flex !important;
-	flex-wrap: wrap !important;
-	gap: 0.5rem !important;
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 0.5rem !important;
 }
 
 .u-legend > table > tbody > tr,
 .u-legend > table > thead > tr {
-	display: contents !important;
+  display: contents !important;
 }
 
 /* Style individual series items */
 .u-legend .u-series {
-	display: inline-flex !important;
-	align-items: center !important;
-	gap: 0.375rem !important;
-	padding: 0.375rem 0.625rem !important;
-	border-radius: 0.375rem !important;
-	font-size: 0.875rem !important;
-	cursor: pointer !important;
-	transition: background-color 0.15s ease !important;
-	user-select: none !important;
-	white-space: nowrap !important;
-	min-width: 10rem !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.375rem !important;
+  padding: 0.375rem 0.625rem !important;
+  border-radius: 0.375rem !important;
+  font-size: 0.875rem !important;
+  cursor: pointer !important;
+  transition: background-color 0.15s ease !important;
+  user-select: none !important;
+  white-space: nowrap !important;
+  min-width: 10rem !important;
 }
 
 .u-legend .u-series:hover {
-	background-color: oklch(0.95 0 0) !important;
+  background-color: var(--color-surface-hover) !important;
 }
 
 .u-legend .u-series.u-off {
-	opacity: 0.4 !important;
+  opacity: 0.4 !important;
 }
 
 /* Color marker */
 .u-legend .u-marker {
-	width: 0.875rem !important;
-	height: 0.875rem !important;
-	border-radius: 0.25rem !important;
-	border-width: 2px !important;
-	border-style: solid !important;
-	flex-shrink: 0 !important;
+  width: 0.875rem !important;
+  height: 0.875rem !important;
+  border-radius: 0.25rem !important;
+  border-width: 2px !important;
+  border-style: solid !important;
+  flex-shrink: 0 !important;
 }
 
 /* Series label */
 .u-legend .u-label {
-	font-weight: 500 !important;
-	color: oklch(0.3 0 0) !important;
+  font-weight: 500 !important;
+  color: var(--color-text) !important;
 }
 
 /* Current value */
 .u-legend .u-value {
-	font-variant-numeric: tabular-nums !important;
-	color: oklch(0.5 0 0) !important;
-	margin-left: 0.25rem !important;
-	font-size: 0.8125rem !important;
-	min-width: 3.5rem !important;
-	text-align: right !important;
-	display: inline-block !important;
+  font-variant-numeric: tabular-nums !important;
+  color: var(--color-text-secondary) !important;
+  margin-left: 0.25rem !important;
+  font-size: 0.8125rem !important;
+  min-width: 3.5rem !important;
+  text-align: right !important;
+  display: inline-block !important;
 }

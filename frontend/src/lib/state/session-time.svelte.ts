@@ -10,39 +10,39 @@ let _wallClockStartTime = $state<number | null>(null); // Wall-clock time when s
 let _initialOffset = $state<number | null>(null); // Fixed offset between sample time and wall-clock
 
 export function getSessionStartTime(): number | null {
-	return _sessionStartTime;
+  return _sessionStartTime;
 }
 
 export function setSessionStartTime(time: number): void {
-	if (_sessionStartTime === null) {
-		_sessionStartTime = time;
-		_wallClockStartTime = Date.now() / 1000; // Record wall-clock time
-		_initialOffset = _wallClockStartTime - time; // Save the offset
-		console.log(
-			'[session-time] Session start - sample time:',
-			time,
-			'wall-clock:',
-			_wallClockStartTime,
-			'age:',
-			(_wallClockStartTime - time).toFixed(1) + 's'
-		);
-	} else {
-		console.log(
-			'[session-time] Attempted to set session time to',
-			time,
-			'but already set to',
-			_sessionStartTime,
-			'(diff:',
-			(time - _sessionStartTime).toFixed(1) + 's)'
-		);
-	}
+  if (_sessionStartTime === null) {
+    _sessionStartTime = time;
+    _wallClockStartTime = Date.now() / 1000; // Record wall-clock time
+    _initialOffset = _wallClockStartTime - time; // Save the offset
+    console.log(
+      '[session-time] Session start - sample time:',
+      time,
+      'wall-clock:',
+      _wallClockStartTime,
+      'age:',
+      (_wallClockStartTime - time).toFixed(1) + 's'
+    );
+  } else {
+    console.log(
+      '[session-time] Attempted to set session time to',
+      time,
+      'but already set to',
+      _sessionStartTime,
+      '(diff:',
+      (time - _sessionStartTime).toFixed(1) + 's)'
+    );
+  }
 }
 
 export function resetSessionStartTime(): void {
-	_sessionStartTime = null;
-	_wallClockStartTime = null;
-	_initialOffset = null;
-	// console.log('[session-time] Session start time reset')
+  _sessionStartTime = null;
+  _wallClockStartTime = null;
+  _initialOffset = null;
+  // console.log('[session-time] Session start time reset')
 }
 
 /**
@@ -51,15 +51,15 @@ export function resetSessionStartTime(): void {
  * This ensures window and samples use the same time base
  */
 export function getCurrentPlaybackTime(): number | null {
-	if (_sessionStartTime === null || _wallClockStartTime === null || _initialOffset === null) {
-		return null;
-	}
+  if (_sessionStartTime === null || _wallClockStartTime === null || _initialOffset === null) {
+    return null;
+  }
 
-	// Calculate current time in wall-clock space
-	const now = Date.now() / 1000;
-	const elapsedWallClock = now - _wallClockStartTime;
+  // Calculate current time in wall-clock space
+  const now = Date.now() / 1000;
+  const elapsedWallClock = now - _wallClockStartTime;
 
-	// Convert to sample time space by subtracting the fixed offset
-	// This keeps the relationship between window and samples stable
-	return elapsedWallClock;
+  // Convert to sample time space by subtracting the fixed offset
+  // This keeps the relationship between window and samples stable
+  return elapsedWallClock;
 }
