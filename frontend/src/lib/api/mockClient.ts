@@ -3,7 +3,9 @@ import type {
   BufferStats,
   CollectorsResponse,
   DeviceInfo,
+  DevicesResponse,
   DeviceStatusResponse,
+  PaginationParams,
   Session,
   SessionAccelerometerSamplesResponse,
   SessionSamplesResponse,
@@ -49,14 +51,14 @@ export class MockClient implements ApiClient {
     }
   }
 
-  async getDevices(): Promise<{ devices: DeviceInfo[]; count: number }> {
+  async getDevices(params?: PaginationParams): Promise<DevicesResponse> {
     // Filter to only synced devices (similar to real API)
     const syncedDevices = this.devicesCache.filter((d) => d.sync_ready);
-    return { devices: syncedDevices, count: syncedDevices.length };
+    return this.paginateDevices(syncedDevices, params);
   }
 
-  async getAllDevices(): Promise<{ devices: DeviceInfo[]; count: number }> {
-    return { devices: this.devicesCache, count: this.devicesCache.length };
+  async getAllDevices(params?: PaginationParams): Promise<DevicesResponse> {
+    return this.paginateDevices(this.devicesCache, params);
   }
 
   async getDeviceStatus(): Promise<DeviceStatusResponse> {
@@ -153,10 +155,31 @@ export class MockClient implements ApiClient {
     };
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async getSessions(_params?: { limit?: number; offset?: number }): Promise<SessionsResponse> {
+   
+  async getSessions(_params?: PaginationParams): Promise<SessionsResponse> {
     // Return empty sessions for mock mode
-    return { sessions: [], count: 0 };
+    return {
+      sessions: [],
+      count: 0,
+      total: 0,
+      limit: _params?.limit ?? null,
+      offset: _params?.offset ?? 0
+    };
+  }
+
+  private paginateDevices(devices: DeviceInfo[], params?: PaginationParams): DevicesResponse {
+    const offset = params?.offset ?? 0;
+    const limit = params?.limit;
+    const paginatedDevices =
+      limit !== undefined ? devices.slice(offset, offset + limit) : devices.slice(offset);
+
+    return {
+      devices: paginatedDevices,
+      count: paginatedDevices.length,
+      total: devices.length,
+      limit: limit ?? null,
+      offset
+    };
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars

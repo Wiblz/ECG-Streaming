@@ -139,6 +139,22 @@ export interface SessionAccelerometerSample {
 export interface SessionsResponse {
   sessions: Session[];
   count: number;
+  total: number;
+  limit?: number | null;
+  offset: number;
+}
+
+export interface PaginationParams {
+  limit?: number;
+  offset?: number;
+}
+
+export interface DevicesResponse {
+  devices: DeviceInfo[];
+  count: number;
+  total: number;
+  limit?: number | null;
+  offset: number;
 }
 
 export interface SessionSamplesResponse {
@@ -207,8 +223,8 @@ export interface ApiClient {
   getVersion(): Promise<{ version: string }>;
 
   // Device methods
-  getDevices(): Promise<{ devices: DeviceInfo[]; count: number }>;
-  getAllDevices(): Promise<{ devices: DeviceInfo[]; count: number }>;
+  getDevices(params?: PaginationParams): Promise<DevicesResponse>;
+  getAllDevices(params?: PaginationParams): Promise<DevicesResponse>;
   getDeviceStatus(): Promise<DeviceStatusResponse>;
   updateDeviceNickname(
     deviceId: string,
@@ -231,7 +247,7 @@ export interface ApiClient {
   getAccelerometerBufferStats(): Promise<BufferStats>;
 
   // Session methods
-  getSessions(params?: { limit?: number; offset?: number }): Promise<SessionsResponse>;
+  getSessions(params?: PaginationParams): Promise<SessionsResponse>;
   getSession(sessionId: number): Promise<Session>;
   getSessionSamples(
     sessionId: number,

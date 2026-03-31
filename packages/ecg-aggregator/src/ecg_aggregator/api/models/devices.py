@@ -61,6 +61,9 @@ class DevicesSummaryResponse(BaseModel):
 
     devices: list[DeviceSummary]
     count: int
+    total: int
+    limit: int | None = None
+    offset: int = 0
 
 
 class DevicesStatusResponse(BaseModel):
@@ -80,6 +83,9 @@ class DevicesAllResponse(BaseModel):
 
     devices: list[DeviceInfo]
     count: int
+    total: int
+    limit: int | None = None
+    offset: int = 0
 
 
 class UpdateNicknameResponse(BaseModel):

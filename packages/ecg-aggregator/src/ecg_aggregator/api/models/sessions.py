@@ -32,6 +32,9 @@ class SessionsResponse(BaseModel):
 
     sessions: list[SessionInfo]
     count: int
+    total: int
+    limit: int | None = None
+    offset: int = 0
 
 
 class ActiveSessionResponse(BaseModel):

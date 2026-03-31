@@ -1,6 +1,34 @@
 """API helper utilities."""
 
+from typing import Annotated
+
+from fastapi import Query
 from pydantic import BaseModel
+
+
+class PaginationParams(BaseModel):
+    """Shared pagination parameters for collection endpoints."""
+
+    limit: int | None = None
+    offset: int = 0
+
+
+def pagination_params(
+    limit: Annotated[int | None, Query(ge=0)] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> PaginationParams:
+    """Parse pagination query parameters into a reusable model."""
+    return PaginationParams(limit=limit, offset=offset)
+
+
+def paginate_items[ItemT](
+    items: list[ItemT], pagination: PaginationParams
+) -> tuple[list[ItemT], int]:
+    """Apply offset/limit pagination to an in-memory list."""
+    paginated_items = items[pagination.offset :]
+    if pagination.limit is not None:
+        paginated_items = paginated_items[: pagination.limit]
+    return paginated_items, len(items)
 
 
 def group_samples_by_device[SampleModelT: BaseModel](

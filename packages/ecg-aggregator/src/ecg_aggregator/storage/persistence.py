@@ -930,7 +930,7 @@ class ECGDatabase:
                 query += f" ORDER BY {order_by}"
 
                 params: list[int] = []
-                if limit:
+                if limit is not None:
                     query += " LIMIT ? OFFSET ?"
                     params.extend([limit, offset])
 
@@ -1053,6 +1053,19 @@ class ECGDatabase:
             except Exception as e:
                 logger.error(f"Error retrieving sessions: {e}")
                 return []
+
+    def count_sessions(self) -> int:
+        """Count all sessions."""
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM sessions")
+                row = cursor.fetchone()
+                return int(row[0]) if row else 0
+            except Exception as e:
+                logger.error(f"Error counting sessions: {e}")
+                return 0
 
     def get_session(self, session_id: int) -> dict | None:
         """Get a single session by ID.
@@ -1680,7 +1693,7 @@ class ECGDatabase:
                 logger.error(f"Error importing session from CSV: {e}")
                 return None
 
-    def get_all_devices(self) -> list[dict]:
+    def get_all_devices(self, limit: int | None = None, offset: int = 0) -> list[dict]:
         """Get all known devices from database.
 
         Returns:
@@ -1691,11 +1704,17 @@ class ECGDatabase:
                 conn = self._get_connection()
                 cursor = conn.cursor()
 
-                cursor.execute("""
+                query = """
                     SELECT device_id, first_seen, last_seen, total_samples, nickname
                     FROM devices
                     ORDER BY last_seen DESC
-                """)
+                """
+                params: list[int] = []
+                if limit is not None:
+                    query += " LIMIT ? OFFSET ?"
+                    params.extend([limit, offset])
+
+                cursor.execute(query, params)
 
                 results = []
                 for row in cursor.fetchall():
@@ -1714,6 +1733,19 @@ class ECGDatabase:
             except Exception as e:
                 logger.error(f"Error retrieving devices: {e}")
                 return []
+
+    def count_devices(self) -> int:
+        """Count all known devices in the database."""
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM devices")
+                row = cursor.fetchone()
+                return int(row[0]) if row else 0
+            except Exception as e:
+                logger.error(f"Error counting devices: {e}")
+                return 0
 
     def update_device_nickname(self, device_id: str, nickname: str | None) -> bool:
         """Update a device's nickname.

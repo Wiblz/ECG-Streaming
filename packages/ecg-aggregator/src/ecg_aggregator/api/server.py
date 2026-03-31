@@ -6,11 +6,19 @@ import json
 import time
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from ecg_common import __version__
 from ecg_common.logging import get_logger
-from fastapi import FastAPI, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, TypeAdapter
@@ -53,7 +61,12 @@ from ecg_aggregator.api.models import (
     VersionResponse,
 )
 from ecg_aggregator.api.sse_broadcaster import SSEBroadcaster
-from ecg_aggregator.api.utils import group_samples_by_device
+from ecg_aggregator.api.utils import (
+    PaginationParams,
+    group_samples_by_device,
+    paginate_items,
+    pagination_params,
+)
 from ecg_aggregator.api.ws_models import (
     DevicesStatusMessage,
     ErrorMessage,
@@ -175,7 +188,9 @@ class ECGStreamingServer:
             )
 
         @self.app.get("/devices", response_model=DevicesSummaryResponse)
-        async def list_devices() -> DevicesSummaryResponse:
+        async def list_devices(
+            pagination: Annotated[PaginationParams, Depends(pagination_params)],
+        ) -> DevicesSummaryResponse:
             """List all devices and their sync status."""
             devices: list[DeviceSummary] = []
 
@@ -198,7 +213,16 @@ class ECGStreamingServer:
                     )
                 )
 
-            return DevicesSummaryResponse(devices=devices, count=len(devices))
+            devices.sort(key=lambda d: d.device_id)
+            paginated_devices, total = paginate_items(devices, pagination)
+
+            return DevicesSummaryResponse(
+                devices=paginated_devices,
+                count=len(paginated_devices),
+                total=total,
+                limit=pagination.limit,
+                offset=pagination.offset,
+            )
 
         @self.app.get("/version", response_model=VersionResponse)
         async def get_version() -> VersionResponse:
@@ -410,7 +434,9 @@ class ECGStreamingServer:
             return DevicesStatusResponse(devices=devices_status, count=len(devices_status))
 
         @self.app.get("/devices/all", response_model=DevicesAllResponse)
-        async def get_all_devices() -> DevicesAllResponse:
+        async def get_all_devices(
+            pagination: Annotated[PaginationParams, Depends(pagination_params)],
+        ) -> DevicesAllResponse:
             """Get all known devices from database, including disconnected ones.
 
             Returns both currently connected devices and previously seen devices from database.
@@ -483,7 +509,15 @@ class ECGStreamingServer:
             # Sort by last_seen (most recent first), then by device_id
             devices.sort(key=lambda d: (-(d.last_seen or 0), d.device_id))
 
-            return DevicesAllResponse(devices=devices, count=len(devices))
+            paginated_devices, total = paginate_items(devices, pagination)
+
+            return DevicesAllResponse(
+                devices=paginated_devices,
+                count=len(paginated_devices),
+                total=total,
+                limit=pagination.limit,
+                offset=pagination.offset,
+            )
 
         @self.app.put("/devices/{device_id}/nickname", response_model=UpdateNicknameResponse)
         async def update_device_nickname(
@@ -668,11 +702,23 @@ class ECGStreamingServer:
             return ActiveSessionResponse(active=True, session_id=session_id, session=session_info)
 
         @self.app.get("/sessions", response_model=SessionsResponse)
-        async def list_sessions(limit: int | None = None, offset: int = 0) -> SessionsResponse:
+        async def list_sessions(
+            pagination: Annotated[PaginationParams, Depends(pagination_params)],
+        ) -> SessionsResponse:
             """List all recording sessions."""
-            sessions = self.database.get_sessions(limit=limit, offset=offset)
+            sessions = self.database.get_sessions(
+                limit=pagination.limit,
+                offset=pagination.offset,
+            )
             session_models = [SessionInfo.model_validate(s) for s in sessions]
-            return SessionsResponse(sessions=session_models, count=len(session_models))
+            total = self.database.count_sessions()
+            return SessionsResponse(
+                sessions=session_models,
+                count=len(session_models),
+                total=total,
+                limit=pagination.limit,
+                offset=pagination.offset,
+            )
 
         @self.app.get("/sessions/{session_id}", response_model=SessionInfo)
         async def get_session_detail(session_id: int) -> SessionInfo:
@@ -1174,6 +1220,15 @@ class ECGStreamingServer:
                         f"[BROADCAST] Device {device_id}: got {len(samples)} samples since {since:.2f}"
                     )
                     if samples:
+                        # Check if samples are timestamped in the future
+                        newest_sample_time = samples[-1]["global_time"]
+                        time_diff = newest_sample_time - current_time
+                        if abs(time_diff) > 1.0:
+                            logger.warning(
+                                f"[BROADCAST] Sample timestamp mismatch for {device_id}: "
+                                f"newest sample at {newest_sample_time:.2f}, current time {current_time:.2f}, "
+                                f"diff={time_diff:.2f}s ({'future' if time_diff > 0 else 'past'})"
+                            )
                         all_samples.extend(samples)
                         last_broadcast_time[device_id] = samples[-1]["global_time"]
 
@@ -1207,13 +1262,21 @@ class ECGStreamingServer:
                 }
 
                 # Send to all connections concurrently
+                send_start = time.time()
                 disconnected = []
                 for connection in self.ecg_connections:
                     try:
                         await connection.send_json(message)
                     except Exception as e:
-                        logger.error(f"Error sending to ECG WebSocket: {e}")
+                        logger.error(f"[BROADCAST] Error sending to WebSocket: {e}")
                         disconnected.append(connection)
+
+                send_duration = (time.time() - send_start) * 1000
+
+                if send_duration > 50:
+                    logger.warning(
+                        f"[BROADCAST] Slow send: {send_duration:.1f}ms to {len(self.ecg_connections)} clients"
+                    )
 
                 # Remove disconnected clients
                 for connection in disconnected:
@@ -1221,32 +1284,54 @@ class ECGStreamingServer:
                         self.ecg_connections.remove(connection)
 
             except Exception as e:
-                logger.error(f"Error in ECG broadcast loop: {e}")
+                logger.error(f"[BROADCAST] Error in ECG broadcast loop: {e}", exc_info=True)
                 await asyncio.sleep(1.0)
 
     async def broadcast_acc_data(self) -> None:
         """Broadcast accelerometer data to all connected WebSocket clients."""
         last_broadcast_time: dict[str, float] = {}
+        broadcast_count = 0
 
         while True:
             try:
+                broadcast_start = time.time()
                 await asyncio.sleep(self.broadcast_interval)
 
                 if not self.acc_connections:
+                    logger.debug("[ACC_BROADCAST] No WebSocket connections, skipping")
                     continue
 
                 current_time = time.time()
 
                 # Get new samples since last broadcast for each device
                 all_samples = []
-                for device_id in self.acc_buffer.get_device_list():
+                devices = self.acc_buffer.get_device_list()
+                logger.debug(f"[ACC_BROADCAST] Checking {len(devices)} devices for new samples")
+
+                for device_id in devices:
                     since = last_broadcast_time.get(device_id, current_time - 1.0)
                     samples = self.acc_buffer.get_recent_samples(since=since, device_id=device_id)
+                    logger.debug(
+                        f"[ACC_BROADCAST] Device {device_id}: got {len(samples)} samples since {since:.2f}"
+                    )
                     if samples:
+                        # Check if samples are timestamped in the future
+                        newest_sample_time = samples[-1]["global_time"]
+                        time_diff = newest_sample_time - current_time
+                        if abs(time_diff) > 1.0:
+                            logger.warning(
+                                f"[ACC_BROADCAST] Sample timestamp mismatch for {device_id}: "
+                                f"newest sample at {newest_sample_time:.2f}, current time {current_time:.2f}, "
+                                f"diff={time_diff:.2f}s ({'future' if time_diff > 0 else 'past'})"
+                            )
                         all_samples.extend(samples)
                         last_broadcast_time[device_id] = samples[-1]["global_time"]
 
                 if not all_samples:
+                    buffer_stats = self.acc_buffer.get_stats()
+                    logger.debug(
+                        f"[ACC_BROADCAST] No samples to broadcast. Buffer stats: {buffer_stats}"
+                    )
                     continue
 
                 # Group samples by device_id for bandwidth efficiency
@@ -1258,6 +1343,11 @@ class ECGStreamingServer:
                     for device_id, samples in devices_data.items()
                 }
 
+                broadcast_count += 1
+                logger.debug(
+                    f"[ACC_BROADCAST] Broadcasting {len(all_samples)} samples from {len(devices_data)} devices (broadcast #{broadcast_count})"
+                )
+
                 # Broadcast to all connections - grouped by device_id
                 message = {
                     "type": "data",
@@ -1267,13 +1357,26 @@ class ECGStreamingServer:
                 }
 
                 # Send to all connections concurrently
+                send_start = time.time()
                 disconnected = []
                 for connection in self.acc_connections:
                     try:
                         await connection.send_json(message)
                     except Exception as e:
-                        logger.error(f"Error sending to accelerometer WebSocket: {e}")
+                        logger.error(f"[ACC_BROADCAST] Error sending to WebSocket: {e}")
                         disconnected.append(connection)
+
+                send_duration = (time.time() - send_start) * 1000
+                broadcast_duration = (time.time() - broadcast_start) * 1000
+
+                if send_duration > 50:
+                    logger.warning(
+                        f"[ACC_BROADCAST] Slow send: {send_duration:.1f}ms to {len(self.acc_connections)} clients"
+                    )
+                if broadcast_duration > 50:
+                    logger.warning(
+                        f"[ACC_BROADCAST] Slow broadcast cycle: {broadcast_duration:.1f}ms total"
+                    )
 
                 # Remove disconnected clients
                 for connection in disconnected:
@@ -1281,7 +1384,7 @@ class ECGStreamingServer:
                         self.acc_connections.remove(connection)
 
             except Exception as e:
-                logger.error(f"Error in accelerometer broadcast loop: {e}")
+                logger.error(f"[ACC_BROADCAST] Error in broadcast loop: {e}", exc_info=True)
                 await asyncio.sleep(1.0)
 
     async def broadcast_buffer_stats(self) -> None:

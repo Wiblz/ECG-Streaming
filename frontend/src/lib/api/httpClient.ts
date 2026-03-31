@@ -2,14 +2,16 @@ import type {
   ApiClient,
   BufferStats,
   CollectorsResponse,
-  DeviceInfo,
+  DevicesResponse,
   DeviceStatusResponse,
+  PaginationParams,
   Session,
   SessionAccelerometerSamplesResponse,
   SessionSamplesResponse,
   SessionsResponse,
   SyncStats
 } from '$lib/types/api';
+import { buildSearchParams, withSearchParams } from './queryParams';
 
 const envBase = import.meta.env.VITE_AGGREGATOR_HTTP as string | undefined;
 const API_BASE =
@@ -27,13 +29,27 @@ export class HttpClient implements ApiClient {
     return res.json();
   }
 
-  async getDevices(): Promise<{ devices: DeviceInfo[]; count: number }> {
-    const res = await fetch(`${API_BASE}/devices`);
+  async getDevices(params?: PaginationParams): Promise<DevicesResponse> {
+    const url = withSearchParams(
+      `${API_BASE}/devices`,
+      buildSearchParams({
+        limit: params?.limit,
+        offset: params?.offset
+      })
+    );
+    const res = await fetch(url);
     return res.json();
   }
 
-  async getAllDevices(): Promise<{ devices: DeviceInfo[]; count: number }> {
-    const res = await fetch(`${API_BASE}/devices/all`);
+  async getAllDevices(params?: PaginationParams): Promise<DevicesResponse> {
+    const url = withSearchParams(
+      `${API_BASE}/devices/all`,
+      buildSearchParams({
+        limit: params?.limit,
+        offset: params?.offset
+      })
+    );
+    const res = await fetch(url);
     return res.json();
   }
 
@@ -86,12 +102,14 @@ export class HttpClient implements ApiClient {
     return res.json();
   }
 
-  async getSessions(params?: { limit?: number; offset?: number }): Promise<SessionsResponse> {
-    const searchParams = new URLSearchParams();
-    if (params?.limit) searchParams.set('limit', params.limit.toString());
-    if (params?.offset) searchParams.set('offset', params.offset.toString());
-
-    const url = `${API_BASE}/sessions${searchParams.toString() ? `?${searchParams}` : ''}`;
+  async getSessions(params?: PaginationParams): Promise<SessionsResponse> {
+    const url = withSearchParams(
+      `${API_BASE}/sessions`,
+      buildSearchParams({
+        limit: params?.limit,
+        offset: params?.offset
+      })
+    );
     const res = await fetch(url);
     return res.json();
   }
@@ -117,15 +135,16 @@ export class HttpClient implements ApiClient {
       offset?: number;
     }
   ): Promise<SessionSamplesResponse> {
-    const searchParams = new URLSearchParams();
-    if (params?.device_id) searchParams.set('device_id', params.device_id);
-    if (params?.start_time !== undefined)
-      searchParams.set('start_time', params.start_time.toString());
-    if (params?.end_time !== undefined) searchParams.set('end_time', params.end_time.toString());
-    if (params?.limit) searchParams.set('limit', params.limit.toString());
-    if (params?.offset) searchParams.set('offset', params.offset.toString());
-
-    const url = `${API_BASE}/sessions/${sessionId}/samples${searchParams.toString() ? `?${searchParams}` : ''}`;
+    const url = withSearchParams(
+      `${API_BASE}/sessions/${sessionId}/samples`,
+      buildSearchParams({
+        device_id: params?.device_id,
+        start_time: params?.start_time,
+        end_time: params?.end_time,
+        limit: params?.limit,
+        offset: params?.offset
+      })
+    );
     const res = await fetch(url);
     return res.json();
   }
@@ -140,15 +159,16 @@ export class HttpClient implements ApiClient {
       offset?: number;
     }
   ): Promise<SessionAccelerometerSamplesResponse> {
-    const searchParams = new URLSearchParams();
-    if (params?.device_id) searchParams.set('device_id', params.device_id);
-    if (params?.start_time !== undefined)
-      searchParams.set('start_time', params.start_time.toString());
-    if (params?.end_time !== undefined) searchParams.set('end_time', params.end_time.toString());
-    if (params?.limit) searchParams.set('limit', params.limit.toString());
-    if (params?.offset) searchParams.set('offset', params.offset.toString());
-
-    const url = `${API_BASE}/sessions/${sessionId}/accelerometer${searchParams.toString() ? `?${searchParams}` : ''}`;
+    const url = withSearchParams(
+      `${API_BASE}/sessions/${sessionId}/accelerometer`,
+      buildSearchParams({
+        device_id: params?.device_id,
+        start_time: params?.start_time,
+        end_time: params?.end_time,
+        limit: params?.limit,
+        offset: params?.offset
+      })
+    );
     const res = await fetch(url);
     return res.json();
   }
@@ -186,10 +206,7 @@ export class HttpClient implements ApiClient {
     message: string;
     error?: string;
   }> {
-    const searchParams = new URLSearchParams();
-    if (notes) searchParams.set('notes', notes);
-
-    const url = `${API_BASE}/sessions/start${searchParams.toString() ? `?${searchParams}` : ''}`;
+    const url = withSearchParams(`${API_BASE}/sessions/start`, buildSearchParams({ notes }));
     const res = await fetch(url, {
       method: 'POST'
     });
