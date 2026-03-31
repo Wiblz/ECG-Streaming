@@ -6,7 +6,7 @@ import time
 from enum import Enum
 
 from ecg_common.logging import get_logger
-from ecg_common.models import DeviceStatus
+from ecg_common.models import DeviceStatusCode
 
 from ecg_collector.ble.drivers import DeviceDriver
 from ecg_collector.ble.types import DeviceStateInfo, DeviceStateStats
@@ -192,7 +192,7 @@ class DeviceStateManager:
         # Check if connected device is actually still connected
         elif (
             device.state in (DeviceConnectionState.CONNECTED, DeviceConnectionState.STREAMING)
-            and device.driver._status == DeviceStatus.DISCONNECTED
+            and device.driver._status == DeviceStatusCode.DISCONNECTED
         ):
             logger.warning(f"Device {device.device_id} disconnected unexpectedly")
             await self._handle_disconnection(device)

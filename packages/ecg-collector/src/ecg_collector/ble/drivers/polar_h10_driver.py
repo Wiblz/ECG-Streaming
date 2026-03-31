@@ -9,7 +9,7 @@ from bleak import BleakClient
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
 from ecg_common.logging import get_logger
-from ecg_common.models import DeviceStatus, SensorFrame, SensorType
+from ecg_common.models import DeviceStatusCode, SensorFrame, SensorType
 
 from ecg_collector.ble.drivers.device_driver import DeviceDriver
 from ecg_collector.ble.types import BleDeviceInfo
@@ -86,19 +86,19 @@ class PolarH10Driver(DeviceDriver):
     async def connect(self) -> bool:
         """Connect to the Polar H10 device."""
         try:
-            self._status = DeviceStatus.CONNECTING
+            self._status = DeviceStatusCode.CONNECTING
             logger.info(f"Connecting to {self.device_id}...")
 
             # Find device if address not known
             if not self.address:
                 device = await self._find_device()
                 if not device:
-                    self._status = DeviceStatus.ERROR
+                    self._status = DeviceStatusCode.ERROR
                     return False
 
             # Ensure address is set
             if not self.address:
-                self._status = DeviceStatus.ERROR
+                self._status = DeviceStatusCode.ERROR
                 logger.error(f"No address found for device {self.device_id}")
                 return False
 
@@ -113,17 +113,17 @@ class PolarH10Driver(DeviceDriver):
             await self._client.connect()
 
             if self._client.is_connected:
-                self._status = DeviceStatus.CONNECTED
+                self._status = DeviceStatusCode.CONNECTED
                 logger.info(f"Connected to {self.device_id}")
                 return True
             else:
-                self._status = DeviceStatus.ERROR
+                self._status = DeviceStatusCode.ERROR
                 logger.error(f"Failed to connect to {self.device_id}")
                 return False
 
         except Exception as e:
             logger.error(f"Error connecting to {self.device_id}: {e}")
-            self._status = DeviceStatus.ERROR
+            self._status = DeviceStatusCode.ERROR
             return False
 
     async def disconnect(self) -> None:
@@ -135,16 +135,16 @@ class PolarH10Driver(DeviceDriver):
                 await self._client.disconnect()
                 logger.info(f"Disconnected from {self.device_id}")
 
-            self._status = DeviceStatus.DISCONNECTED
+            self._status = DeviceStatusCode.DISCONNECTED
 
         except Exception as e:
             logger.error(f"Error disconnecting from {self.device_id}: {e}")
-            self._status = DeviceStatus.ERROR
+            self._status = DeviceStatusCode.ERROR
 
     def _on_disconnect(self, client: BleakClient) -> None:
         """Callback when device disconnects."""
         logger.warning(f"Device {self.device_id} disconnected unexpectedly")
-        self._status = DeviceStatus.DISCONNECTED
+        self._status = DeviceStatusCode.DISCONNECTED
         self._disconnection_event.set()
 
     async def start_streaming(self) -> bool:
@@ -166,13 +166,13 @@ class PolarH10Driver(DeviceDriver):
             # Start accelerometer measurement
             await self._client.write_gatt_char(PMD_CONTROL_UUID, ACC_WRITE)
 
-            self._status = DeviceStatus.STREAMING
+            self._status = DeviceStatusCode.STREAMING
             logger.info(f"Started ECG and accelerometer streaming on {self.device_id}")
             return True
 
         except Exception as e:
             logger.error(f"Error starting streaming on {self.device_id}: {e}")
-            self._status = DeviceStatus.ERROR
+            self._status = DeviceStatusCode.ERROR
             return False
 
     async def stop_streaming(self) -> None:
@@ -188,7 +188,7 @@ class PolarH10Driver(DeviceDriver):
                 # Unsubscribe from notifications
                 await self._client.stop_notify(PMD_DATA_UUID)
 
-                self._status = DeviceStatus.CONNECTED
+                self._status = DeviceStatusCode.CONNECTED
                 logger.info(f"Stopped ECG and accelerometer streaming on {self.device_id}")
 
         except Exception as e:

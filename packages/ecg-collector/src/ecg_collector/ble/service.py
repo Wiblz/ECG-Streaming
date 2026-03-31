@@ -5,7 +5,7 @@ import contextlib
 import signal
 
 from ecg_common.logging import get_logger
-from ecg_common.models import DeviceStatus
+from ecg_common.models import DeviceStatusCode
 
 from ecg_collector.base import DataCollector
 from ecg_collector.ble.adapter_manager import BLEAdapterManager
@@ -102,7 +102,7 @@ class BleCollectorService(DataCollector):
                     adapter_id=device_config.ble_adapter,  # Use pinned adapter if specified
                 )
                 self.device_manager.add_device(driver)
-                await self.send_status_update(device_id, DeviceStatus.DISCONNECTED)
+                await self.send_status_update(device_id, DeviceStatusCode.DISCONNECTED)
 
                 # Log device nickname if set
                 if device_config.nickname:
@@ -170,7 +170,7 @@ class BleCollectorService(DataCollector):
                         logger.info(f"Starting data collection for {device_id}")
                         task = asyncio.create_task(self._data_collection_loop(device_id))
                         self._collection_tasks[device_id] = task
-                        await self.send_status_update(device_id, DeviceStatus.STREAMING)
+                        await self.send_status_update(device_id, DeviceStatusCode.STREAMING)
 
                     # Stop sampling task if device not streaming
                     elif (
@@ -185,10 +185,10 @@ class BleCollectorService(DataCollector):
                         del self._collection_tasks[device_id]
 
                         # Update status
-                        if managed_device.driver._status == DeviceStatus.DISCONNECTED:
-                            await self.send_status_update(device_id, DeviceStatus.DISCONNECTED)
-                        elif managed_device.driver._status == DeviceStatus.CONNECTED:
-                            await self.send_status_update(device_id, DeviceStatus.CONNECTED)
+                        if managed_device.driver._status == DeviceStatusCode.DISCONNECTED:
+                            await self.send_status_update(device_id, DeviceStatusCode.DISCONNECTED)
+                        elif managed_device.driver._status == DeviceStatusCode.CONNECTED:
+                            await self.send_status_update(device_id, DeviceStatusCode.CONNECTED)
 
                 # Clean up completed tasks
                 completed = [

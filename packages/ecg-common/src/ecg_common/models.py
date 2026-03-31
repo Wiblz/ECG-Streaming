@@ -1,11 +1,11 @@
 """Shared data models for ECG-Streaming."""
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, StrEnum
 
 
-class DeviceStatus(Enum):
-    """Device connection status (maps to protobuf enum values)."""
+class DeviceStatusCode(Enum):
+    """Collector/domain device status code aligned with protobuf enum values."""
 
     UNKNOWN = 0
     DISCONNECTED = 1
@@ -13,6 +13,17 @@ class DeviceStatus(Enum):
     CONNECTED = 3
     STREAMING = 4
     ERROR = 5
+
+
+class DeviceStatus(StrEnum):
+    """String form of device connection status used by HTTP/SSE APIs."""
+
+    UNKNOWN = "UNKNOWN"
+    DISCONNECTED = "DISCONNECTED"
+    CONNECTING = "CONNECTING"
+    CONNECTED = "CONNECTED"
+    STREAMING = "STREAMING"
+    ERROR = "ERROR"
 
 
 class SensorType(Enum):

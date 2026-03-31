@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 
-from ecg_common.models import DeviceStatus, SensorFrame
+from ecg_common.models import DeviceStatusCode, SensorFrame
 
 
 class DeviceDriver(ABC):
@@ -22,7 +22,7 @@ class DeviceDriver(ABC):
         """
         self.device_id = device_id
         self.adapter_id = adapter_id
-        self._status = DeviceStatus.DISCONNECTED
+        self._status = DeviceStatusCode.DISCONNECTED
 
     @abstractmethod
     async def connect(self) -> bool:
@@ -62,11 +62,11 @@ class DeviceDriver(ABC):
         pass
 
     @property
-    def status(self) -> DeviceStatus:
+    def status(self) -> DeviceStatusCode:
         """Get the current device status.
 
         Returns:
-            Current DeviceStatus
+            Current DeviceStatusCode
         """
         return self._status
 

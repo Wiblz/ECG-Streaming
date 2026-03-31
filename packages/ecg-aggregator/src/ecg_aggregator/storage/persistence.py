@@ -12,6 +12,9 @@ from yoyo import get_backend, read_migrations
 from yoyo.backends import DatabaseBackend
 from yoyo.exceptions import LockTimeout
 
+from ecg_aggregator.api.models.sessions import SessionSortField
+from ecg_aggregator.api.utils import SortOrder
+
 logger = get_logger(__name__)
 
 
@@ -909,14 +912,24 @@ class ECGDatabase:
         self,
         limit: int | None = None,
         offset: int = 0,
-        order_by: str = "start_time DESC",
+        search: str | None = None,
+        active: bool | None = None,
+        has_notes: bool | None = None,
+        device_id: str | None = None,
+        sort_by: SessionSortField = "start_time",
+        sort_order: SortOrder = SortOrder.DESC,
     ) -> list[dict]:
         """Retrieve all sessions.
 
         Args:
             limit: Maximum number of sessions to return
             offset: Number of sessions to skip
-            order_by: Order clause (default: newest first)
+            search: Optional notes search
+            active: Filter active/completed sessions
+            has_notes: Filter sessions with/without notes
+            device_id: Filter sessions containing a specific device
+            sort_by: Sort field
+            sort_order: Sort direction
 
         Returns:
             List of session dictionaries
@@ -926,10 +939,25 @@ class ECGDatabase:
                 conn = self._get_connection()
                 cursor = conn.cursor()
 
-                query = "SELECT id, start_time, end_time, device_count, sample_count, notes FROM sessions"
+                where_clause, params = self._build_sessions_filter_clause(
+                    search=search,
+                    active=active,
+                    has_notes=has_notes,
+                    device_id=device_id,
+                )
+                order_by = self._build_sessions_order_clause(
+                    sort_by=sort_by,
+                    sort_order=sort_order,
+                )
+
+                query = (
+                    "SELECT s.id, s.start_time, s.end_time, s.device_count, s.sample_count, s.notes "
+                    "FROM sessions s"
+                )
+                if where_clause:
+                    query += f" WHERE {where_clause}"
                 query += f" ORDER BY {order_by}"
 
-                params: list[int] = []
                 if limit is not None:
                     query += " LIMIT ? OFFSET ?"
                     params.extend([limit, offset])
@@ -1055,17 +1083,101 @@ class ECGDatabase:
                 return []
 
     def count_sessions(self) -> int:
-        """Count all sessions."""
+        """Count sessions matching optional filters."""
+        return self.count_sessions_filtered()
+
+    def count_sessions_filtered(
+        self,
+        search: str | None = None,
+        active: bool | None = None,
+        has_notes: bool | None = None,
+        device_id: str | None = None,
+    ) -> int:
+        """Count sessions matching filters."""
         with self._lock:
             try:
                 conn = self._get_connection()
                 cursor = conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM sessions")
+                where_clause, params = self._build_sessions_filter_clause(
+                    search=search,
+                    active=active,
+                    has_notes=has_notes,
+                    device_id=device_id,
+                )
+                query = "SELECT COUNT(*) FROM sessions s"
+                if where_clause:
+                    query += f" WHERE {where_clause}"
+                cursor.execute(query, params)
                 row = cursor.fetchone()
                 return int(row[0]) if row else 0
             except Exception as e:
                 logger.error(f"Error counting sessions: {e}")
                 return 0
+
+    def _build_sessions_filter_clause(
+        self,
+        search: str | None = None,
+        active: bool | None = None,
+        has_notes: bool | None = None,
+        device_id: str | None = None,
+    ) -> tuple[str, list[object]]:
+        """Build reusable WHERE clause for session list queries."""
+        clauses: list[str] = []
+        params: list[object] = []
+
+        if search:
+            clauses.append("LOWER(COALESCE(s.notes, '')) LIKE ?")
+            params.append(f"%{search.lower()}%")
+
+        if active is not None:
+            clauses.append("s.end_time IS NULL" if active else "s.end_time IS NOT NULL")
+
+        if has_notes is not None:
+            clauses.append(
+                "s.notes IS NOT NULL AND TRIM(s.notes) != ''"
+                if has_notes
+                else "(s.notes IS NULL OR TRIM(s.notes) = '')"
+            )
+
+        if device_id:
+            clauses.append(
+                """
+                (
+                    EXISTS (
+                        SELECT 1
+                        FROM ecg_samples e
+                        JOIN devices d ON e.device_id = d.id
+                        WHERE e.session_id = s.id AND d.device_id = ?
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM accelerometer_samples a
+                        JOIN devices d ON a.device_id = d.id
+                        WHERE a.session_id = s.id AND d.device_id = ?
+                    )
+                )
+                """
+            )
+            params.extend([device_id, device_id])
+
+        return " AND ".join(clauses), params
+
+    def _build_sessions_order_clause(
+        self,
+        sort_by: SessionSortField = "start_time",
+        sort_order: SortOrder = SortOrder.DESC,
+    ) -> str:
+        """Build safe ORDER BY clause for session list queries."""
+        sort_columns: dict[str, str] = {
+            "id": "s.id",
+            "start_time": "s.start_time",
+            "end_time": "s.end_time",
+            "device_count": "s.device_count",
+            "sample_count": "s.sample_count",
+        }
+        direction = "ASC" if sort_order is SortOrder.ASC else "DESC"
+        column = sort_columns.get(sort_by, "s.start_time")
+        return f"{column} {direction}, s.id DESC"
 
     def get_session(self, session_id: int) -> dict | None:
         """Get a single session by ID.

@@ -1,8 +1,22 @@
 """Device-related API models."""
 
+from typing import Literal
+
+from ecg_common import DeviceStatus
 from pydantic import BaseModel, ConfigDict
 
 from ecg_aggregator.api.models.base import SyncInfo
+
+DeviceSummarySortField = Literal["device_id", "sync_ready", "confidence", "sample_count"]
+DeviceListSortField = Literal[
+    "last_seen",
+    "first_seen",
+    "total_samples",
+    "device_id",
+    "nickname",
+    "status",
+    "last_update",
+]
 
 
 class DeviceNicknameUpdate(BaseModel):
@@ -19,7 +33,7 @@ class DeviceStatusInfo(BaseModel):
     device_id: str
     collector_id: str | None = None
     collector_name: str | None = None
-    status: str  # "UNKNOWN", "DISCONNECTED", "CONNECTING", "CONNECTED", "STREAMING", "ERROR"
+    status: DeviceStatus
     last_update: float | None = None
     battery_level: int | None = None
     error_message: str | None = None
@@ -38,10 +52,30 @@ class DeviceInfo(BaseModel):
     sync_ready: bool = False
     sync: SyncInfo | None = None  # Contains confidence, drift_ppm, sample_count
     collector_id: str | None = None
-    status: str = "DISCONNECTED"
+    status: DeviceStatus = DeviceStatus.DISCONNECTED
     last_update: float | None = None
     battery_level: int | None = None
     error_message: str | None = None
+
+    @property
+    def sync_confidence(self) -> float:
+        """Synchronization confidence with a stable fallback for sorting."""
+        return self.sync.confidence if self.sync else -1.0
+
+    @property
+    def sync_sample_count(self) -> int:
+        """Synchronization sample count with a stable fallback for sorting."""
+        return self.sync.sample_count if self.sync else -1
+
+    @property
+    def has_nickname(self) -> bool:
+        """Whether the device has a non-empty nickname."""
+        return self.nickname is not None and self.nickname.strip() != ""
+
+    @property
+    def normalized_nickname(self) -> str:
+        """Lowercased nickname for stable case-insensitive sorting/filtering."""
+        return self.nickname.lower() if self.nickname else ""
 
 
 class DeviceSummary(BaseModel):
@@ -52,6 +86,16 @@ class DeviceSummary(BaseModel):
     device_id: str
     sync_ready: bool
     sync: SyncInfo | None = None
+
+    @property
+    def sync_confidence(self) -> float:
+        """Synchronization confidence with a stable fallback for sorting."""
+        return self.sync.confidence if self.sync else -1.0
+
+    @property
+    def sync_sample_count(self) -> int:
+        """Synchronization sample count with a stable fallback for sorting."""
+        return self.sync.sample_count if self.sync else -1
 
 
 class DevicesSummaryResponse(BaseModel):

@@ -1,11 +1,15 @@
 """Session-related API models."""
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict
 
 from ecg_aggregator.api.models.base import (
     AccelerometerSessionSampleModel,
     ECGSessionSampleModel,
 )
+
+SessionSortField = Literal["id", "start_time", "end_time", "device_count", "sample_count"]
 
 
 class SessionInfo(BaseModel):

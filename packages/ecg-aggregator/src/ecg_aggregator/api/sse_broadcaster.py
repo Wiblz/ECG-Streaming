@@ -3,6 +3,7 @@
 import asyncio
 from typing import Literal
 
+from ecg_common import DeviceStatus
 from ecg_common.logging import get_logger
 from pydantic import BaseModel, ConfigDict
 
@@ -18,16 +19,6 @@ SSEEventType = Literal[
 
 # Collector status values
 CollectorStatus = Literal["CONNECTED", "HEALTHY", "DISCONNECTED"]
-
-# Device status values
-DeviceStatus = Literal[
-    "UNKNOWN",
-    "DISCONNECTED",
-    "CONNECTING",
-    "CONNECTED",
-    "STREAMING",
-    "ERROR",
-]
 
 
 class ConnectedEventData(BaseModel):

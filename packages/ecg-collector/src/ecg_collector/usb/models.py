@@ -1,10 +1,10 @@
 """USB collector data models and enums."""
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 
-class InterfaceType(str, Enum):
+class InterfaceType(StrEnum):
     """USB interface type based on interface descriptor string."""
 
     DATA = "DATA"
@@ -12,7 +12,7 @@ class InterfaceType(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
-class ProbeStatus(str, Enum):
+class ProbeStatus(StrEnum):
     """Status of device probing."""
 
     DISCOVERED = "DISCOVERED"

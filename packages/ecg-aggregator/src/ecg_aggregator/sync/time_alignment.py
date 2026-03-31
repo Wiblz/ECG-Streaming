@@ -78,7 +78,7 @@ class DeviceTimeModel:
         # Convert from microseconds to seconds
         device_time_s = device_timestamp / 1_000_000.0
         logger.debug(
-            f"[TIME_ALIGN] {self.device_id} add_sample: device_ts_us={device_timestamp:.0f}, device_ts_s={device_time_s:.2f}, host_time={host_receive_time:.2f}"
+            f"[TIME_ALIGN] {self.device_id} add_sample: device_ts_us={device_timestamp:.0f}, device_ts_s={device_time_s:.2f}, host_time={host_receive_time:.2f}, sensor={sensor_type}"
         )
 
         # Detect potential dropout/reconnection - check per sensor to handle ECG+ACC interleaving
@@ -88,7 +88,8 @@ class DeviceTimeModel:
             # If time jumped backwards or more than 10 seconds, likely a reconnection
             if time_jump < 0 or time_jump > 10_000_000:  # 10 seconds in microseconds
                 logger.warning(
-                    f"Device {self.device_id} time discontinuity: {time_jump / 1_000_000:.2f}s"
+                    f"Device {self.device_id} [{sensor_type}] time discontinuity: {time_jump / 1_000_000:.2f}s "
+                    f"(last={last_time}, current={device_timestamp})"
                 )
                 self._dropout_count += 1
                 # Clear history on reconnection

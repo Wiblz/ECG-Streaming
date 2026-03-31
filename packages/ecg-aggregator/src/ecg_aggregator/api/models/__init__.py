@@ -17,12 +17,14 @@ from ecg_aggregator.api.models.collectors import (
 )
 from ecg_aggregator.api.models.devices import (
     DeviceInfo,
+    DeviceListSortField,
     DeviceNicknameUpdate,
     DevicesAllResponse,
     DevicesStatusResponse,
     DevicesSummaryResponse,
     DeviceStatusInfo,
     DeviceSummary,
+    DeviceSummarySortField,
     UpdateNicknameResponse,
 )
 from ecg_aggregator.api.models.sessions import (
@@ -34,6 +36,7 @@ from ecg_aggregator.api.models.sessions import (
     SessionActionResponse,
     SessionInfo,
     SessionSamplesResponse,
+    SessionSortField,
     SessionsResponse,
 )
 from ecg_aggregator.api.models.system import (
@@ -56,9 +59,11 @@ __all__ = [
     "DebugConnectionInfo",
     "DebugConnectionsResponse",
     "DeleteSessionResponse",
+    "DeviceListSortField",
     "DeviceInfo",
     "DeviceNicknameUpdate",
     "DeviceStatusInfo",
+    "DeviceSummarySortField",
     "DeviceSummary",
     "DevicesAllResponse",
     "DevicesStatusResponse",
@@ -69,6 +74,7 @@ __all__ = [
     "ImportSessionResponse",
     "RootEndpoints",
     "RootResponse",
+    "SessionSortField",
     "SessionActionResponse",
     "SessionAccelerometerSamplesResponse",
     "SessionInfo",

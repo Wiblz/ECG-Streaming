@@ -8,7 +8,7 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Annotated, Any
 
-from ecg_common import __version__
+from ecg_common import DeviceStatus, __version__
 from ecg_common.logging import get_logger
 from fastapi import (
     Depends,
@@ -38,12 +38,14 @@ from ecg_aggregator.api.models import (
     DebugConnectionsResponse,
     DeleteSessionResponse,
     DeviceInfo,
+    DeviceListSortField,
     DeviceNicknameUpdate,
     DevicesAllResponse,
     DevicesStatusResponse,
     DevicesSummaryResponse,
     DeviceStatusInfo,
     DeviceSummary,
+    DeviceSummarySortField,
     ECGSessionSampleModel,
     ImportSessionResponse,
     RealtimeAccelerometerSampleModel,
@@ -54,6 +56,7 @@ from ecg_aggregator.api.models import (
     SessionActionResponse,
     SessionInfo,
     SessionSamplesResponse,
+    SessionSortField,
     SessionsResponse,
     StatsResponse,
     SyncInfo,
@@ -63,6 +66,7 @@ from ecg_aggregator.api.models import (
 from ecg_aggregator.api.sse_broadcaster import SSEBroadcaster
 from ecg_aggregator.api.utils import (
     PaginationParams,
+    SortOrder,
     group_samples_by_device,
     paginate_items,
     pagination_params,
@@ -190,6 +194,10 @@ class ECGStreamingServer:
         @self.app.get("/devices", response_model=DevicesSummaryResponse)
         async def list_devices(
             pagination: Annotated[PaginationParams, Depends(pagination_params)],
+            search: str | None = None,
+            sync_ready: bool | None = None,
+            sort_by: DeviceSummarySortField = "device_id",
+            sort_order: SortOrder = SortOrder.ASC,
         ) -> DevicesSummaryResponse:
             """List all devices and their sync status."""
             devices: list[DeviceSummary] = []
@@ -213,7 +221,25 @@ class ECGStreamingServer:
                     )
                 )
 
-            devices.sort(key=lambda d: d.device_id)
+            if search:
+                search_normalized = search.lower()
+                devices = [
+                    device for device in devices if search_normalized in device.device_id.lower()
+                ]
+
+            if sync_ready is not None:
+                devices = [device for device in devices if device.sync_ready is sync_ready]
+
+            reverse = sort_order is SortOrder.DESC
+            if sort_by == "sync_ready":
+                devices.sort(key=lambda d: (d.sync_ready, d.device_id), reverse=reverse)
+            elif sort_by == "confidence":
+                devices.sort(key=lambda d: (d.sync_confidence, d.device_id), reverse=reverse)
+            elif sort_by == "sample_count":
+                devices.sort(key=lambda d: (d.sync_sample_count, d.device_id), reverse=reverse)
+            else:
+                devices.sort(key=lambda d: d.device_id, reverse=reverse)
+
             paginated_devices, total = paginate_items(devices, pagination)
 
             return DevicesSummaryResponse(
@@ -436,6 +462,13 @@ class ECGStreamingServer:
         @self.app.get("/devices/all", response_model=DevicesAllResponse)
         async def get_all_devices(
             pagination: Annotated[PaginationParams, Depends(pagination_params)],
+            search: str | None = None,
+            sync_ready: bool | None = None,
+            status: DeviceStatus | None = None,
+            collector_id: str | None = None,
+            has_nickname: bool | None = None,
+            sort_by: DeviceListSortField = "last_seen",
+            sort_order: SortOrder = SortOrder.DESC,
         ) -> DevicesAllResponse:
             """Get all known devices from database, including disconnected ones.
 
@@ -502,12 +535,46 @@ class ECGStreamingServer:
                         }
                     )
                 else:
-                    device_info["status"] = "DISCONNECTED"
+                    device_info["status"] = DeviceStatus.DISCONNECTED
 
                 devices.append(DeviceInfo(**device_info))
 
-            # Sort by last_seen (most recent first), then by device_id
-            devices.sort(key=lambda d: (-(d.last_seen or 0), d.device_id))
+            if search:
+                search_normalized = search.lower()
+                devices = [
+                    device
+                    for device in devices
+                    if search_normalized in device.device_id.lower()
+                    or search_normalized in device.normalized_nickname
+                ]
+
+            if sync_ready is not None:
+                devices = [device for device in devices if device.sync_ready is sync_ready]
+
+            if status is not None:
+                devices = [device for device in devices if device.status == status]
+
+            if collector_id is not None:
+                devices = [device for device in devices if device.collector_id == collector_id]
+
+            if has_nickname is not None:
+                devices = [device for device in devices if device.has_nickname is has_nickname]
+
+            reverse = sort_order is SortOrder.DESC
+            if sort_by == "first_seen":
+                devices.sort(key=lambda d: ((d.first_seen or 0), d.device_id), reverse=reverse)
+            elif sort_by == "total_samples":
+                devices.sort(key=lambda d: ((d.total_samples or 0), d.device_id), reverse=reverse)
+            elif sort_by == "device_id":
+                devices.sort(key=lambda d: d.device_id, reverse=reverse)
+            elif sort_by == "nickname":
+                devices.sort(key=lambda d: (d.normalized_nickname, d.device_id), reverse=reverse)
+            elif sort_by == "status":
+                devices.sort(key=lambda d: (d.status.value, d.device_id), reverse=reverse)
+            elif sort_by == "last_update":
+                devices.sort(key=lambda d: ((d.last_update or 0), d.device_id), reverse=reverse)
+            else:
+                devices.sort(key=lambda d: ((d.last_seen or 0), d.device_id), reverse=reverse)
 
             paginated_devices, total = paginate_items(devices, pagination)
 
@@ -704,14 +771,31 @@ class ECGStreamingServer:
         @self.app.get("/sessions", response_model=SessionsResponse)
         async def list_sessions(
             pagination: Annotated[PaginationParams, Depends(pagination_params)],
+            search: str | None = None,
+            active: bool | None = None,
+            has_notes: bool | None = None,
+            device_id: str | None = None,
+            sort_by: SessionSortField = "start_time",
+            sort_order: SortOrder = SortOrder.DESC,
         ) -> SessionsResponse:
             """List all recording sessions."""
             sessions = self.database.get_sessions(
                 limit=pagination.limit,
                 offset=pagination.offset,
+                search=search,
+                active=active,
+                has_notes=has_notes,
+                device_id=device_id,
+                sort_by=sort_by,
+                sort_order=sort_order,
             )
             session_models = [SessionInfo.model_validate(s) for s in sessions]
-            total = self.database.count_sessions()
+            total = self.database.count_sessions_filtered(
+                search=search,
+                active=active,
+                has_notes=has_notes,
+                device_id=device_id,
+            )
             return SessionsResponse(
                 sessions=session_models,
                 count=len(session_models),

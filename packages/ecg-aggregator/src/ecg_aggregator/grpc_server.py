@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import grpc
+from ecg_common import DeviceStatus, DeviceStatusCode
 from ecg_common.logging import get_logger
 from ecg_common.proto import collector_aggregator_pb2, collector_aggregator_pb2_grpc
 
@@ -40,12 +41,12 @@ class CollectorMetadata:
 
 
 @dataclass
-class DeviceStatus:
+class DeviceRuntimeStatus:
     """Status information for a device."""
 
     device_id: str
     collector_id: str
-    status: str = "DISCONNECTED"
+    status: DeviceStatus = DeviceStatus.DISCONNECTED
     last_update: float = field(default_factory=time.time)
     last_data_time: float | None = None
     battery_level: int | None = None
@@ -88,7 +89,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
         self.collectors: dict[str, CollectorMetadata] = {}
 
         # Track device statuses
-        self.device_statuses: dict[str, DeviceStatus] = {}
+        self.device_statuses: dict[str, DeviceRuntimeStatus] = {}
 
         # Active session tracking
         self._active_session_id: int | None = None
@@ -308,10 +309,10 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                     # Initialize device statuses for all configured devices
                     for device_id in device_ids:
                         if device_id not in self.device_statuses:
-                            self.device_statuses[device_id] = DeviceStatus(
+                            self.device_statuses[device_id] = DeviceRuntimeStatus(
                                 device_id=device_id,
                                 collector_id=collector_id,
-                                status="DISCONNECTED",
+                                status=DeviceStatus.DISCONNECTED,
                                 last_update=time.time(),
                                 last_data_time=None,
                                 battery_level=None,
@@ -347,7 +348,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
 
                     # Track last data time for this device
                     if device_id not in self.device_statuses:
-                        self.device_statuses[device_id] = DeviceStatus(
+                        self.device_statuses[device_id] = DeviceRuntimeStatus(
                             device_id=device_id,
                             collector_id=collector_id or "",
                         )
@@ -401,7 +402,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
 
                     # Track last data time for this device
                     if device_id not in self.device_statuses:
-                        self.device_statuses[device_id] = DeviceStatus(
+                        self.device_statuses[device_id] = DeviceRuntimeStatus(
                             device_id=device_id,
                             collector_id=collector_id or "",
                         )
@@ -418,24 +419,24 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
 
                     # Map proto enum to string
                     status_map = {
-                        0: "UNKNOWN",
-                        1: "DISCONNECTED",
-                        2: "CONNECTING",
-                        3: "CONNECTED",
-                        4: "STREAMING",
-                        5: "ERROR",
+                        DeviceStatusCode.UNKNOWN.value: DeviceStatus.UNKNOWN,
+                        DeviceStatusCode.DISCONNECTED.value: DeviceStatus.DISCONNECTED,
+                        DeviceStatusCode.CONNECTING.value: DeviceStatus.CONNECTING,
+                        DeviceStatusCode.CONNECTED.value: DeviceStatus.CONNECTED,
+                        DeviceStatusCode.STREAMING.value: DeviceStatus.STREAMING,
+                        DeviceStatusCode.ERROR.value: DeviceStatus.ERROR,
                     }
-                    status_str = status_map.get(status.status, "UNKNOWN")
+                    status_name = status_map.get(status.status, DeviceStatus.UNKNOWN)
 
                     # Update device status
                     if device_id not in self.device_statuses:
-                        self.device_statuses[device_id] = DeviceStatus(
+                        self.device_statuses[device_id] = DeviceRuntimeStatus(
                             device_id=device_id,
                             collector_id=collector_id or "",
                         )
 
                     dev_status = self.device_statuses[device_id]
-                    dev_status.status = status_str
+                    dev_status.status = status_name
                     dev_status.last_update = time.time()
                     dev_status.battery_level = (
                         status.battery_level if status.HasField("battery_level") else None
@@ -451,7 +452,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                         device_update = DeviceUpdateData(
                             device_id=device_id,
                             collector_id=collector_id,
-                            status=status_str,  # type: ignore[arg-type]
+                            status=status_name,
                             battery_level=status.battery_level
                             if status.HasField("battery_level")
                             else None,
@@ -461,7 +462,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                             self.sse_broadcaster.broadcast("device_update", device_update)
                         )
 
-                    logger.debug(f"Status update from {device_id}: {status_str}")
+                    logger.debug(f"Status update from {device_id}: {status_name}")
 
                 elif msg_type == "ble_debug":
                     dbg = message.ble_debug
@@ -498,7 +499,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                 # Mark all devices from this collector as disconnected
                 for _device_id, dev_status in self.device_statuses.items():
                     if dev_status.collector_id == collector_id:
-                        dev_status.status = "DISCONNECTED"
+                        dev_status.status = DeviceStatus.DISCONNECTED
                         dev_status.last_update = time.time()
 
                         # Broadcast device disconnection via SSE
@@ -511,7 +512,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                                     DeviceUpdateData(
                                         device_id=_device_id,
                                         collector_id=collector_id,
-                                        status="DISCONNECTED",
+                                        status=DeviceStatus.DISCONNECTED,
                                     ),
                                 )
                             )
@@ -541,6 +542,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
             device_id: Device identifier
             batch: Protocol buffer ECG batch with structured samples
         """
+        process_start = time.time()
         if not batch.samples:
             return
 
@@ -569,6 +571,10 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
         self._last_frame_ts[last_key] = last_sample.polar_clock_us
         wall_clock_s = batch.wall_clock_us / 1_000_000.0
 
+        logger.debug(
+            f"[TIME_SYNC] Adding timestamp pair: device={device_id}, "
+            f"polar_clock_us={last_sample.polar_clock_us}, host_time={wall_clock_s:.3f}"
+        )
         self.time_alignment.add_timestamp_pair(
             device_id=device_id,
             device_timestamp=last_sample.polar_clock_us,
@@ -578,6 +584,8 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
 
         # Process each sample (samples already have individual timestamps)
         samples_added = 0
+        samples_low_confidence = 0
+        samples_no_sync = 0
         for sample in batch.samples:
             # Synchronize timestamp
             synced = self.time_alignment.sync_timestamp(
@@ -585,10 +593,11 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
             )
 
             if not synced:
+                samples_no_sync += 1
                 continue
 
             # Only add to buffer if sync confidence is high enough
-            if synced and synced.confidence >= 0.8:
+            if synced.confidence >= 0.8:
                 self.ecg_buffer.add_sample(
                     device_id=device_id,
                     global_time=synced.global_time,
@@ -600,6 +609,8 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                     time_verified=sample.time_verified,
                 )
                 samples_added += 1
+            else:
+                samples_low_confidence += 1
 
             # Accumulate sample for batch database write
             if self.database and self._active_session_id is not None:
@@ -633,6 +644,23 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
         # Check if we should flush batched samples
         await self._flush_sample_batches()
 
+        process_duration = (time.time() - process_start) * 1000
+        if samples_no_sync > 0 or samples_low_confidence > 0:
+            logger.warning(
+                f"[FLOW] ECG batch from {device_id}: {len(batch.samples)} received, {samples_added} added, "
+                f"{samples_no_sync} no sync, {samples_low_confidence} low confidence"
+            )
+        else:
+            logger.debug(
+                f"[FLOW] Received ECG batch from {device_id}: {len(batch.samples)} samples, "
+                f"added {samples_added} to buffer, processing took {process_duration:.1f}ms"
+            )
+        if process_duration > 50:
+            logger.warning(
+                f"[FLOW] Slow ECG batch processing for {device_id}: {process_duration:.1f}ms "
+                f"for {len(batch.samples)} samples"
+            )
+
     async def _process_acc_batch(
         self, device_id: str, batch: collector_aggregator_pb2.AccelerometerBatch
     ) -> None:
@@ -642,6 +670,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
             device_id: Device identifier
             batch: Protocol buffer ACC batch with structured samples
         """
+        process_start = time.time()
         if not batch.samples:
             return
 
@@ -670,6 +699,10 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
         self._last_frame_ts[last_key] = last_sample.polar_clock_us
         wall_clock_s = batch.wall_clock_us / 1_000_000.0
 
+        logger.debug(
+            f"[TIME_SYNC] Adding timestamp pair: device={device_id}, "
+            f"polar_clock_us={last_sample.polar_clock_us}, host_time={wall_clock_s:.3f}"
+        )
         self.time_alignment.add_timestamp_pair(
             device_id=device_id,
             device_timestamp=last_sample.polar_clock_us,
@@ -783,6 +816,14 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
         # Check if we should flush batched samples
         await self._flush_sample_batches()
 
+        process_duration = (time.time() - process_start) * 1000
+        # Use same debug log as ECG for consistency, but already logged above with [FLOW] prefix
+        if process_duration > 50:
+            logger.warning(
+                f"[FLOW] Slow ACC batch processing for {device_id}: {process_duration:.1f}ms "
+                f"for {len(batch.samples)} samples"
+            )
+
     def start_session(self, notes: str | None = None) -> int:
         """Start a new recording session.
 
@@ -813,7 +854,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                 active_devices = [
                     dev_id
                     for dev_id, dev_status in self.device_statuses.items()
-                    if dev_status.status == "STREAMING"
+                    if dev_status.status == DeviceStatus.STREAMING
                 ]
                 logger.info(
                     f"Started session {session_id} with {len(active_devices)} streaming devices"

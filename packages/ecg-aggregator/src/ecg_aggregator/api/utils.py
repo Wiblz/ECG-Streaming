@@ -1,5 +1,6 @@
 """API helper utilities."""
 
+from enum import StrEnum
 from typing import Annotated
 
 from fastapi import Query
@@ -11,6 +12,13 @@ class PaginationParams(BaseModel):
 
     limit: int | None = None
     offset: int = 0
+
+
+class SortOrder(StrEnum):
+    """Shared sort direction for API query parameters."""
+
+    ASC = "asc"
+    DESC = "desc"
 
 
 def pagination_params(

@@ -8,7 +8,7 @@ import time
 from abc import ABC, abstractmethod
 
 from ecg_common.logging import get_logger
-from ecg_common.models import DeviceStatus, SensorFrame, SensorType
+from ecg_common.models import DeviceStatusCode, SensorFrame, SensorType
 from ecg_common.proto import collector_aggregator_pb2, common_pb2
 
 from ecg_collector.grpc_client import CollectorGrpcClient
@@ -35,7 +35,7 @@ class DataCollector(ABC):
             grpc_client: Configured gRPC client for aggregator communication
         """
         self.grpc_client = grpc_client
-        self._device_statuses: dict[str, DeviceStatus] = {}
+        self._device_statuses: dict[str, DeviceStatusCode] = {}
 
     async def send_frame_batch(self, frame: SensorFrame) -> None:
         """Convert frame to batch and send to aggregator.
@@ -105,7 +105,7 @@ class DataCollector(ABC):
             logger.error(f"Failed to convert/send frame from {frame.device_id}: {e}")
             raise
 
-    async def send_status_update(self, device_id: str, status: DeviceStatus) -> None:
+    async def send_status_update(self, device_id: str, status: DeviceStatusCode) -> None:
         """Send device status update to aggregator.
 
         Only sends if status has changed to avoid spamming aggregator.
@@ -121,12 +121,12 @@ class DataCollector(ABC):
         self._device_statuses[device_id] = status
 
         status_map = {
-            DeviceStatus.UNKNOWN: common_pb2.DEVICE_STATUS_UNKNOWN,
-            DeviceStatus.DISCONNECTED: common_pb2.DEVICE_STATUS_DISCONNECTED,
-            DeviceStatus.CONNECTING: common_pb2.DEVICE_STATUS_CONNECTING,
-            DeviceStatus.CONNECTED: common_pb2.DEVICE_STATUS_CONNECTED,
-            DeviceStatus.STREAMING: common_pb2.DEVICE_STATUS_STREAMING,
-            DeviceStatus.ERROR: common_pb2.DEVICE_STATUS_ERROR,
+            DeviceStatusCode.UNKNOWN: common_pb2.DEVICE_STATUS_UNKNOWN,
+            DeviceStatusCode.DISCONNECTED: common_pb2.DEVICE_STATUS_DISCONNECTED,
+            DeviceStatusCode.CONNECTING: common_pb2.DEVICE_STATUS_CONNECTING,
+            DeviceStatusCode.CONNECTED: common_pb2.DEVICE_STATUS_CONNECTED,
+            DeviceStatusCode.STREAMING: common_pb2.DEVICE_STATUS_STREAMING,
+            DeviceStatusCode.ERROR: common_pb2.DEVICE_STATUS_ERROR,
         }
 
         pb_status = status_map.get(status, common_pb2.DEVICE_STATUS_UNKNOWN)
