@@ -1,0 +1,107 @@
+/*
+ * Dark mode token overrides.
+ *
+ * Two cases activate dark tokens:
+ *   1. OS prefers dark AND user hasn't explicitly chosen light
+ *   2. User has explicitly chosen dark via data-theme="dark"
+ */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --color-surface: var(--color-neutral-900);
+    --color-surface-hover: var(--color-neutral-800);
+    --color-surface-muted: var(--color-neutral-800);
+
+    --color-border: var(--color-neutral-700);
+    --color-border-hover: var(--color-neutral-600);
+
+    --color-text: var(--color-neutral-100);
+    --color-text-secondary: var(--color-neutral-400);
+    --color-text-muted: var(--color-neutral-500);
+    --color-text-disabled: var(--color-neutral-600);
+
+    --color-status-neutral: var(--color-neutral-700);
+    --color-status-neutral-fg: var(--color-neutral-400);
+    --color-status-neutral-border: var(--color-neutral-600);
+    --color-status-neutral-hover: var(--color-neutral-800);
+
+    --color-secondary: var(--color-neutral-700);
+    --color-secondary-fg: var(--color-neutral-300);
+    --color-secondary-hover: var(--color-neutral-600);
+
+    --color-status-success: var(--color-ecg-green-900);
+    --color-status-success-fg: var(--color-ecg-green-200);
+    --color-status-success-border: var(--color-ecg-green-800);
+    --color-status-success-hover: var(--color-ecg-green-200);
+
+    --color-status-info: var(--color-ecg-blue-900);
+    --color-status-info-fg: var(--color-ecg-blue-200);
+    --color-status-info-border: var(--color-ecg-blue-800);
+    --color-status-info-hover: var(--color-ecg-blue-200);
+
+    --color-status-warning: var(--color-ecg-yellow-900);
+    --color-status-warning-fg: var(--color-ecg-yellow-200);
+    --color-status-warning-border: var(--color-ecg-yellow-800);
+    --color-status-warning-hover: var(--color-ecg-yellow-200);
+
+    --color-status-error: var(--color-ecg-red-900);
+    --color-status-error-fg: var(--color-ecg-red-200);
+    --color-status-error-border: var(--color-ecg-red-800);
+    --color-status-error-hover: var(--color-ecg-red-200);
+
+    --color-primary: var(--color-ecg-blue-900);
+    --color-primary-fg: var(--color-ecg-blue-200);
+    --color-primary-hover: var(--color-ecg-blue-800);
+
+    --color-focus: var(--color-ecg-blue-400);
+  }
+}
+
+:root[data-theme='dark'] {
+  --color-surface: var(--color-neutral-900);
+  --color-surface-hover: var(--color-neutral-800);
+  --color-surface-muted: var(--color-neutral-800);
+
+  --color-border: var(--color-neutral-700);
+  --color-border-hover: var(--color-neutral-600);
+
+  --color-text: var(--color-neutral-100);
+  --color-text-secondary: var(--color-neutral-400);
+  --color-text-muted: var(--color-neutral-500);
+  --color-text-disabled: var(--color-neutral-600);
+
+  --color-status-neutral: var(--color-neutral-700);
+  --color-status-neutral-fg: var(--color-neutral-400);
+  --color-status-neutral-border: var(--color-neutral-600);
+  --color-status-neutral-hover: var(--color-neutral-800);
+
+  --color-secondary: var(--color-neutral-700);
+  --color-secondary-fg: var(--color-neutral-300);
+  --color-secondary-hover: var(--color-neutral-600);
+
+  --color-status-success: var(--color-ecg-green-900);
+  --color-status-success-fg: var(--color-ecg-green-200);
+  --color-status-success-border: var(--color-ecg-green-800);
+  --color-status-success-hover: var(--color-ecg-green-200);
+
+  --color-status-info: var(--color-ecg-blue-900);
+  --color-status-info-fg: var(--color-ecg-blue-200);
+  --color-status-info-border: var(--color-ecg-blue-800);
+  --color-status-info-hover: var(--color-ecg-blue-200);
+
+  --color-status-warning: var(--color-ecg-yellow-900);
+  --color-status-warning-fg: var(--color-ecg-yellow-200);
+  --color-status-warning-border: var(--color-ecg-yellow-800);
+  --color-status-warning-hover: var(--color-ecg-yellow-200);
+
+  --color-status-error: var(--color-ecg-red-900);
+  --color-status-error-fg: var(--color-ecg-red-200);
+  --color-status-error-border: var(--color-ecg-red-800);
+  --color-status-error-hover: var(--color-ecg-red-200);
+
+  --color-primary: var(--color-ecg-blue-900);
+  --color-primary-fg: var(--color-ecg-blue-200);
+  --color-primary-hover: var(--color-ecg-blue-800);
+
+  --color-focus: var(--color-ecg-blue-400);
+}

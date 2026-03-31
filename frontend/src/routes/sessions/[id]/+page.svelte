@@ -50,55 +50,52 @@
 </svelte:head>
 
 <div class="min-h-screen bg-linear-to-br from-surface-muted to-surface">
-  <Header>
-    <button
-      onclick={handleExport}
-      class="flex items-center gap-2 px-4 py-2 bg-status-info-fg hover:bg-status-info-hover text-white text-sm font-medium rounded-lg transition-colors"
-    >
-      <svg
-        class="w-4 h-4"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-        />
-      </svg>
-      Export CSV
-    </button>
-    <button
-      onclick={handleDelete}
-      disabled={deleting}
-      class="flex items-center gap-2 px-4 py-2 bg-status-error-fg hover:bg-status-error-border disabled:bg-status-neutral-fg text-white text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed"
-    >
-      {#if deleting}
-        <div
-          class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"
-        ></div>
-      {:else}
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-          />
-        </svg>
-      {/if}
-      Delete
-    </button>
-  </Header>
+  <Header />
 
   <main class="container mx-auto px-6 py-8 max-w-7xl">
     <div class="space-y-6">
       <!-- Session Stats -->
       <div class="bg-surface border border-border rounded-xl shadow-lg p-6">
-        <h2 class="text-lg font-semibold text-text mb-4">Session Information</h2>
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold text-text">Session Information</h2>
+          <div class="flex items-center gap-2">
+            <button
+              onclick={handleExport}
+              class="flex items-center gap-2 px-3 py-1.5 text-sm font-medium bg-status-info-fg hover:bg-status-info-hover text-white rounded-lg transition-colors"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                />
+              </svg>
+              Export CSV
+            </button>
+            <button
+              onclick={handleDelete}
+              disabled={deleting}
+              class="flex items-center gap-2 px-3 py-1.5 text-sm font-medium bg-status-error-fg hover:bg-status-error-hover text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {#if deleting}
+                <div
+                  class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"
+                ></div>
+              {:else}
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                  />
+                </svg>
+              {/if}
+              Delete
+            </button>
+          </div>
+        </div>
         <dl class="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div class="bg-surface-muted rounded-lg p-4">
             <dt class="text-xs font-medium text-text-secondary uppercase tracking-wide mb-1">

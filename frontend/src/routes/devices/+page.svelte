@@ -297,7 +297,7 @@
           <select
             id="filter-status"
             bind:value={filterStatus}
-            class="block w-full pl-3 pr-10 py-2 text-base border border-border focus:outline-none focus:ring-focus focus:border-transparent sm:text-sm rounded-md bg-surface text-text"
+            class="block w-full pl-3 pr-10 py-2 text-base border border-border focus:outline-none focus:ring-focus focus:border-transparent sm:text-sm rounded-md bg-surface text-text hover:bg-surface-hover cursor-pointer"
           >
             <option value="all">All Devices</option>
             <option value="connected">Connected Only</option>
@@ -312,7 +312,7 @@
           <select
             id="sort-by"
             bind:value={sortBy}
-            class="block w-full pl-3 pr-10 py-2 text-base border border-border focus:outline-none focus:ring-focus focus:border-transparent sm:text-sm rounded-md bg-surface text-text"
+            class="block w-full pl-3 pr-10 py-2 text-base border border-border focus:outline-none focus:ring-focus focus:border-transparent sm:text-sm rounded-md bg-surface text-text hover:bg-surface-hover cursor-pointer"
           >
             <option value="last_seen">Last Seen</option>
             <option value="name">Name</option>

@@ -1,0 +1,80 @@
+/*
+ * uPlot legend overrides.
+ * Placed in @layer components so Tailwind utilities can override if needed.
+ */
+
+@layer components {
+  /* Force wrapping layout */
+  .u-legend {
+    border-top: 1px solid var(--color-border) !important;
+    padding: 0.5rem !important;
+    margin-top: 0.5rem !important;
+  }
+
+  /* Hide the first series (x-axis/Time) from legend */
+  .u-legend .u-series:first-child {
+    display: none !important;
+  }
+
+  .u-legend > table > tbody,
+  .u-legend > table > thead {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 0.5rem !important;
+  }
+
+  .u-legend > table > tbody > tr,
+  .u-legend > table > thead > tr {
+    display: contents !important;
+  }
+
+  /* Individual series items */
+  .u-legend .u-series {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 0.375rem !important;
+    padding: 0.375rem 0.625rem !important;
+    border-radius: 0.375rem !important;
+    font-size: 0.875rem !important;
+    cursor: pointer !important;
+    transition: background-color 0.15s ease !important;
+    user-select: none !important;
+    white-space: nowrap !important;
+    min-width: 10rem !important;
+  }
+
+  .u-legend .u-series:hover {
+    background-color: var(--color-surface-hover) !important;
+  }
+
+  .u-legend .u-series.u-off {
+    opacity: 0.4 !important;
+  }
+
+  /* Color marker */
+  .u-legend .u-marker {
+    width: 0.875rem !important;
+    height: 0.875rem !important;
+    border-radius: 0.25rem !important;
+    border-width: 2px !important;
+    border-style: solid !important;
+    flex-shrink: 0 !important;
+  }
+
+  /* Series label */
+  .u-legend .u-label {
+    font-weight: 500 !important;
+    color: var(--color-text) !important;
+  }
+
+  /* Current value */
+  .u-legend .u-value {
+    font-variant-numeric: tabular-nums !important;
+    color: var(--color-text-secondary) !important;
+    margin-left: 0.25rem !important;
+    font-size: 0.8125rem !important;
+    min-width: 3.5rem !important;
+    text-align: right !important;
+    display: inline-block !important;
+  }
+}

@@ -82,7 +82,7 @@
   <title>Device Synchronization - ECG Streaming</title>
 </svelte:head>
 
-<div class="h-screen overflow-hidden flex flex-col">
+<div class="h-screen overflow-hidden flex flex-col bg-surface">
   <!-- Header (hidden in fullscreen) -->
   {#if !isFullscreen}
     <Header />

@@ -27,6 +27,20 @@
   // Mock mode state
   let mockMode = $state(isMockMode());
 
+  // Theme toggle: 'light' | 'dark'
+  type Theme = 'light' | 'dark';
+
+  let theme = $state<Theme>(
+    (typeof localStorage !== 'undefined' && (localStorage.getItem('theme') as Theme)) ||
+      (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+  );
+
+  function toggleTheme() {
+    theme = theme === 'light' ? 'dark' : 'light';
+    localStorage.setItem('theme', theme);
+    document.documentElement.dataset.theme = theme;
+  }
+
   // Load active session on mount
   onMount(async () => {
     try {
@@ -200,6 +214,21 @@
             {stoppingSession ? 'Stopping...' : `Stop Session #${activeSession.id}`}
           </button>
         {/if}
+
+        <!-- Theme Toggle -->
+        <button
+          onclick={toggleTheme}
+          role="switch"
+          aria-checked={theme === 'dark'}
+          title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+          class="relative inline-flex items-center w-14 h-7 rounded-full border border-border transition-colors bg-surface-muted dark:bg-status-info"
+        >
+          <span class="absolute inset-0 flex items-center justify-between px-1.5 text-xs pointer-events-none">
+            <span>☀️</span>
+            <span>🌙</span>
+          </span>
+          <span class="relative z-10 w-5 h-5 rounded-full bg-white shadow transition-transform translate-x-0.5 dark:translate-x-7"></span>
+        </button>
 
         <!-- Mock Mode Toggle -->
         <button

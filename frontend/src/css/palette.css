@@ -1,0 +1,40 @@
+/*
+ * Color palette — numeric lightness scale per hue.
+ * Prefixed with --color-ecg-* to avoid clashing with Tailwind's default palette.
+ * No knowledge of light/dark mode or UI roles.
+ */
+
+:root {
+  /* Greens */
+  --color-ecg-green-200: oklch(0.85 0.15 145);
+  --color-ecg-green-300: oklch(0.75 0.12 145);
+  --color-ecg-green-600: oklch(0.5 0.15 145);
+  --color-ecg-green-700: oklch(0.45 0.15 145);
+  --color-ecg-green-800: oklch(0.35 0.1 145);
+  --color-ecg-green-900: oklch(0.25 0.08 145);
+
+  /* Blues */
+  --color-ecg-blue-200: oklch(0.85 0.12 230);
+  --color-ecg-blue-300: oklch(0.75 0.1 230);
+  --color-ecg-blue-400: oklch(0.65 0.12 230);
+  --color-ecg-blue-600: oklch(0.55 0.15 230);
+  --color-ecg-blue-700: oklch(0.5 0.15 230);
+  --color-ecg-blue-800: oklch(0.35 0.09 230);
+  --color-ecg-blue-900: oklch(0.25 0.07 230);
+
+  /* Yellows */
+  --color-ecg-yellow-200: oklch(0.9 0.15 85);
+  --color-ecg-yellow-300: oklch(0.8 0.12 85);
+  --color-ecg-yellow-600: oklch(0.55 0.18 85);
+  --color-ecg-yellow-700: oklch(0.5 0.18 85);
+  --color-ecg-yellow-800: oklch(0.35 0.1 85);
+  --color-ecg-yellow-900: oklch(0.25 0.08 85);
+
+  /* Reds */
+  --color-ecg-red-200: oklch(0.85 0.18 25);
+  --color-ecg-red-300: oklch(0.75 0.15 25);
+  --color-ecg-red-600: oklch(0.55 0.2 25);
+  --color-ecg-red-700: oklch(0.5 0.2 25);
+  --color-ecg-red-800: oklch(0.35 0.12 25);
+  --color-ecg-red-900: oklch(0.25 0.09 25);
+}
