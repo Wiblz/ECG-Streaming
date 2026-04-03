@@ -4,23 +4,45 @@
 
 import type uPlot from 'uplot';
 
-// Standard color palette for device waveforms
-export const DEVICE_COLORS = [
-  '#ff3e00', // Red-orange
-  '#40b3ff', // Blue
-  '#676778', // Gray
-  '#ff6b6b', // Coral
-  '#4ecdc4', // Teal
-  '#a29bfe', // Purple
-  '#fdcb6e', // Yellow
-  '#55efc4' // Mint
+// Device waveform color palettes — same hues, tuned lightness per theme
+const DEVICE_COLORS_LIGHT = [
+  '#2898BD', // Teal-blue
+  '#5E4DB2', // Indigo
+  '#E56910', // Orange
+  '#943D73', // Magenta
+  '#09326C', // Navy
+  '#8F7EE7', // Lavender
+  '#50253F', // Plum
+  '#A54800' // Burnt orange
 ];
 
+const DEVICE_COLORS_DARK = [
+  '#6cc8e8', // Teal-blue — lighter
+  '#9d8fef', // Indigo — lighter
+  '#ffaa57', // Orange — lighter
+  '#d97ab8', // Magenta — lighter
+  '#4d8fd4', // Navy — much lighter
+  '#c4b8ff', // Lavender — lighter
+  '#c47faa', // Plum — lighter
+  '#e88040' // Burnt orange — lighter
+];
+
+function isDarkTheme(): boolean {
+  return document.documentElement.dataset.theme === 'dark';
+}
+
 /**
- * Get color for device by index
+ * Get the full device color palette for the current theme
+ */
+export function getDeviceColors(): string[] {
+  return isDarkTheme() ? DEVICE_COLORS_DARK : DEVICE_COLORS_LIGHT;
+}
+
+/**
+ * Get color for device by index, adjusted for current theme
  */
 export function getDeviceColor(index: number): string {
-  return DEVICE_COLORS[index % DEVICE_COLORS.length];
+  return getDeviceColors()[index % getDeviceColors().length];
 }
 
 /**
@@ -75,18 +97,34 @@ export function formatTimeAxis(u: uPlot, vals: number[]): string[] {
 }
 
 /**
- * Create common axes configuration
+ * Read a CSS custom property value from the document root.
+ */
+function getCssVar(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+/**
+ * Create common axes configuration, reading theme colors at call time.
  */
 export function createAxes(yLabel: string = 'Raw Value'): uPlot.Axis[] {
+  const mutedColor = getCssVar('--color-text-secondary');
+  const gridColor = getCssVar('--color-border');
+
   return [
     {
       label: 'Time (s)',
-      values: formatTimeAxis
+      values: formatTimeAxis,
+      stroke: mutedColor,
+      ticks: { stroke: gridColor },
+      grid: { stroke: gridColor }
     },
     {
       label: yLabel,
       space: 80,
-      gap: 5
+      gap: 5,
+      stroke: mutedColor,
+      ticks: { stroke: gridColor },
+      grid: { stroke: gridColor }
     }
   ];
 }

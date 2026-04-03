@@ -25,7 +25,6 @@
   // Filter and sort — URL-driven, reset to page 1 on change
   const filterStatus = $derived(data.filters.status ?? 'all');
   const sortBy = $derived(data.filters.sort_by ?? 'last_seen');
-  const sortOrder = $derived(data.filters.sort_order ?? 'desc');
 
   function updateFilters(updates: { status?: string; sort_by?: string; sort_order?: string }) {
     const params = new URLSearchParams(page.url.searchParams);

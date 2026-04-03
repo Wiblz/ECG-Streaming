@@ -482,11 +482,20 @@
     });
 
     window.addEventListener('resize', handleResize);
+
+    themeObserver = new MutationObserver(() => createChart());
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme']
+    });
   });
+
+  let themeObserver: MutationObserver | null = null;
 
   onDestroy(() => {
     if (browser) {
       window.removeEventListener('resize', handleResize);
+      themeObserver?.disconnect();
     }
     if (chart) {
       chart.destroy();

@@ -15,7 +15,6 @@
   import { getDevices, setDevices } from '$lib/state/devices.svelte';
   import { samples as ecgSamples } from '$lib/state/ecg-data';
   import { samples as accSamples } from '$lib/state/acc-data';
-  import { DEVICE_COLORS } from '$lib/utils/uplot';
 
   let ecgWs: ECGWebSocket;
   let accWs: AccelerometerWebSocket;
@@ -77,7 +76,6 @@
               label="ECG"
               {getDeviceNickname}
               height={50}
-              colors={DEVICE_COLORS}
               windowDuration={30}
             />
             <LiveActivityMonitor
@@ -86,7 +84,6 @@
               label="Accelerometer"
               {getDeviceNickname}
               height={50}
-              colors={DEVICE_COLORS}
               windowDuration={30}
             />
           </div>

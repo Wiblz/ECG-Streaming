@@ -734,7 +734,15 @@
     });
 
     rebuildPlotOptions(deviceOrder);
+
+    themeObserver = new MutationObserver(() => rebuildPlotOptions(deviceOrder));
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme']
+    });
   });
+
+  let themeObserver: MutationObserver | null = null;
 
   onDestroy(() => {
     if (animationFrameId !== null) {
@@ -743,6 +751,7 @@
     if (statusInterval !== null) {
       clearInterval(statusInterval);
     }
+    themeObserver?.disconnect();
   });
 </script>
 

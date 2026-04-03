@@ -5,7 +5,7 @@
   import { calculateTimeWindow } from '$lib/waveforms/time-window';
   import { getCurrentPlaybackTime, getSessionStartTime } from '$lib/state/session-time.svelte';
   import { filterSingleDeviceSamples } from '$lib/waveforms/chart-data-transformer';
-  import { DEVICE_COLORS } from '$lib/utils/uplot';
+  import { getDeviceColor } from '$lib/utils/uplot';
 
   interface Props {
     /** Function that returns map of deviceId -> samples for all devices */
@@ -18,8 +18,6 @@
     getDeviceNickname?: (id: string) => string;
     /** Monitor height in pixels */
     height?: number;
-    /** Per-device colors */
-    colors?: string[];
     /** Time window duration in seconds */
     windowDuration?: number;
     /** Width in pixels (determines resolution) */
@@ -34,7 +32,6 @@
     label,
     getDeviceNickname,
     height = 60,
-    colors = DEVICE_COLORS,
     windowDuration = 30,
     width = 200,
     pixelsPerBucket = 3
@@ -68,7 +65,7 @@
     for (let i = 0; i < deviceIds.length; i++) {
       const deviceId = deviceIds[i];
       const samples = samplesMap.get(deviceId) ?? [];
-      const color = colors[i % colors.length];
+      const color = getDeviceColor(i);
       const deviceLabel = getDeviceNickname ? getDeviceNickname(deviceId) : deviceId;
 
       if (samples.length === 0) {

@@ -129,7 +129,7 @@
           type="text"
           bind:value={notes}
           placeholder="e.g., Exercise test, resting ECG..."
-          class="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-focus focus:border-transparent disabled:bg-surface-muted disabled:text-text-disabled"
+          class="w-full px-3 py-2 text-sm bg-surface text-text border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-focus focus:border-transparent disabled:bg-surface-muted disabled:text-text-disabled"
           disabled={loading}
         />
       </div>
