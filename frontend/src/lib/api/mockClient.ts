@@ -2,12 +2,14 @@ import type {
   ApiClient,
   BufferStats,
   CollectorsResponse,
+  DeviceListParams,
   DeviceInfo,
+  DeviceSummaryParams,
   DevicesResponse,
   DeviceStatusResponse,
-  PaginationParams,
   Session,
   SessionAccelerometerSamplesResponse,
+  SessionListParams,
   SessionSamplesResponse,
   SessionsResponse,
   SyncStats
@@ -51,14 +53,95 @@ export class MockClient implements ApiClient {
     }
   }
 
-  async getDevices(params?: PaginationParams): Promise<DevicesResponse> {
+  async getDevices(params?: DeviceSummaryParams): Promise<DevicesResponse> {
     // Filter to only synced devices (similar to real API)
-    const syncedDevices = this.devicesCache.filter((d) => d.sync_ready);
-    return this.paginateDevices(syncedDevices, params);
+    let devices = this.devicesCache.filter((d) => d.sync_ready);
+
+    if (params?.search) {
+      const search = params.search.toLowerCase();
+      devices = devices.filter((d) => d.device_id.toLowerCase().includes(search));
+    }
+
+    if (params?.sync_ready !== undefined) {
+      devices = devices.filter((d) => d.sync_ready === params.sync_ready);
+    }
+
+    devices = [...devices].sort((a, b) => {
+      const direction = params?.sort_order === 'desc' ? -1 : 1;
+      switch (params?.sort_by) {
+        case 'sync_ready':
+          return direction * (Number(a.sync_ready) - Number(b.sync_ready));
+        case 'confidence':
+          return direction * ((a.sync?.confidence ?? -1) - (b.sync?.confidence ?? -1));
+        case 'sample_count':
+          return direction * ((a.sync?.sample_count ?? -1) - (b.sync?.sample_count ?? -1));
+        case 'device_id':
+        default:
+          return direction * a.device_id.localeCompare(b.device_id);
+      }
+    });
+
+    return this.paginateDevices(devices, params);
   }
 
-  async getAllDevices(params?: PaginationParams): Promise<DevicesResponse> {
-    return this.paginateDevices(this.devicesCache, params);
+  async getAllDevices(params?: DeviceListParams): Promise<DevicesResponse> {
+    let devices = [...this.devicesCache];
+
+    if (params?.search) {
+      const search = params.search.toLowerCase();
+      devices = devices.filter(
+        (d) =>
+          d.device_id.toLowerCase().includes(search) ||
+          (d.nickname !== undefined &&
+            d.nickname !== null &&
+            d.nickname.toLowerCase().includes(search))
+      );
+    }
+
+    if (params?.sync_ready !== undefined) {
+      devices = devices.filter((d) => d.sync_ready === params.sync_ready);
+    }
+
+    if (params?.status !== undefined) {
+      devices = devices.filter((d) => d.status === params.status);
+    }
+
+    if (params?.collector_id !== undefined) {
+      devices = devices.filter((d) => d.collector_id === params.collector_id);
+    }
+
+    if (params?.has_nickname === true) {
+      devices = devices.filter(
+        (d) => d.nickname !== undefined && d.nickname !== null && d.nickname.trim() !== ''
+      );
+    } else if (params?.has_nickname === false) {
+      devices = devices.filter(
+        (d) => d.nickname === undefined || d.nickname === null || d.nickname.trim() === ''
+      );
+    }
+
+    devices.sort((a, b) => {
+      const direction = params?.sort_order === 'asc' ? 1 : -1;
+      switch (params?.sort_by) {
+        case 'first_seen':
+          return direction * ((a.first_seen ?? 0) - (b.first_seen ?? 0));
+        case 'total_samples':
+          return direction * ((a.total_samples ?? 0) - (b.total_samples ?? 0));
+        case 'device_id':
+          return direction * a.device_id.localeCompare(b.device_id);
+        case 'nickname':
+          return direction * (a.nickname ?? '').localeCompare(b.nickname ?? '');
+        case 'status':
+          return direction * (a.status ?? '').localeCompare(b.status ?? '');
+        case 'last_update':
+          return direction * ((a.last_update ?? 0) - (b.last_update ?? 0));
+        case 'last_seen':
+        default:
+          return direction * ((a.last_seen ?? 0) - (b.last_seen ?? 0));
+      }
+    });
+
+    return this.paginateDevices(devices, params);
   }
 
   async getDeviceStatus(): Promise<DeviceStatusResponse> {
@@ -155,8 +238,7 @@ export class MockClient implements ApiClient {
     };
   }
 
-   
-  async getSessions(_params?: PaginationParams): Promise<SessionsResponse> {
+  async getSessions(_params?: SessionListParams): Promise<SessionsResponse> {
     // Return empty sessions for mock mode
     return {
       sessions: [],
@@ -167,7 +249,10 @@ export class MockClient implements ApiClient {
     };
   }
 
-  private paginateDevices(devices: DeviceInfo[], params?: PaginationParams): DevicesResponse {
+  private paginateDevices(
+    devices: DeviceInfo[],
+    params?: { limit?: number; offset?: number }
+  ): DevicesResponse {
     const offset = params?.offset ?? 0;
     const limit = params?.limit;
     const paginatedDevices =

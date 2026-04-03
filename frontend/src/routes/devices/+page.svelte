@@ -1,6 +1,8 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
+  import { page } from '$app/state';
   import { api } from '$lib/api/client';
-  import Header from '$lib/components/Header.svelte';
+  import Header from '$lib/components/layout/Header.svelte';
   import { mergeDevice } from '$lib/state/devices.svelte';
   import { statusEvents } from '$lib/state/status-events.svelte';
   import type { Collector, DeviceInfo } from '$lib/types/api';
@@ -20,9 +22,38 @@
   let editingNickname = $state<string>('');
   let savingNickname = $state(false);
 
-  // Filter and sort options
-  let filterStatus = $state<'all' | 'connected' | 'disconnected'>('all');
-  let sortBy = $state<'name' | 'last_seen' | 'total_samples'>('last_seen');
+  // Filter and sort — URL-driven, reset to page 1 on change
+  const filterStatus = $derived(data.filters.status ?? 'all');
+  const sortBy = $derived(data.filters.sort_by ?? 'last_seen');
+  const sortOrder = $derived(data.filters.sort_order ?? 'desc');
+
+  function updateFilters(updates: { status?: string; sort_by?: string; sort_order?: string }) {
+    const params = new URLSearchParams(page.url.searchParams);
+    for (const [key, value] of Object.entries(updates)) {
+      if (value === 'all' || value === null || value === undefined) {
+        params.delete(key);
+      } else {
+        params.set(key, value);
+      }
+    }
+    // Reset to page 1 on filter/sort change
+    params.delete('offset');
+    goto(`?${params.toString()}`);
+  }
+
+  // Pagination
+  const limit = data.devicesPagination.limit ?? 50;
+  const total = $derived(data.devicesPagination.total);
+  const currentOffset = $derived(data.devicesPagination.offset);
+  const currentPage = $derived(Math.floor(currentOffset / limit) + 1);
+  const totalPages = $derived(Math.ceil(total / limit));
+
+  function goToPage(pageNum: number) {
+    const params = new URLSearchParams(page.url.searchParams);
+    params.set('limit', String(limit));
+    params.set('offset', String((pageNum - 1) * limit));
+    goto(`?${params.toString()}`);
+  }
 
   async function startEditingNickname(deviceId: string, currentNickname: string | null) {
     editingDevice = deviceId;
@@ -174,40 +205,8 @@
     }
   }
 
-  // Filtered and sorted devices (using live data from SSE)
-  const filteredDevices = $derived.by(() => {
-    let filtered = liveDevices;
-
-    // Apply status filter
-    if (filterStatus === 'connected') {
-      filtered = filtered.filter(
-        (d) => d.status && d.status !== 'DISCONNECTED' && d.status !== 'UNKNOWN'
-      );
-    } else if (filterStatus === 'disconnected') {
-      filtered = filtered.filter(
-        (d) => !d.status || d.status === 'DISCONNECTED' || d.status === 'UNKNOWN'
-      );
-    }
-
-    // Apply sorting
-    filtered = [...filtered].sort((a, b) => {
-      switch (sortBy) {
-        case 'name': {
-          const nameA = a.nickname || a.device_id;
-          const nameB = b.nickname || b.device_id;
-          return nameA.localeCompare(nameB);
-        }
-        case 'last_seen':
-          return (b.last_seen || 0) - (a.last_seen || 0);
-        case 'total_samples':
-          return (b.total_samples || 0) - (a.total_samples || 0);
-        default:
-          return 0;
-      }
-    });
-
-    return filtered;
-  });
+  // Devices with live SSE status applied — filtering/sorting done server-side
+  const filteredDevices = $derived(liveDevices);
 
   const collectorMap = $derived(new Map(liveCollectors.map((c) => [c.collector_id, c])));
 </script>
@@ -296,12 +295,15 @@
           </label>
           <select
             id="filter-status"
-            bind:value={filterStatus}
+            value={filterStatus}
+            onchange={(e) => updateFilters({ status: (e.target as HTMLSelectElement).value })}
             class="block w-full pl-3 pr-10 py-2 text-base border border-border focus:outline-none focus:ring-focus focus:border-transparent sm:text-sm rounded-md bg-surface text-text hover:bg-surface-hover cursor-pointer"
           >
             <option value="all">All Devices</option>
-            <option value="connected">Connected Only</option>
-            <option value="disconnected">Disconnected Only</option>
+            <option value="CONNECTED">Connected</option>
+            <option value="STREAMING">Streaming</option>
+            <option value="DISCONNECTED">Disconnected</option>
+            <option value="ERROR">Error</option>
           </select>
         </div>
 
@@ -311,18 +313,22 @@
           </label>
           <select
             id="sort-by"
-            bind:value={sortBy}
+            value={sortBy}
+            onchange={(e) => updateFilters({ sort_by: (e.target as HTMLSelectElement).value })}
             class="block w-full pl-3 pr-10 py-2 text-base border border-border focus:outline-none focus:ring-focus focus:border-transparent sm:text-sm rounded-md bg-surface text-text hover:bg-surface-hover cursor-pointer"
           >
             <option value="last_seen">Last Seen</option>
-            <option value="name">Name</option>
+            <option value="nickname">Name</option>
             <option value="total_samples">Total Samples</option>
+            <option value="first_seen">First Seen</option>
+            <option value="status">Status</option>
           </select>
         </div>
       </div>
 
       <div class="text-sm text-text-secondary">
-        Showing {filteredDevices.length} of {liveDevices.length} devices
+        {total} device{total === 1 ? '' : 's'}
+        {#if totalPages > 1}· page {currentPage} of {totalPages}{/if}
       </div>
     </div>
 
@@ -332,7 +338,7 @@
         <div class="text-6xl mb-4">🔌</div>
         <h3 class="text-lg font-semibold text-text mb-2">No devices found</h3>
         <p class="text-sm text-text-secondary">
-          {liveDevices.length === 0
+          {total === 0
             ? 'Devices will appear after first connection'
             : 'Try adjusting your filters'}
         </p>
@@ -535,6 +541,30 @@
           </tbody>
         </table>
       </div>
+
+      {#if totalPages > 1}
+        <div class="mt-6 flex items-center justify-between">
+          <p class="text-sm text-text-secondary">
+            Page {currentPage} of {totalPages}
+          </p>
+          <div class="flex items-center gap-2">
+            <button
+              onclick={() => goToPage(currentPage - 1)}
+              disabled={currentPage === 1}
+              class="px-3 py-1.5 text-sm font-medium bg-surface border border-border rounded-lg hover:bg-surface-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Previous
+            </button>
+            <button
+              onclick={() => goToPage(currentPage + 1)}
+              disabled={currentPage === totalPages}
+              class="px-3 py-1.5 text-sm font-medium bg-surface border border-border rounded-lg hover:bg-surface-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      {/if}
     {/if}
   </main>
 </div>

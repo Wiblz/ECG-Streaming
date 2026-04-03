@@ -149,6 +149,45 @@ export interface PaginationParams {
   offset?: number;
 }
 
+export type DeviceSummarySortField = 'device_id' | 'sync_ready' | 'confidence' | 'sample_count';
+
+export type DeviceListSortField =
+  | 'last_seen'
+  | 'first_seen'
+  | 'total_samples'
+  | 'device_id'
+  | 'nickname'
+  | 'status'
+  | 'last_update';
+
+export type SessionSortField = 'id' | 'start_time' | 'end_time' | 'device_count' | 'sample_count';
+
+export interface DeviceSummaryParams extends PaginationParams {
+  search?: string;
+  sync_ready?: boolean;
+  sort_by?: DeviceSummarySortField;
+  sort_order?: 'asc' | 'desc';
+}
+
+export interface DeviceListParams extends PaginationParams {
+  search?: string;
+  sync_ready?: boolean;
+  status?: 'UNKNOWN' | 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'STREAMING' | 'ERROR';
+  collector_id?: string;
+  has_nickname?: boolean;
+  sort_by?: DeviceListSortField;
+  sort_order?: 'asc' | 'desc';
+}
+
+export interface SessionListParams extends PaginationParams {
+  search?: string;
+  active?: boolean;
+  has_notes?: boolean;
+  device_id?: string;
+  sort_by?: SessionSortField;
+  sort_order?: 'asc' | 'desc';
+}
+
 export interface DevicesResponse {
   devices: DeviceInfo[];
   count: number;
@@ -223,8 +262,8 @@ export interface ApiClient {
   getVersion(): Promise<{ version: string }>;
 
   // Device methods
-  getDevices(params?: PaginationParams): Promise<DevicesResponse>;
-  getAllDevices(params?: PaginationParams): Promise<DevicesResponse>;
+  getDevices(params?: DeviceSummaryParams): Promise<DevicesResponse>;
+  getAllDevices(params?: DeviceListParams): Promise<DevicesResponse>;
   getDeviceStatus(): Promise<DeviceStatusResponse>;
   updateDeviceNickname(
     deviceId: string,
@@ -247,7 +286,7 @@ export interface ApiClient {
   getAccelerometerBufferStats(): Promise<BufferStats>;
 
   // Session methods
-  getSessions(params?: PaginationParams): Promise<SessionsResponse>;
+  getSessions(params?: SessionListParams): Promise<SessionsResponse>;
   getSession(sessionId: number): Promise<Session>;
   getSessionSamples(
     sessionId: number,

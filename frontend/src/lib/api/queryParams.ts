@@ -15,7 +15,7 @@ export function parsePaginationParams(searchParams: URLSearchParams): Pagination
 }
 
 export function buildSearchParams(
-  params?: Record<string, string | number | null | undefined>
+  params?: Record<string, string | number | boolean | null | undefined>
 ): URLSearchParams {
   const searchParams = new URLSearchParams();
 

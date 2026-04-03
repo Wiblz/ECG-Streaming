@@ -1,8 +1,8 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { api } from '$lib/api/client';
-  import Header from '$lib/components/Header.svelte';
-  import HistoricalWaveforms from '$lib/components/HistoricalWaveforms.svelte';
+  import Header from '$lib/components/layout/Header.svelte';
+  import HistoricalWaveforms from '$lib/components/waveforms/HistoricalWaveforms.svelte';
   import { formatDuration, formatFullTimestamp } from '$lib/utils/format';
   import { createDeviceNicknameMap, getDisplayNameFromMap } from '$lib/utils/device-names';
   import type { PageProps } from './$types';

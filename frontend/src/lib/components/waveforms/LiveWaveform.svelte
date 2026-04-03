@@ -24,8 +24,8 @@
     setSessionStartTime
   } from '$lib/state/session-time.svelte';
   import type { ConnectionStateType } from '$lib/state/websocket.svelte';
-  import Button from './buttons/Button.svelte';
-  import Card from './Card.svelte';
+  import Button from '../ui/Button.svelte';
+  import Card from '../layout/Card.svelte';
   import WaveformPlot, {
     type WaveformPlotOptions,
     type WaveformPlotApi

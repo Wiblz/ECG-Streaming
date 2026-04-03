@@ -3,7 +3,7 @@
    * Unified Card component for consistent styling across the application
    */
 
-  import Badge from './Badge.svelte';
+  import Badge from '../ui/Badge.svelte';
 
   interface Props {
     /**

@@ -4,9 +4,9 @@
   import { getDevices } from '$lib/state/devices.svelte';
   import { ConnectionState, getAccWsState, getWsState } from '$lib/state/websocket.svelte';
   import { createDeviceNicknameMap } from '$lib/utils/device-names';
-  import Button from './buttons/Button.svelte';
-  import Card from './Card.svelte';
-  import PauseButton from './PauseButton.svelte';
+  import Button from '../ui/Button.svelte';
+  import Card from '../layout/Card.svelte';
+  import PauseButton from '../ui/PauseButton.svelte';
   import LiveWaveform from './LiveWaveform.svelte';
   import 'uplot/dist/uPlot.min.css';
 

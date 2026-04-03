@@ -2,8 +2,8 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
   import { getActiveSession, isRecording, setActiveSession } from '$lib/state/session.svelte';
-  import Button from './buttons/Button.svelte';
-  import Card from './Card.svelte';
+  import Button from '../ui/Button.svelte';
+  import Card from '../layout/Card.svelte';
   import SessionDuration from './SessionDuration.svelte';
 
   const recording = $derived(isRecording());

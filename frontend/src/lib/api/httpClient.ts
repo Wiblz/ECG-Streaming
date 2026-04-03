@@ -2,11 +2,13 @@ import type {
   ApiClient,
   BufferStats,
   CollectorsResponse,
+  DeviceListParams,
+  DeviceSummaryParams,
   DevicesResponse,
   DeviceStatusResponse,
-  PaginationParams,
   Session,
   SessionAccelerometerSamplesResponse,
+  SessionListParams,
   SessionSamplesResponse,
   SessionsResponse,
   SyncStats
@@ -29,24 +31,35 @@ export class HttpClient implements ApiClient {
     return res.json();
   }
 
-  async getDevices(params?: PaginationParams): Promise<DevicesResponse> {
+  async getDevices(params?: DeviceSummaryParams): Promise<DevicesResponse> {
     const url = withSearchParams(
       `${API_BASE}/devices`,
       buildSearchParams({
+        search: params?.search,
         limit: params?.limit,
-        offset: params?.offset
+        offset: params?.offset,
+        sync_ready: params?.sync_ready,
+        sort_by: params?.sort_by,
+        sort_order: params?.sort_order
       })
     );
     const res = await fetch(url);
     return res.json();
   }
 
-  async getAllDevices(params?: PaginationParams): Promise<DevicesResponse> {
+  async getAllDevices(params?: DeviceListParams): Promise<DevicesResponse> {
     const url = withSearchParams(
       `${API_BASE}/devices/all`,
       buildSearchParams({
+        search: params?.search,
         limit: params?.limit,
-        offset: params?.offset
+        offset: params?.offset,
+        sync_ready: params?.sync_ready,
+        status: params?.status,
+        collector_id: params?.collector_id,
+        has_nickname: params?.has_nickname,
+        sort_by: params?.sort_by,
+        sort_order: params?.sort_order
       })
     );
     const res = await fetch(url);
@@ -102,12 +115,18 @@ export class HttpClient implements ApiClient {
     return res.json();
   }
 
-  async getSessions(params?: PaginationParams): Promise<SessionsResponse> {
+  async getSessions(params?: SessionListParams): Promise<SessionsResponse> {
     const url = withSearchParams(
       `${API_BASE}/sessions`,
       buildSearchParams({
+        search: params?.search,
         limit: params?.limit,
-        offset: params?.offset
+        offset: params?.offset,
+        active: params?.active,
+        has_notes: params?.has_notes,
+        device_id: params?.device_id,
+        sort_by: params?.sort_by,
+        sort_order: params?.sort_order
       })
     );
     const res = await fetch(url);

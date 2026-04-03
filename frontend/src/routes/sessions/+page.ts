@@ -3,7 +3,7 @@ import { parsePaginationParams } from '$lib/api/queryParams';
 import type { PageLoad } from './$types';
 
 export const load: PageLoad = async ({ url }) => {
-  const pagination = parsePaginationParams(url.searchParams);
+  const pagination = parsePaginationParams(url.searchParams) ?? { limit: 20, offset: 0 };
 
   const [sessionsResponse, devicesResponse] = await Promise.all([
     api.getSessions(pagination),

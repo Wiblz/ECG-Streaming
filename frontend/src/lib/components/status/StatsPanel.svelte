@@ -1,6 +1,6 @@
 <script lang="ts">
   import { statusEvents } from '$lib/state/status-events.svelte';
-  import Card from './Card.svelte';
+  import Card from '../layout/Card.svelte';
 
   // Use reactive state from SSE client
   let stats = $derived(statusEvents.bufferStats);

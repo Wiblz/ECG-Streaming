@@ -1,5 +1,5 @@
 import type uPlot from 'uplot';
-import type { WaveformPlotOptions } from '$lib/components/WaveformPlot.svelte';
+import type { WaveformPlotOptions } from '$lib/components/waveforms/WaveformPlot.svelte';
 
 export interface PlotConfigOptions {
   /**

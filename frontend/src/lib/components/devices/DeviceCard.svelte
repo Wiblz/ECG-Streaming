@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { DeviceInfo } from '$lib/types/api';
-  import Badge from './Badge.svelte';
+  import Badge from '../ui/Badge.svelte';
 
   interface Props {
     device: DeviceInfo;

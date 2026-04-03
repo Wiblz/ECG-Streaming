@@ -1,6 +1,6 @@
 <script lang="ts">
   import { isPaused, togglePause } from '$lib/state/pause.svelte';
-  import Button from './buttons/Button.svelte';
+  import Button from './Button.svelte';
 
   const paused = $derived(isPaused());
 

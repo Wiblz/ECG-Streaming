@@ -1,7 +1,7 @@
 <script lang="ts" generics="T extends PlottableSample">
   import { onDestroy, onMount } from 'svelte';
   import type { PlottableSample } from '$lib/types/api';
-  import ActivityMonitor from './ActivityMonitor.svelte';
+  import ActivityMonitor from '../session/ActivityMonitor.svelte';
   import { calculateTimeWindow } from '$lib/waveforms/time-window';
   import { getCurrentPlaybackTime, getSessionStartTime } from '$lib/state/session-time.svelte';
   import { filterSingleDeviceSamples } from '$lib/waveforms/chart-data-transformer';

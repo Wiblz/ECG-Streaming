@@ -1,8 +1,8 @@
 <script lang="ts">
   import type { Session, SessionSample, SessionAccelerometerSample } from '$lib/types/api';
   import { api } from '$lib/api/client';
-  import Button from './buttons/Button.svelte';
-  import Card from './Card.svelte';
+  import Button from '../ui/Button.svelte';
+  import Card from '../layout/Card.svelte';
   import Waveform from './Waveform.svelte';
   import 'uplot/dist/uPlot.min.css';
 

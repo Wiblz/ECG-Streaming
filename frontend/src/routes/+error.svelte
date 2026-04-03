@@ -1,8 +1,8 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import Header from '$lib/components/Header.svelte';
-  import Button from '$lib/components/buttons/Button.svelte';
-  import LinkButton from '$lib/components/buttons/LinkButton.svelte';
+  import Header from '$lib/components/layout/Header.svelte';
+  import Button from '$lib/components/ui/Button.svelte';
+  import LinkButton from '$lib/components/ui/LinkButton.svelte';
 
   const status = $derived(page.status);
   const message = $derived(page.error?.message || 'An error occurred');

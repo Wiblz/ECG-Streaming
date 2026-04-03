@@ -1,7 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { api } from '$lib/api/client';
-  import Header from '$lib/components/Header.svelte';
+  import Header from '$lib/components/layout/Header.svelte';
   import { formatDuration, formatTimestamp } from '$lib/utils/format';
   import { createDeviceNicknameMap, getDisplayNameFromMap } from '$lib/utils/device-names';
   import type { PageProps } from './$types';
@@ -13,6 +13,22 @@
   // Local mutable copy of sessions - using $state.raw to avoid the warning
   // since we're intentionally capturing the initial value and mutating it
   let sessions = $state.raw(data.sessions);
+  let total = $state(data.sessionsPagination.total);
+  let offset = $state(data.sessionsPagination.offset + data.sessionsPagination.count);
+  const limit = data.sessionsPagination.limit ?? 20;
+  let loadingMore = $state(false);
+
+  async function loadMore() {
+    loadingMore = true;
+    try {
+      const response = await api.getSessions({ limit, offset });
+      sessions = [...sessions, ...response.sessions];
+      offset = offset + response.count;
+      total = response.total;
+    } finally {
+      loadingMore = false;
+    }
+  }
 
   let importing = $state(false);
   let importMessage = $state<string | null>(null);
@@ -255,8 +271,19 @@
         {/each}
       </div>
 
-      <div class="mt-8 text-center text-sm text-text-secondary">
-        Showing {sessions.length} session{sessions.length === 1 ? '' : 's'}
+      <div class="mt-8 flex flex-col items-center gap-4">
+        <p class="text-sm text-text-secondary">
+          Showing {sessions.length} of {total} session{total === 1 ? '' : 's'}
+        </p>
+        {#if sessions.length < total}
+          <button
+            onclick={loadMore}
+            disabled={loadingMore}
+            class="px-6 py-2 text-sm font-medium bg-surface border border-border rounded-lg hover:bg-surface-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loadingMore ? 'Loading...' : 'Load more'}
+          </button>
+        {/if}
       </div>
     {/if}
   </main>

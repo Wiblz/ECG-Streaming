@@ -4,7 +4,7 @@
   import { statusEvents } from '$lib/state/status-events.svelte';
   import type { Collector, DeviceInfo } from '$lib/types/api';
   import { formatTimeSince, formatUptime } from '$lib/utils/format';
-  import Card from './Card.svelte';
+  import Card from '../layout/Card.svelte';
 
   // Fetch device metadata (nicknames, etc.) once on mount
   let deviceMetadata = $state<Map<string, Pick<DeviceInfo, 'nickname' | 'sync_ready' | 'sync'>>>(
