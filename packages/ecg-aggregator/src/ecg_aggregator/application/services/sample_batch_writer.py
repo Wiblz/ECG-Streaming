@@ -6,11 +6,8 @@ import time
 
 from ecg_common.logging import get_logger
 
-from ecg_aggregator.infrastructure.persistence.sqlite_database import (
-    AccBatchRow,
-    ECGBatchRow,
-    ECGDatabase,
-)
+from ecg_aggregator.infrastructure.persistence.batch_rows import AccBatchRow, ECGBatchRow
+from ecg_aggregator.infrastructure.persistence.sqlite_database import ECGDatabase
 
 logger = get_logger(__name__)
 

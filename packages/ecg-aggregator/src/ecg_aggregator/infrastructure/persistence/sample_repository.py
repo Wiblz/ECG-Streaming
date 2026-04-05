@@ -13,7 +13,7 @@ from ecg_aggregator.domain.time import (
     ReceiverClockUs,
     WallClockUs,
 )
-from ecg_aggregator.infrastructure.persistence.sqlite_database import AccBatchRow, ECGBatchRow
+from ecg_aggregator.infrastructure.persistence.batch_rows import AccBatchRow, ECGBatchRow
 
 logger = get_logger(__name__)
 

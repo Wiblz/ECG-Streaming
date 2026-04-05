@@ -3,7 +3,6 @@
 import sqlite3
 from pathlib import Path
 from threading import RLock
-from typing import NamedTuple
 
 from ecg_common.logging import get_logger
 from yoyo import get_backend, read_migrations
@@ -17,37 +16,12 @@ from ecg_aggregator.domain.time import (
     WallClockUs,
 )
 from ecg_aggregator.infrastructure.persistence.alignment_repository import AlignmentRepository
+from ecg_aggregator.infrastructure.persistence.batch_rows import AccBatchRow, ECGBatchRow
 from ecg_aggregator.infrastructure.persistence.device_repository import DeviceRepository
 from ecg_aggregator.infrastructure.persistence.sample_repository import SampleRepository
 from ecg_aggregator.infrastructure.persistence.session_repository import SessionRepository
 
 logger = get_logger(__name__)
-
-
-class ECGBatchRow(NamedTuple):
-    device_id: str
-    global_time: float
-    device_timestamp: float
-    raw_value: int
-    confidence: float
-    session_id: int | None
-    wall_clock_us: int | None
-    receiver_clock_us: int | None
-    time_verified: bool
-
-
-class AccBatchRow(NamedTuple):
-    device_id: str
-    global_time: float
-    device_timestamp: float
-    x: float
-    y: float
-    z: float
-    confidence: float
-    session_id: int | None
-    wall_clock_us: int | None
-    receiver_clock_us: int | None
-    time_verified: bool
 
 
 class ECGDatabase:
