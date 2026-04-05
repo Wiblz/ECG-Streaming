@@ -90,7 +90,7 @@ def main_callback(
     ] = None,
 ) -> None:
     """ECG Aggregator CLI."""
-    pass
+    return None
 
 
 def generate_status_table(aggregator: ECGAggregator) -> Table:
@@ -129,8 +129,8 @@ def generate_status_table(aggregator: ECGAggregator) -> Table:
     table.add_row("", "", "", end_section=True)
 
     # Collectors section
-    if aggregator.grpc_servicer:
-        collectors = aggregator.grpc_servicer.collectors
+    collectors = aggregator.collector_registry.collectors
+    if aggregator.grpc_server:
         table.add_row(
             "Connected Collectors",
             f"{len(collectors)} active",
@@ -148,7 +148,7 @@ def generate_status_table(aggregator: ECGAggregator) -> Table:
             ", ".join(all_devices) if all_devices else "None",
         )
     else:
-        table.add_row("Connected Collectors", "N/A", "gRPC servicer not initialized")
+        table.add_row("Connected Collectors", "N/A", "gRPC server not initialized")
 
     # Add separator
     table.add_row("", "", "", end_section=True)
@@ -205,11 +205,11 @@ def generate_collectors_table(aggregator: ECGAggregator) -> Table:
     table.add_column("Status", style="green")
     table.add_column("Type", style="blue")
 
-    if not aggregator.grpc_servicer:
-        table.add_row("No gRPC servicer", "", "", "", "")
+    if not aggregator.grpc_server:
+        table.add_row("No gRPC server", "", "", "", "")
         return table
 
-    collectors = aggregator.grpc_servicer.collectors
+    collectors = aggregator.collector_registry.collectors
 
     if not collectors:
         table.add_row("No collectors connected", "", "", "", "")

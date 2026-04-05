@@ -1,22 +1,10 @@
 """Device-related API models."""
 
-from typing import Literal
-
 from ecg_common import DeviceStatus
 from pydantic import BaseModel, ConfigDict
 
 from ecg_aggregator.api.models.base import SyncInfo
-
-DeviceSummarySortField = Literal["device_id", "sync_ready", "confidence", "sample_count"]
-DeviceListSortField = Literal[
-    "last_seen",
-    "first_seen",
-    "total_samples",
-    "device_id",
-    "nickname",
-    "status",
-    "last_update",
-]
+from ecg_aggregator.domain.time import HostTimeSeconds
 
 
 class DeviceNicknameUpdate(BaseModel):
@@ -34,7 +22,7 @@ class DeviceStatusInfo(BaseModel):
     collector_id: str | None = None
     collector_name: str | None = None
     status: DeviceStatus
-    last_update: float | None = None
+    last_update: HostTimeSeconds | None = None
     battery_level: int | None = None
     error_message: str | None = None
 
@@ -45,15 +33,15 @@ class DeviceInfo(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     device_id: str
-    first_seen: float | None = None
-    last_seen: float | None = None
+    first_seen: HostTimeSeconds | None = None
+    last_seen: HostTimeSeconds | None = None
     total_samples: int = 0
     nickname: str | None = None
     sync_ready: bool = False
     sync: SyncInfo | None = None  # Contains confidence, drift_ppm, sample_count
     collector_id: str | None = None
     status: DeviceStatus = DeviceStatus.DISCONNECTED
-    last_update: float | None = None
+    last_update: HostTimeSeconds | None = None
     battery_level: int | None = None
     error_message: str | None = None
 

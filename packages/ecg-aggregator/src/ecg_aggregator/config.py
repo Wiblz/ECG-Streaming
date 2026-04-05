@@ -48,7 +48,7 @@ class APIConfig(BaseModel):
         default=8000,
         description="HTTP/WebSocket API server port",
     )
-    websocket_fps: int = Field(
+    websocket_push_rate_hz: int = Field(
         default=30,
         description="WebSocket broadcast rate in FPS",
     )

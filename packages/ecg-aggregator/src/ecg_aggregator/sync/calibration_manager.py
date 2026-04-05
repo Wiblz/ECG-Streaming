@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from ecg_common.logging import get_logger
 
+from ecg_aggregator.domain.time import HostTimeSeconds, Seconds
 from ecg_aggregator.sync.calibration import (
     AlignmentComputer,
     CalibrationCorrelator,
@@ -15,7 +16,7 @@ from ecg_aggregator.sync.spike_detector import AccSample, SpikeDetector, TapEven
 from ecg_aggregator.sync.types import CalibrationSessionStats, DeviceCalibrationStatus
 
 if TYPE_CHECKING:
-    from ecg_aggregator.storage.persistence import ECGDatabase
+    from ecg_aggregator.infrastructure.persistence.sqlite_database import ECGDatabase
 
 logger = get_logger(__name__)
 
@@ -43,7 +44,7 @@ class CalibrationSession:
         self.session_id = session_id
         self.target_devices = set(target_devices)
         self.database = database
-        self.start_time = time.time()
+        self.start_time = HostTimeSeconds(time.time())
 
         # Flash events (in-memory only)
         self.flash_events: list[FlashEvent] = []
@@ -60,16 +61,16 @@ class CalibrationSession:
         # Calibration components
         self.spike_detector = SpikeDetector(
             threshold=2.0,  # 2G minimum
-            min_interval=0.3,  # 300ms between taps
+            min_interval=Seconds(0.3),  # 300ms between taps
             window_size=50,
         )
         self.correlator = CalibrationCorrelator(
-            max_reaction_time=0.5,  # 500ms max reaction
-            min_reaction_time=0.05,  # 50ms min reaction
+            max_reaction_time=Seconds(0.5),  # 500ms max reaction
+            min_reaction_time=Seconds(0.05),  # 50ms min reaction
         )
         self.alignment_computer = AlignmentComputer(
             min_pairs=3,  # Need at least 3 taps
-            max_error=0.1,  # 100ms max mean error
+            max_error=Seconds(0.1),  # 100ms max mean error
         )
 
         logger.info(
@@ -77,7 +78,10 @@ class CalibrationSession:
         )
 
     def add_flash_event(
-        self, flash_timestamp: float, event_type: str = "visual", pattern_id: str | None = None
+        self,
+        flash_timestamp: HostTimeSeconds,
+        event_type: str = "visual",
+        pattern_id: str | None = None,
     ) -> FlashEvent:
         """Record a flash event.
 
@@ -282,7 +286,7 @@ class CalibrationSession:
         return {
             "session_id": self.session_id,
             "start_time": self.start_time,
-            "duration": time.time() - self.start_time,
+            "duration": Seconds(time.time() - self.start_time),
             "target_devices": len(self.target_devices),
             "flash_count": len(self.flash_events),
             "total_taps": sum(len(taps) for taps in self.device_taps.values()),
@@ -400,7 +404,10 @@ class CalibrationManager:
         return self.active_session.process_acc_sample(sample)
 
     def add_flash_event(
-        self, flash_timestamp: float, event_type: str = "visual", pattern_id: str | None = None
+        self,
+        flash_timestamp: HostTimeSeconds,
+        event_type: str = "visual",
+        pattern_id: str | None = None,
     ) -> FlashEvent | None:
         """Add flash event to active session.
 

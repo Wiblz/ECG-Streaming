@@ -1,15 +1,12 @@
 """Session-related API models."""
 
-from typing import Literal
-
 from pydantic import BaseModel, ConfigDict
 
-from ecg_aggregator.api.models.base import (
-    AccelerometerSessionSampleModel,
-    ECGSessionSampleModel,
+from ecg_aggregator.application.dto.query import (
+    AccelerometerSessionSampleDTO,
+    ECGSessionSampleDTO,
 )
-
-SessionSortField = Literal["id", "start_time", "end_time", "device_count", "sample_count"]
+from ecg_aggregator.domain.time import GlobalTimeSeconds, Seconds
 
 
 class SessionInfo(BaseModel):
@@ -18,12 +15,12 @@ class SessionInfo(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: int
-    start_time: float
-    end_time: float | None
+    start_time: GlobalTimeSeconds
+    end_time: GlobalTimeSeconds | None
     device_count: int
     sample_count: int
     notes: str | None
-    duration_seconds: float | None
+    duration_seconds: Seconds | None
     ecg_sample_count: int
     acc_sample_count: int
     devices: list[str]
@@ -68,7 +65,7 @@ class SessionSamplesResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     session_id: int
-    devices: dict[str, list[ECGSessionSampleModel]]
+    devices: dict[str, list[ECGSessionSampleDTO]]
     count: int
 
 
@@ -78,18 +75,8 @@ class SessionAccelerometerSamplesResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     session_id: int
-    devices: dict[str, list[AccelerometerSessionSampleModel]]
+    devices: dict[str, list[AccelerometerSessionSampleDTO]]
     count: int
-
-
-class BackfillResponse(BaseModel):
-    """Response model for session backfill."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    success: bool
-    sessions_created: int
-    message: str
 
 
 class DeleteSessionResponse(BaseModel):

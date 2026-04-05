@@ -14,6 +14,13 @@ from ecg_common.models import (
     BufferedSample,
 )
 
+from ecg_aggregator.domain.time import (
+    DeviceTimestampUs,
+    GlobalTimeSeconds,
+    ReceiverClockUs,
+    WallClockUs,
+)
+
 RATE_WINDOW_SECONDS = 1.0
 
 
@@ -254,12 +261,12 @@ class ECGDataBuffer(DataBuffer[BufferedECGSample]):
     def add_sample(
         self,
         device_id: str,
-        global_time: float,
+        global_time: GlobalTimeSeconds,
         raw_value: int,
         confidence: float,
-        wall_clock_us: int,
-        polar_clock_us: int,
-        receiver_clock_us: int,
+        wall_clock_us: WallClockUs,
+        polar_clock_us: DeviceTimestampUs,
+        receiver_clock_us: ReceiverClockUs,
         time_verified: bool = False,
     ) -> None:
         """Add a synchronized ECG sample to the buffer.
@@ -325,14 +332,14 @@ class AccelerometerDataBuffer(DataBuffer[BufferedAccelerometerSample]):
     def add_sample(
         self,
         device_id: str,
-        global_time: float,
+        global_time: GlobalTimeSeconds,
         x: float,
         y: float,
         z: float,
         confidence: float,
-        wall_clock_us: int,
-        polar_clock_us: int,
-        receiver_clock_us: int,
+        wall_clock_us: WallClockUs,
+        polar_clock_us: DeviceTimestampUs,
+        receiver_clock_us: ReceiverClockUs,
         time_verified: bool = False,
     ) -> None:
         """Add a synchronized accelerometer sample to the buffer.

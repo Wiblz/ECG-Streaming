@@ -6,9 +6,15 @@ from dataclasses import dataclass, field
 import numpy as np
 from ecg_common.logging import get_logger
 
+from ecg_aggregator.domain.time import DeviceClockSeconds, HostTimeSeconds, OffsetSeconds, Seconds
 from ecg_aggregator.sync.spike_detector import TapEvent
 
 logger = get_logger(__name__)
+
+DEFAULT_MAX_REACTION_TIME_S = Seconds(0.5)
+DEFAULT_MIN_REACTION_TIME_S = Seconds(0.05)
+DEFAULT_MAX_ALIGNMENT_ERROR_S = Seconds(0.1)
+DEFAULT_OUTLIER_THRESHOLD_S = Seconds(0.15)
 
 
 @dataclass
@@ -16,7 +22,7 @@ class FlashEvent:
     """Flash or vibration event for calibration."""
 
     flash_id: int
-    flash_timestamp: float  # Host time (seconds since epoch)
+    flash_timestamp: HostTimeSeconds
     event_type: str = "visual"  # "visual" or "vibration"
     pattern_id: str | None = None  # For future vibration patterns
 
@@ -28,7 +34,7 @@ class TapFlashPair:
     device_id: str
     tap_event: TapEvent
     flash_event: FlashEvent
-    reaction_time: float  # Time between flash and tap (seconds)
+    reaction_time: Seconds
     confidence: float  # Match confidence (0-1)
 
 
@@ -37,17 +43,17 @@ class DeviceAlignment:
     """Computed time alignment for a device."""
 
     device_id: str
-    time_offset: float  # Offset in seconds (flash_time - device_time)
+    time_offset: OffsetSeconds
     drift: float  # Clock drift multiplier
     confidence: float  # Overall confidence (0-1)
     tap_count: int  # Number of taps used
-    mean_error: float | None = None  # Mean alignment error (seconds)
-    std_error: float | None = None  # Standard deviation of error
+    mean_error: Seconds | None = None  # Mean alignment error (seconds)
+    std_error: Seconds | None = None  # Standard deviation of error
     status: str = (
         "waiting_for_taps"  # Status: waiting_for_taps, calibrating, aligned, insufficient_data
     )
-    last_updated: float = field(default_factory=time.time)
-    offsets: list[float] = field(default_factory=list)  # History of computed offsets
+    last_updated: HostTimeSeconds = field(default_factory=lambda: HostTimeSeconds(time.time()))
+    offsets: list[OffsetSeconds] = field(default_factory=list)  # History of computed offsets
     offset_version: int | None = None  # TimeAlignmentService offset version
 
 
@@ -56,8 +62,8 @@ class CalibrationCorrelator:
 
     def __init__(
         self,
-        max_reaction_time: float = 0.5,  # Maximum human reaction time (seconds)
-        min_reaction_time: float = 0.05,  # Minimum human reaction time (seconds)
+        max_reaction_time: Seconds = DEFAULT_MAX_REACTION_TIME_S,
+        min_reaction_time: Seconds = DEFAULT_MIN_REACTION_TIME_S,
     ):
         """Initialize correlator.
 
@@ -85,7 +91,7 @@ class CalibrationCorrelator:
 
         # Find flash events within valid reaction time window
         # Flash must have occurred BEFORE the tap
-        candidates: list[tuple[FlashEvent, float, float]] = []
+        candidates: list[tuple[FlashEvent, Seconds, float]] = []
 
         for flash in flash_events:
             reaction_time = tap_event.tap_timestamp - flash.flash_timestamp
@@ -101,7 +107,7 @@ class CalibrationCorrelator:
                 # Combine with tap detection confidence
                 combined_confidence = (tap_event.confidence + time_confidence) / 2.0
 
-                candidates.append((flash, reaction_time, combined_confidence))
+                candidates.append((flash, Seconds(reaction_time), combined_confidence))
 
         if not candidates:
             logger.debug(
@@ -135,8 +141,8 @@ class AlignmentComputer:
     def __init__(
         self,
         min_pairs: int = 3,  # Minimum pairs needed for alignment
-        max_error: float = 0.1,  # Maximum acceptable mean error (seconds)
-        outlier_threshold: float = 0.15,  # Outlier rejection threshold (seconds)
+        max_error: Seconds = DEFAULT_MAX_ALIGNMENT_ERROR_S,
+        outlier_threshold: Seconds = DEFAULT_OUTLIER_THRESHOLD_S,
     ):
         """Initialize alignment computer.
 
@@ -163,8 +169,8 @@ class AlignmentComputer:
         """
         # Compute offset for this pair
         # offset = flash_timestamp - device_timestamp_seconds
-        device_time_s = new_pair.tap_event.device_timestamp / 1_000_000.0
-        new_offset = new_pair.flash_event.flash_timestamp - device_time_s
+        device_time_s = DeviceClockSeconds(new_pair.tap_event.device_timestamp / 1_000_000.0)
+        new_offset = OffsetSeconds(new_pair.flash_event.flash_timestamp - device_time_s)
 
         if existing is None:
             # First pair - initialize alignment
@@ -176,7 +182,7 @@ class AlignmentComputer:
                 tap_count=1,
                 offsets=[new_offset],
                 status="waiting_for_taps",
-                last_updated=time.time(),
+                last_updated=HostTimeSeconds(time.time()),
             )
 
         # Add to existing offsets
@@ -195,12 +201,12 @@ class AlignmentComputer:
             filtered_offsets = all_offsets  # Use all if filtering is too aggressive
 
         # Compute robust offset (median)
-        median_offset = float(np.median(filtered_offsets))
+        median_offset = OffsetSeconds(float(np.median(filtered_offsets)))
 
         # Compute error statistics
         errors = [abs(o - median_offset) for o in filtered_offsets]
-        mean_error = float(np.mean(errors))
-        std_error = float(np.std(errors)) if len(errors) > 1 else 0.0
+        mean_error = Seconds(float(np.mean(errors)))
+        std_error = Seconds(float(np.std(errors))) if len(errors) > 1 else Seconds(0.0)
 
         # Compute drift if we have enough pairs (linear regression)
         drift = 1.0  # Default: assume no drift
@@ -225,10 +231,10 @@ class AlignmentComputer:
             std_error=std_error,
             offsets=all_offsets,  # Keep all offsets for history
             status=status,
-            last_updated=time.time(),
+            last_updated=HostTimeSeconds(time.time()),
         )
 
-    def _reject_outliers(self, offsets: list[float]) -> list[float]:
+    def _reject_outliers(self, offsets: list[OffsetSeconds]) -> list[OffsetSeconds]:
         """Reject outliers using median absolute deviation (MAD).
 
         Args:

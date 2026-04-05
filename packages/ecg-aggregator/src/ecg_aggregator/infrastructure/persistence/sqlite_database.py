@@ -6,16 +6,48 @@ import sqlite3
 import time
 from pathlib import Path
 from threading import RLock
+from typing import NamedTuple
 
 from ecg_common.logging import get_logger
 from yoyo import get_backend, read_migrations
 from yoyo.backends import DatabaseBackend
 from yoyo.exceptions import LockTimeout
 
-from ecg_aggregator.api.models.sessions import SessionSortField
-from ecg_aggregator.api.utils import SortOrder
+from ecg_aggregator.domain.queries import SessionSortField, SortOrder
+from ecg_aggregator.domain.time import (
+    DeviceTimestampUs,
+    GlobalTimeSeconds,
+    ReceiverClockUs,
+    WallClockUs,
+)
 
 logger = get_logger(__name__)
+
+
+class ECGBatchRow(NamedTuple):
+    device_id: str
+    global_time: float
+    device_timestamp: float
+    raw_value: int
+    confidence: float
+    session_id: int | None
+    wall_clock_us: int | None
+    receiver_clock_us: int | None
+    time_verified: bool
+
+
+class AccBatchRow(NamedTuple):
+    device_id: str
+    global_time: float
+    device_timestamp: float
+    x: float
+    y: float
+    z: float
+    confidence: float
+    session_id: int | None
+    wall_clock_us: int | None
+    receiver_clock_us: int | None
+    time_verified: bool
 
 
 class ECGDatabase:
@@ -157,6 +189,7 @@ class ECGDatabase:
             self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
             # Enable WAL mode for better concurrency
             self._conn.execute("PRAGMA journal_mode=WAL")
+
         return self._conn
 
     def _get_or_create_device_id(self, device_id_str: str) -> int:
@@ -203,16 +236,20 @@ class ECGDatabase:
                 logger.error(f"Error getting/creating device ID for {device_id_str}: {e}")
                 raise
 
+    def ensure_device(self, device_id: str) -> int:
+        """Ensure a device exists and return its integer primary key."""
+        return self._get_or_create_device_id(device_id)
+
     def add_sample(
         self,
         device_id: str,
-        global_time: float,
-        device_timestamp: float,
+        global_time: GlobalTimeSeconds,
+        device_timestamp: DeviceTimestampUs,
         raw_value: int,
         confidence: float,
         session_id: int | None = None,
-        wall_clock_us: int | None = None,
-        receiver_clock_us: int | None = None,
+        wall_clock_us: WallClockUs | None = None,
+        receiver_clock_us: ReceiverClockUs | None = None,
         time_verified: bool = False,
     ) -> None:
         """Store a single ECG sample.
@@ -275,16 +312,16 @@ class ECGDatabase:
     def add_acc_sample(
         self,
         device_id: str,
-        global_time: float,
-        device_timestamp: float,
+        global_time: GlobalTimeSeconds,
+        device_timestamp: DeviceTimestampUs,
         x: float,
         y: float,
         z: float,
         confidence: float,
         magnitude: float | None = None,
         session_id: int | None = None,
-        wall_clock_us: int | None = None,
-        receiver_clock_us: int | None = None,
+        wall_clock_us: WallClockUs | None = None,
+        receiver_clock_us: ReceiverClockUs | None = None,
         time_verified: bool = False,
     ) -> None:
         """Store a single accelerometer sample.
@@ -354,11 +391,9 @@ class ECGDatabase:
             except Exception as e:
                 logger.error(f"Error storing accelerometer sample: {e}")
 
-    def add_samples_batch(
+    def add_ecg_samples_batch(
         self,
-        samples: list[
-            tuple[str, float, float, int, float, int | None, int | None, int | None, bool]
-        ],
+        samples: list[ECGBatchRow],
     ) -> None:
         """Store multiple ECG samples efficiently.
 
@@ -376,34 +411,26 @@ class ECGDatabase:
 
                 # Build device ID mapping and prepare batch data
                 device_id_map: dict[str, int] = {}
-                for device_id_str, *_ in samples:
-                    if device_id_str not in device_id_map:
-                        device_id_map[device_id_str] = self._get_or_create_device_id(device_id_str)
+                for sample in samples:
+                    if sample.device_id not in device_id_map:
+                        device_id_map[sample.device_id] = self._get_or_create_device_id(
+                            sample.device_id
+                        )
 
                 # Prepare batch data with integer device IDs
                 sample_data = [
                     (
-                        device_id_map[device_id],
-                        global_time,
-                        device_timestamp,
-                        raw_value,
-                        confidence,
-                        session_id,
-                        wall_clock_us,
-                        receiver_clock_us,
-                        1 if time_verified else 0,
+                        device_id_map[sample.device_id],
+                        sample.global_time,
+                        sample.device_timestamp,
+                        sample.raw_value,
+                        sample.confidence,
+                        sample.session_id,
+                        sample.wall_clock_us,
+                        sample.receiver_clock_us,
+                        1 if sample.time_verified else 0,
                     )
-                    for (
-                        device_id,
-                        global_time,
-                        device_timestamp,
-                        raw_value,
-                        confidence,
-                        session_id,
-                        wall_clock_us,
-                        receiver_clock_us,
-                        time_verified,
-                    ) in samples
+                    for sample in samples
                 ]
 
                 cursor.executemany(
@@ -418,8 +445,8 @@ class ECGDatabase:
                 # Update device metadata for each unique device
                 current_time = time.time()
                 device_counts: dict[str, int] = {}
-                for device_id, *_ in samples:
-                    device_counts[device_id] = device_counts.get(device_id, 0) + 1
+                for sample in samples:
+                    device_counts[sample.device_id] = device_counts.get(sample.device_id, 0) + 1
 
                 for device_id_str, count in device_counts.items():
                     cursor.execute(
@@ -441,21 +468,7 @@ class ECGDatabase:
 
     def add_acc_samples_batch(
         self,
-        samples: list[
-            tuple[
-                str,
-                float,
-                float,
-                float,
-                float,
-                float,
-                float,
-                int | None,
-                int | None,
-                int | None,
-                bool,
-            ]
-        ],
+        samples: list[AccBatchRow],
     ) -> None:
         """Store multiple accelerometer samples efficiently.
 
@@ -473,40 +486,30 @@ class ECGDatabase:
 
                 # Build device ID mapping and prepare batch data
                 device_id_map: dict[str, int] = {}
-                for device_id_str, *_ in samples:
-                    if device_id_str not in device_id_map:
-                        device_id_map[device_id_str] = self._get_or_create_device_id(device_id_str)
+                for sample in samples:
+                    if sample.device_id not in device_id_map:
+                        device_id_map[sample.device_id] = self._get_or_create_device_id(
+                            sample.device_id
+                        )
 
                 # Prepare batch data with integer device IDs and calculate magnitudes
                 sample_data = []
-                for (
-                    device_id,
-                    global_time,
-                    device_timestamp,
-                    x,
-                    y,
-                    z,
-                    confidence,
-                    session_id,
-                    wall_clock_us,
-                    receiver_clock_us,
-                    time_verified,
-                ) in samples:
-                    magnitude = math.sqrt(x**2 + y**2 + z**2)
+                for sample in samples:
+                    magnitude = math.sqrt(sample.x**2 + sample.y**2 + sample.z**2)
                     sample_data.append(
                         (
-                            device_id_map[device_id],
-                            global_time,
-                            device_timestamp,
-                            x,
-                            y,
-                            z,
+                            device_id_map[sample.device_id],
+                            sample.global_time,
+                            sample.device_timestamp,
+                            sample.x,
+                            sample.y,
+                            sample.z,
                             magnitude,
-                            confidence,
-                            session_id,
-                            wall_clock_us,
-                            receiver_clock_us,
-                            1 if time_verified else 0,
+                            sample.confidence,
+                            sample.session_id,
+                            sample.wall_clock_us,
+                            sample.receiver_clock_us,
+                            1 if sample.time_verified else 0,
                         )
                     )
 
@@ -522,8 +525,8 @@ class ECGDatabase:
                 # Update device metadata for each unique device
                 current_time = time.time()
                 device_counts: dict[str, int] = {}
-                for device_id, *_ in samples:
-                    device_counts[device_id] = device_counts.get(device_id, 0) + 1
+                for sample in samples:
+                    device_counts[sample.device_id] = device_counts.get(sample.device_id, 0) + 1
 
                 for device_id_str, count in device_counts.items():
                     cursor.execute(
@@ -542,75 +545,6 @@ class ECGDatabase:
 
             except Exception as e:
                 logger.error(f"Error storing accelerometer batch: {e}")
-
-    def get_samples(
-        self,
-        device_id: str | None = None,
-        start_time: float | None = None,
-        end_time: float | None = None,
-        limit: int | None = None,
-    ) -> list[dict]:
-        """Retrieve ECG samples from database.
-
-        Args:
-            device_id: Filter by device ID (optional)
-            start_time: Filter by start time (optional)
-            end_time: Filter by end time (optional)
-            limit: Maximum number of samples to return (optional)
-
-        Returns:
-            List of sample dictionaries
-        """
-        with self._lock:
-            try:
-                conn = self._get_connection()
-                cursor = conn.cursor()
-
-                query = """
-                    SELECT d.device_id, e.global_time, e.device_timestamp, e.raw_value, e.confidence
-                    FROM ecg_samples e
-                    JOIN devices d ON e.device_id = d.id
-                    WHERE 1=1
-                """
-                params: list[str | float | int] = []
-
-                if device_id:
-                    query += " AND d.device_id = ?"
-                    params.append(device_id)
-
-                if start_time:
-                    query += " AND e.global_time >= ?"
-                    params.append(start_time)
-
-                if end_time:
-                    query += " AND e.global_time <= ?"
-                    params.append(end_time)
-
-                query += " ORDER BY e.global_time ASC"
-
-                if limit:
-                    query += " LIMIT ?"
-                    params.append(limit)
-
-                cursor.execute(query, params)
-
-                results = []
-                for row in cursor.fetchall():
-                    results.append(
-                        {
-                            "device_id": row[0],
-                            "global_time": row[1],
-                            "device_timestamp": row[2],
-                            "raw_value": row[3],
-                            "confidence": row[4],
-                        }
-                    )
-
-                return results
-
-            except Exception as e:
-                logger.error(f"Error retrieving samples: {e}")
-                return []
 
     def get_stats(self) -> dict:
         """Get database statistics.
@@ -664,85 +598,6 @@ class ECGDatabase:
             except Exception as e:
                 logger.error(f"Error getting stats: {e}")
                 return {}
-
-    def update_unsynced_samples(
-        self,
-        device_id: str,
-        offset: float,
-    ) -> int:
-        """Update unsynced samples with calculated offset.
-
-        Args:
-            device_id: Device identifier
-            offset: Time offset to apply (global_time = device_timestamp + offset)
-
-        Returns:
-            Number of samples updated
-        """
-        with self._lock:
-            try:
-                conn = self._get_connection()
-                cursor = conn.cursor()
-
-                # Update samples where confidence is 0 (unsynced)
-                cursor.execute(
-                    """
-                    UPDATE ecg_samples
-                    SET global_time = device_timestamp + ?,
-                        confidence = 1.0
-                    WHERE device_id = ? AND confidence = 0.0
-                    """,
-                    (offset, device_id),
-                )
-
-                updated = cursor.rowcount
-                conn.commit()
-
-                if updated > 0:
-                    logger.info(
-                        f"Updated {updated} unsynced samples for {device_id} with offset {offset:.3f}s"
-                    )
-                return updated
-
-            except Exception as e:
-                logger.error(f"Error updating unsynced samples: {e}")
-                return 0
-
-    def delete_old_samples(self, before_time: float) -> int:
-        """Delete samples older than specified time.
-
-        Args:
-            before_time: Delete samples before this timestamp
-
-        Returns:
-            Number of samples deleted
-        """
-        with self._lock:
-            try:
-                conn = self._get_connection()
-                cursor = conn.cursor()
-
-                cursor.execute("DELETE FROM ecg_samples WHERE global_time < ?", (before_time,))
-
-                deleted = cursor.rowcount
-                conn.commit()
-
-                logger.info(f"Deleted {deleted} old samples")
-                return deleted
-
-            except Exception as e:
-                logger.error(f"Error deleting old samples: {e}")
-                return 0
-
-    def vacuum(self) -> None:
-        """Optimize database (reclaim space after deletions)."""
-        with self._lock:
-            try:
-                conn = self._get_connection()
-                conn.execute("VACUUM")
-                logger.info("Database vacuumed")
-            except Exception as e:
-                logger.error(f"Error vacuuming database: {e}")
 
     # Session management methods
 
@@ -798,6 +653,7 @@ class ECGDatabase:
         Returns:
             Tuple of (sample_count, device_count)
         """
+
         # Calculate sample count from ECG and accelerometer samples
         cursor.execute(
             "SELECT COUNT(*) FROM ecg_samples WHERE session_id = ?",
@@ -1082,11 +938,7 @@ class ECGDatabase:
                 logger.error(f"Error retrieving sessions: {e}")
                 return []
 
-    def count_sessions(self) -> int:
-        """Count sessions matching optional filters."""
-        return self.count_sessions_filtered()
-
-    def count_sessions_filtered(
+    def count_sessions(
         self,
         search: str | None = None,
         active: bool | None = None,
@@ -1495,127 +1347,6 @@ class ECGDatabase:
             except Exception as e:
                 logger.error(f"Error retrieving session accelerometer samples: {e}")
                 return []
-
-    def create_sessions_from_samples(
-        self, gap_threshold: float = 300.0, min_duration: float = 30.0
-    ) -> int:
-        """Analyze existing samples and create sessions based on time gaps.
-
-        Args:
-            gap_threshold: Time gap in seconds to consider a new session (default: 5 minutes)
-            min_duration: Minimum session duration in seconds to keep (default: 30 seconds)
-
-        Returns:
-            Number of sessions created
-        """
-        with self._lock:
-            try:
-                conn = self._get_connection()
-                cursor = conn.cursor()
-
-                # Get all samples ordered by time
-                cursor.execute(
-                    """
-                    SELECT id, device_id, global_time
-                    FROM ecg_samples
-                    WHERE session_id IS NULL
-                    ORDER BY global_time ASC
-                    """
-                )
-
-                samples = cursor.fetchall()
-                if not samples:
-                    logger.info("No unassigned samples to process")
-                    return 0
-
-                sessions_created = 0
-                sessions_discarded = 0
-                current_session_id: int | None = None
-                current_session_start: float | None = None
-                current_session_end: float | None = None
-                last_time: float | None = None
-                session_sample_ids: list[int] = []
-
-                def save_current_session() -> None:
-                    """Helper to save or discard current session based on duration."""
-                    nonlocal sessions_created, sessions_discarded, current_session_id
-
-                    if not current_session_id or not session_sample_ids:
-                        return
-
-                    if current_session_end is None or current_session_start is None:
-                        return
-
-                    session_duration = current_session_end - current_session_start
-
-                    if session_duration < min_duration:
-                        # Discard short session - delete it and leave samples unassigned
-                        cursor.execute("DELETE FROM sessions WHERE id = ?", (current_session_id,))
-                        sessions_discarded += 1
-                        logger.debug(
-                            f"Discarded session {current_session_id} (duration: {session_duration:.1f}s < {min_duration}s)"
-                        )
-                    else:
-                        # Keep session - update end time and assign samples
-                        cursor.execute(
-                            "UPDATE sessions SET end_time = ? WHERE id = ?",
-                            (current_session_end, current_session_id),
-                        )
-                        cursor.executemany(
-                            "UPDATE ecg_samples SET session_id = ? WHERE id = ?",
-                            [(current_session_id, sid) for sid in session_sample_ids],
-                        )
-
-                for sample_id, _device_id, global_time in samples:
-                    # Check if we need to start a new session
-                    if last_time is None or (global_time - last_time) > gap_threshold:
-                        # Save previous session (may be discarded if too short)
-                        save_current_session()
-
-                        # Create new session
-                        cursor.execute(
-                            "INSERT INTO sessions (start_time) VALUES (?)",
-                            (global_time,),
-                        )
-                        current_session_id = cursor.lastrowid
-                        current_session_start = global_time
-                        session_sample_ids = []
-                        sessions_created += 1
-
-                    # Add sample to current session
-                    session_sample_ids.append(sample_id)
-                    current_session_end = global_time
-                    last_time = global_time
-
-                # Save final session (may be discarded if too short)
-                save_current_session()
-
-                # Update session statistics
-                cursor.execute(
-                    """
-                    UPDATE sessions
-                    SET sample_count = (
-                        SELECT COUNT(*) FROM ecg_samples WHERE session_id = sessions.id
-                    ),
-                    device_count = (
-                        SELECT COUNT(DISTINCT device_id) FROM ecg_samples WHERE session_id = sessions.id
-                    )
-                    WHERE id IN (
-                        SELECT DISTINCT session_id FROM ecg_samples WHERE session_id IS NOT NULL
-                    )
-                    """
-                )
-
-                conn.commit()
-                logger.info(
-                    f"Created {sessions_created} sessions from existing samples "
-                    f"({sessions_discarded} discarded as too short)"
-                )
-                return sessions_created
-
-            except Exception as e:
-                logger.error(f"Error creating sessions from samples: {e}")
-                return 0
 
     def export_session_to_csv(self, session_id: int, output_path: Path | str) -> bool:
         """Export a session's samples to CSV format.

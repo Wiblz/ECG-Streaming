@@ -1,14 +1,25 @@
 """Time alignment engine for synchronizing device timestamps."""
 
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 import numpy as np
 from ecg_common.logging import get_logger
 
+from ecg_aggregator.domain.time import (
+    DeviceClockSeconds,
+    DeviceTimestampUs,
+    GlobalTimeSeconds,
+    HostTimeSeconds,
+    OffsetSeconds,
+    Seconds,
+)
 from ecg_aggregator.sync.types import DeviceSyncStats, SyncStats
 
 logger = get_logger(__name__)
+
+TIME_DISCONTINUITY_THRESHOLD_US = DeviceTimestampUs(10_000_000)  # 10 seconds
 
 
 @dataclass
@@ -16,10 +27,10 @@ class TimeModel:
     """Time synchronization model for a device."""
 
     drift: float  # Clock drift multiplier
-    offset: float  # Clock offset in seconds
+    offset: OffsetSeconds  # Clock offset in seconds
     confidence: float  # Model confidence (R² score)
     sample_count: int  # Number of samples used
-    last_update: float  # Last update timestamp (host time)
+    last_update: HostTimeSeconds  # Last update timestamp (host time)
 
 
 @dataclass
@@ -27,8 +38,8 @@ class SyncedTimestamp:
     """A synchronized timestamp with confidence."""
 
     device_id: str
-    device_timestamp: float  # Original device timestamp (microseconds)
-    global_time: float  # Synchronized global time (seconds since epoch)
+    device_timestamp: DeviceTimestampUs  # Original device timestamp (microseconds)
+    global_time: GlobalTimeSeconds  # Synchronized global time (seconds since epoch)
     confidence: float  # Sync confidence (0-1)
 
 
@@ -53,20 +64,23 @@ class DeviceTimeModel:
         self.min_samples = min_samples
 
         # Timestamp pairs for offset calculation
-        self._device_times: list[float] = []
-        self._host_times: list[float] = []
+        self._device_times: list[DeviceClockSeconds] = []
+        self._host_times: list[HostTimeSeconds] = []
 
         # Simple offset model
-        self._offset: float | None = None
+        self._offset: OffsetSeconds | None = None
         self._sample_count: int = 0
         self._offset_version: int = 0  # Increments each time offset is recalculated
 
         # Dropout detection - track separately per stream to handle ECG+ACC interleaving
-        self._last_device_time_by_stream: dict[str, float] = {}
+        self._last_device_time_by_stream: dict[str, DeviceTimestampUs] = {}
         self._dropout_count = 0
 
     def add_sample(
-        self, device_timestamp: float, host_receive_time: float, sensor_type: str = "unknown"
+        self,
+        device_timestamp: DeviceTimestampUs,
+        host_receive_time: HostTimeSeconds,
+        sensor_type: str = "unknown",
     ) -> None:
         """Add a timestamp pair to the model.
 
@@ -76,7 +90,7 @@ class DeviceTimeModel:
             sensor_type: Sensor type ("ecg" or "acc") to track timestamps separately per sensor
         """
         # Convert from microseconds to seconds
-        device_time_s = device_timestamp / 1_000_000.0
+        device_time_s = DeviceClockSeconds(device_timestamp / 1_000_000.0)
         logger.debug(
             f"[TIME_ALIGN] {self.device_id} add_sample: device_ts_us={device_timestamp:.0f}, device_ts_s={device_time_s:.2f}, host_time={host_receive_time:.2f}, sensor={sensor_type}"
         )
@@ -85,8 +99,8 @@ class DeviceTimeModel:
         if sensor_type in self._last_device_time_by_stream:
             last_time = self._last_device_time_by_stream[sensor_type]
             time_jump = device_timestamp - last_time
-            # If time jumped backwards or more than 10 seconds, likely a reconnection
-            if time_jump < 0 or time_jump > 10_000_000:  # 10 seconds in microseconds
+            # Treat large forward jumps as a device reconnect and reset the learned model.
+            if time_jump < 0 or time_jump > TIME_DISCONTINUITY_THRESHOLD_US:
                 logger.warning(
                     f"Device {self.device_id} [{sensor_type}] time discontinuity: {time_jump / 1_000_000:.2f}s "
                     f"(last={last_time}, current={device_timestamp})"
@@ -120,12 +134,12 @@ class DeviceTimeModel:
         try:
             # Calculate offset for each sample pair
             offsets = [
-                host_time - device_time
+                OffsetSeconds(host_time - device_time)
                 for device_time, host_time in zip(self._device_times, self._host_times, strict=True)
             ]
 
             # Use median for robustness
-            self._offset = float(np.median(offsets))
+            self._offset = OffsetSeconds(float(np.median(offsets)))
 
             # Increment version counter (signals offset was recalculated)
             self._offset_version += 1
@@ -146,7 +160,7 @@ class DeviceTimeModel:
             logger.error(f"Error calculating offset for {self.device_id}: {e}")
             self._offset = None
 
-    def sync_timestamp(self, device_timestamp: float) -> SyncedTimestamp | None:
+    def sync_timestamp(self, device_timestamp: DeviceTimestampUs) -> SyncedTimestamp | None:
         """Convert device timestamp to global time.
 
         Args:
@@ -159,10 +173,10 @@ class DeviceTimeModel:
             return None
 
         # Convert device timestamp from microseconds to seconds
-        device_time_s = device_timestamp / 1_000_000.0
+        device_time_s = DeviceClockSeconds(device_timestamp / 1_000_000.0)
 
         # Apply offset: global_time = device_time + offset
-        global_time = device_time_s + self._offset
+        global_time = GlobalTimeSeconds(device_time_s + self._offset)
 
         logger.debug(
             f"[TIME_ALIGN] {self.device_id} sync: device_ts_us={device_timestamp:.0f}, device_ts_s={device_time_s:.2f}, offset={self._offset:.2f}, global_time={global_time:.2f}"
@@ -186,7 +200,7 @@ class DeviceTimeModel:
             offset=self._offset,
             confidence=1.0,
             sample_count=self._sample_count,
-            last_update=time.time(),
+            last_update=HostTimeSeconds(time.time()),
         )
 
     @property
@@ -195,7 +209,7 @@ class DeviceTimeModel:
         return self._offset is not None
 
     @property
-    def offset(self) -> float | None:
+    def offset(self) -> OffsetSeconds | None:
         """Get the calculated offset."""
         return self._offset
 
@@ -249,8 +263,8 @@ class TimeAlignmentService:
     def add_timestamp_pair(
         self,
         device_id: str,
-        device_timestamp: float,
-        host_receive_time: float,
+        device_timestamp: DeviceTimestampUs,
+        host_receive_time: HostTimeSeconds,
         sensor_type: str = "unknown",
     ) -> None:
         """Add a timestamp pair for synchronization.
@@ -267,7 +281,9 @@ class TimeAlignmentService:
 
         self._device_models[device_id].add_sample(device_timestamp, host_receive_time, sensor_type)
 
-    def sync_timestamp(self, device_id: str, device_timestamp: float) -> SyncedTimestamp | None:
+    def sync_timestamp(
+        self, device_id: str, device_timestamp: DeviceTimestampUs
+    ) -> SyncedTimestamp | None:
         """Convert device timestamp to global time.
 
         Args:
@@ -294,6 +310,20 @@ class TimeAlignmentService:
         """
         model = self._device_models.get(device_id)
         return model.model if model else None
+
+    def get_offset_version(self, device_id: str) -> int | None:
+        """Get the current offset version for a device, if available."""
+        model = self._device_models.get(device_id)
+        return model.offset_version if model else None
+
+    def get_offset_versions(self, device_ids: Iterable[str]) -> dict[str, int]:
+        """Get offset versions for the provided devices."""
+        versions: dict[str, int] = {}
+        for device_id in device_ids:
+            offset_version = self.get_offset_version(device_id)
+            if offset_version is not None:
+                versions[device_id] = offset_version
+        return versions
 
     def is_device_ready(self, device_id: str) -> bool:
         """Check if device is ready for synchronization.
@@ -338,12 +368,12 @@ class TimeAlignmentService:
                 drift_ppm = (model.model.drift - 1.0) * 1_000_000
                 device_stats.update(
                     {
-                        "drift": model.model.drift,
+                        "drift": Seconds(model.model.drift),
                         "drift_ppm": drift_ppm,
                         "offset": model.model.offset,
                         "confidence": model.model.confidence,
                         "sample_count": model.model.sample_count,
-                        "age_seconds": time.time() - model.model.last_update,
+                        "age_seconds": Seconds(time.time() - model.model.last_update),
                     }
                 )
 

@@ -6,9 +6,17 @@ from dataclasses import dataclass
 
 from ecg_common.logging import get_logger
 
+from ecg_aggregator.domain.time import (
+    DeviceTimestampUs,
+    GlobalTimeSeconds,
+    HostTimeSeconds,
+    Seconds,
+)
 from ecg_aggregator.sync.types import DeviceSpikeStats, SpikeDetectorStats
 
 logger = get_logger(__name__)
+
+DEFAULT_MIN_INTERVAL_S = Seconds(0.3)
 
 
 @dataclass
@@ -16,8 +24,8 @@ class AccSample:
     """Accelerometer sample."""
 
     device_id: str
-    global_time: float  # Seconds since epoch
-    device_timestamp: float  # Device microseconds
+    global_time: GlobalTimeSeconds
+    device_timestamp: DeviceTimestampUs
     x: float
     y: float
     z: float
@@ -29,11 +37,11 @@ class TapEvent:
     """Detected tap/spike event."""
 
     device_id: str
-    tap_timestamp: float  # Global time (seconds)
-    device_timestamp: float  # Device microseconds
+    tap_timestamp: GlobalTimeSeconds
+    device_timestamp: DeviceTimestampUs
     magnitude: float  # Peak magnitude in G
     confidence: float  # Detection confidence (0-1)
-    detected_at: float  # Time when detection occurred
+    detected_at: HostTimeSeconds
 
 
 class SpikeDetector:
@@ -47,7 +55,7 @@ class SpikeDetector:
     def __init__(
         self,
         threshold: float = 2.0,  # G
-        min_interval: float = 0.3,  # seconds between taps
+        min_interval: Seconds = DEFAULT_MIN_INTERVAL_S,  # seconds between taps
         window_size: int = 50,  # samples for context
         smoothing_window: int = 3,  # samples for magnitude smoothing
     ):
@@ -66,7 +74,7 @@ class SpikeDetector:
 
         # Per-device state for real-time processing
         self.device_buffers: dict[str, deque[AccSample]] = {}
-        self.last_tap_time: dict[str, float] = {}
+        self.last_tap_time: dict[str, GlobalTimeSeconds] = {}
         self.total_taps_detected = 0
 
     def process_sample(self, sample: AccSample) -> TapEvent | None:
@@ -83,7 +91,7 @@ class SpikeDetector:
         # Initialize device buffer if needed
         if device_id not in self.device_buffers:
             self.device_buffers[device_id] = deque(maxlen=self.window_size)
-            self.last_tap_time[device_id] = 0.0
+            self.last_tap_time[device_id] = GlobalTimeSeconds(0.0)
 
         buffer = self.device_buffers[device_id]
         buffer.append(sample)
@@ -136,7 +144,7 @@ class SpikeDetector:
             device_timestamp=sample.device_timestamp,
             magnitude=current_mag,
             confidence=confidence,
-            detected_at=time.time(),
+            detected_at=HostTimeSeconds(time.time()),
         )
 
         logger.debug(
@@ -200,7 +208,7 @@ class SpikeDetector:
         for device_id, buffer in self.device_buffers.items():
             device_stats[device_id] = {
                 "buffer_size": len(buffer),
-                "last_tap": self.last_tap_time.get(device_id, 0),
+                "last_tap": self.last_tap_time.get(device_id, GlobalTimeSeconds(0.0)),
             }
 
         return {

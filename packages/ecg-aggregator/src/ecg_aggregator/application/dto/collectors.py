@@ -1,12 +1,16 @@
-"""Collector-related API models."""
+"""Typed DTOs for collector queries."""
+
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from ecg_aggregator.domain.time import HostTimeSeconds, Seconds
 
+CollectorHealth = Literal["healthy", "warning", "disconnected"]
 
-class CollectorInfo(BaseModel):
-    """Collector information response model."""
+
+class CollectorInfoDTO(BaseModel):
+    """Collector information returned by collector queries."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -22,14 +26,5 @@ class CollectorInfo(BaseModel):
     time_since_heartbeat: Seconds | None = None
     samples_sent: int = 0
     active_devices: int = 0
-    health: str  # "healthy", "warning", "disconnected"
+    health: CollectorHealth
     connected: bool
-
-
-class CollectorsResponse(BaseModel):
-    """Response model for collectors list."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    collectors: list[CollectorInfo]
-    count: int

@@ -1,13 +1,18 @@
 """Typed payloads for sync and calibration stats."""
 
-from __future__ import annotations
-
 from typing import NotRequired, TypedDict
+
+from ecg_aggregator.domain.time import (
+    GlobalTimeSeconds,
+    HostTimeSeconds,
+    OffsetSeconds,
+    Seconds,
+)
 
 
 class DeviceSpikeStats(TypedDict):
     buffer_size: int
-    last_tap: float
+    last_tap: GlobalTimeSeconds
 
 
 class SpikeDetectorStats(TypedDict):
@@ -19,12 +24,12 @@ class SpikeDetectorStats(TypedDict):
 class DeviceSyncStats(TypedDict):
     ready: bool
     dropouts: int
-    drift: NotRequired[float]
+    drift: NotRequired[Seconds]
     drift_ppm: NotRequired[float]
-    offset: NotRequired[float]
+    offset: NotRequired[OffsetSeconds]
     confidence: NotRequired[float]
     sample_count: NotRequired[int]
-    age_seconds: NotRequired[float]
+    age_seconds: NotRequired[Seconds]
 
 
 class SyncStats(TypedDict):
@@ -39,15 +44,15 @@ class DeviceCalibrationStatus(TypedDict):
     confidence: float
     tap_count: int
     ready: bool
-    offset: NotRequired[float]
-    mean_error: NotRequired[float | None]
-    std_error: NotRequired[float | None]
+    offset: NotRequired[OffsetSeconds]
+    mean_error: NotRequired[Seconds | None]
+    std_error: NotRequired[Seconds | None]
 
 
 class CalibrationSessionStats(TypedDict):
     session_id: int
-    start_time: float
-    duration: float
+    start_time: HostTimeSeconds
+    duration: Seconds
     target_devices: int
     flash_count: int
     total_taps: int
