@@ -1,7 +1,5 @@
 """Typed payloads for BLE collector components."""
 
-from __future__ import annotations
-
 from typing import NotRequired, TypedDict
 
 
