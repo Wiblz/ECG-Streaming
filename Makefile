@@ -20,34 +20,19 @@ fmt:
 	$(RUN) ruff format $(PACKAGES)
 	@echo "✓ Code formatted"
 
-# Check formatting without modifying
-fmt-check:
-	@echo "Checking formatting..."
-	$(RUN) ruff format --check --diff $(PACKAGES)
-
 # Type checking
 vet:
 	@echo "Running type checks with mypy..."
 	$(RUN) mypy $(PACKAGES)
 	@echo "✓ Type checking complete"
 
-# Linting
-lint:
-	@echo "Running linter with ruff..."
-	$(RUN) ruff check $(PACKAGES) --exclude "*_pb2*.py"
-	@echo "✓ Linting complete"
-
 # Lint and auto-fix
-lint-fix:
+lint:
 	@echo "Running linter with auto-fix..."
 	$(RUN) ruff check --fix $(PACKAGES) --exclude "*_pb2*.py"
 
 # Run all checks (format + lint + type check)
 check: fmt lint vet
-	@echo "✓ All checks passed"
-
-# Quick check without formatting
-check-only: lint vet
 	@echo "✓ All checks passed"
 
 # Run tests
