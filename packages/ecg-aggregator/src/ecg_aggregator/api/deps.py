@@ -3,6 +3,7 @@
 from typing import cast
 
 from fastapi import Request
+from starlette.requests import HTTPConnection
 
 from ecg_aggregator.application.runtime import ApplicationRuntime
 from ecg_aggregator.infrastructure.realtime.calibration_hub import CalibrationWebSocketHub
@@ -20,11 +21,11 @@ def get_sse_hub(request: Request) -> SSEHub:
     return cast(SSEHub, request.app.state.sse_hub)
 
 
-def get_realtime_hub(request: Request) -> RealtimeWebSocketHub:
+def get_realtime_hub(request: HTTPConnection) -> RealtimeWebSocketHub:
     """Return the realtime WebSocket hub stored on the FastAPI app state."""
     return cast(RealtimeWebSocketHub, request.app.state.realtime_hub)
 
 
-def get_calibration_hub(request: Request) -> CalibrationWebSocketHub:
+def get_calibration_hub(request: HTTPConnection) -> CalibrationWebSocketHub:
     """Return the calibration hub stored on the FastAPI app state."""
     return cast(CalibrationWebSocketHub, request.app.state.calibration_hub)
