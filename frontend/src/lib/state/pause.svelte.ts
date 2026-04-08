@@ -11,11 +11,9 @@ export function isPaused(): boolean {
 
 export function setPaused(paused: boolean): void {
   _paused = paused;
-  console.log(`[pause] Streaming ${paused ? 'PAUSED' : 'RESUMED'}`);
 }
 
 export function togglePause(): boolean {
   _paused = !_paused;
-  console.log(`[pause] Streaming ${_paused ? 'PAUSED' : 'RESUMED'}`);
   return _paused;
 }

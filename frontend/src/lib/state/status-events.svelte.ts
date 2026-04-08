@@ -5,6 +5,7 @@
 
 import { get_api_base_url } from '$lib/api/client';
 import type { BufferStats, Collector, DeviceStatus } from '$lib/types/api';
+import { SvelteMap } from 'svelte/reactivity';
 import type {
   BufferStatsData,
   CollectorUpdateData,
@@ -22,8 +23,8 @@ class StatusEventsClient {
 
   // Reactive state using Svelte 5 runes
   connectionStatus = $state<ConnectionStatus>('disconnected');
-  collectors = $state<Map<string, Collector>>(new Map());
-  devices = $state<Map<string, DeviceStatus>>(new Map());
+  collectors = new SvelteMap<string, Collector>();
+  devices = new SvelteMap<string, DeviceStatus>();
   bufferStats = $state<BufferStatsData | null>(null);
   lastUpdate = $state<Date | null>(null);
   error = $state<string | null>(null);
@@ -79,7 +80,6 @@ class StatusEventsClient {
       this.eventSource.onopen = () => {
         this.connectionStatus = 'connected';
         this.reconnectAttempts = 0;
-        console.log('[SSE] Connected to status events');
       };
     } catch (err) {
       this.handleError(err);
@@ -107,7 +107,6 @@ class StatusEventsClient {
    * Handle initial connection event
    */
   private handleConnected() {
-    console.log('[SSE] Connected event received');
     this.connectionStatus = 'connected';
     this.lastUpdate = new Date();
   }
@@ -226,10 +225,6 @@ class StatusEventsClient {
         const delay = this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts);
         this.reconnectAttempts++;
 
-        console.log(
-          `[SSE] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`
-        );
-
         this.reconnectTimer = setTimeout(() => {
           this.connect();
         }, delay);
@@ -241,14 +236,14 @@ class StatusEventsClient {
   }
 
   /**
-   * Get all collectors as an array
+   * Get all collectors as an array.
    */
   getCollectors(): Collector[] {
     return Array.from(this.collectors.values());
   }
 
   /**
-   * Get all devices as an array
+   * Get all devices as an array.
    */
   getDevices(): DeviceStatus[] {
     return Array.from(this.devices.values());

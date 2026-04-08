@@ -113,21 +113,7 @@
   });
 
   // Update chart when data changes
-  let effectRunCount = 0;
-  let lastEffectLog = 0;
   $effect(() => {
-    effectRunCount++;
-    const now = performance.now();
-    if (now - lastEffectLog > 2000) {
-      const pointCount = data[0]?.length || 0;
-      const seriesCount = data.length - 1;
-      console.log(
-        `[uPlot effect] ran ${effectRunCount} times in last ${((now - lastEffectLog) / 1000).toFixed(1)}s | rendering ${pointCount} points x ${seriesCount} series = ${pointCount * seriesCount} total`
-      );
-      effectRunCount = 0;
-      lastEffectLog = now;
-    }
-
     // Must read data[0]?.length to track the data array as a dependency.
     // Without this, just checking `if (data)` doesn't register data as a dependency.
     void data[0]?.length;

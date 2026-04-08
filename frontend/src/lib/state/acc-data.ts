@@ -5,13 +5,8 @@ const MAX_DURATION = 15; // seconds - keep more than window duration to avoid ga
 // Plain Map for accelerometer samples - no reactivity, polling-based access
 export const samples = new Map<string, BufferedAccelerometerSample[]>();
 
-let updateCount = 0;
-let lastLogTime = 0;
-
 export function addSamples(newSamples: BufferedAccelerometerSample[]) {
-  const start = performance.now();
   // Group new samples by device to process in batch
-
   const byDevice = new Map<string, BufferedAccelerometerSample[]>();
   for (const sample of newSamples) {
     if (!byDevice.has(sample.device_id)) {
@@ -33,9 +28,8 @@ export function addSamples(newSamples: BufferedAccelerometerSample[]) {
     // Only trim if buffer exceeds threshold
     const newestTime = deviceSamples[deviceSamples.length - 1].global_time;
     const oldestTime = deviceSamples[0].global_time;
-    const bufferDuration = newestTime - oldestTime;
 
-    if (bufferDuration > MAX_DURATION * 1.2) {
+    if (newestTime - oldestTime > MAX_DURATION * 1.2) {
       const cutoffTime = newestTime - MAX_DURATION;
 
       // Binary search for first index to keep
@@ -51,23 +45,9 @@ export function addSamples(newSamples: BufferedAccelerometerSample[]) {
       }
 
       if (left > 0) {
-        const filtered = deviceSamples.slice(left);
-        samples.set(device_id, filtered);
+        samples.set(device_id, deviceSamples.slice(left));
       }
     }
-  }
-
-  const duration = performance.now() - start;
-  updateCount++;
-
-  // Log every 60 updates (~2 seconds at 30 FPS)
-  const now = Date.now();
-  if (now - lastLogTime > 2000) {
-    console.log(
-      `[ACC Data] Updates: ${updateCount} in last ${((now - lastLogTime) / 1000).toFixed(1)}s, last duration: ${duration.toFixed(1)}ms, samples: ${newSamples.length}`
-    );
-    updateCount = 0;
-    lastLogTime = now;
   }
 }
 

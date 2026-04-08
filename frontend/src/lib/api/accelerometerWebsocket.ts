@@ -42,14 +42,12 @@ export class AccelerometerWebSocket {
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   private url: string;
   private shouldReconnect: boolean = true;
-  private messageCount: number = 0;
 
   constructor(url: string = resolveDefaultUrl()) {
     this.url = url;
   }
 
   connect() {
-    console.log('[AccelerometerWebSocket] Attempting to connect to:', this.url);
     setAccWsState(ConnectionState.CONNECTING);
     setAccWsError(null);
     this.shouldReconnect = true;
@@ -58,36 +56,15 @@ export class AccelerometerWebSocket {
       this.ws = new WebSocket(this.url);
 
       this.ws.onopen = () => {
-        console.log('[AccelerometerWebSocket] Connected successfully');
         setAccWsState(ConnectionState.CONNECTED);
       };
 
       this.ws.onmessage = (event) => {
-        const receiveTime = performance.now();
         const msg = JSON.parse(event.data);
-
         if (msg.type === 'init') {
           this.handleInit(msg as InitMessage);
         } else if (msg.type === 'data') {
-          const processStart = performance.now();
           this.handleData(msg as AccelerometerDataMessage);
-          const processDuration = performance.now() - processStart;
-
-          const parseAndProcessTime = performance.now() - receiveTime;
-          if (parseAndProcessTime > 16) {
-            console.warn(
-              `[AccelerometerWebSocket] Slow message processing: ${parseAndProcessTime.toFixed(1)}ms (parse+process: ${processDuration.toFixed(1)}ms), samples: ${msg.count}`
-            );
-          }
-
-          // Log every 60 messages (~2 seconds at 30 FPS)
-          if (!this.messageCount) this.messageCount = 0;
-          this.messageCount++;
-          if (this.messageCount % 60 === 0) {
-            console.log(
-              `[AccelerometerWebSocket] Received ${this.messageCount} messages, last had ${msg.count} samples`
-            );
-          }
         }
       };
 
@@ -97,13 +74,7 @@ export class AccelerometerWebSocket {
         setAccWsError('Connection error');
       };
 
-      this.ws.onclose = (event) => {
-        console.log(
-          '[AccelerometerWebSocket] Connection closed. Code:',
-          event.code,
-          'Reason:',
-          event.reason
-        );
+      this.ws.onclose = () => {
         setAccWsState(ConnectionState.DISCONNECTED);
         if (this.shouldReconnect) {
           this.scheduleReconnect();
@@ -116,15 +87,13 @@ export class AccelerometerWebSocket {
     }
   }
 
-  private handleInit(msg: InitMessage) {
-    console.log('[AccelerometerWebSocket] Devices initialized:', msg.devices);
+  private handleInit(_msg: InitMessage) {
     // Devices are already initialized by ECG WebSocket
   }
 
   private handleData(msg: AccelerometerDataMessage) {
     // Flatten grouped data back into samples array with device_id
     const samples = flattenGroupedSamples<BufferedAccelerometerSample>(msg.devices);
-
     if (samples.length > 0) {
       addSamples(samples);
     }
@@ -132,9 +101,7 @@ export class AccelerometerWebSocket {
 
   private scheduleReconnect() {
     if (this.reconnectTimeout) return;
-
     this.reconnectTimeout = setTimeout(() => {
-      console.log('[AccelerometerWebSocket] Attempting to reconnect...');
       this.reconnectTimeout = null;
       this.connect();
     }, 2000);

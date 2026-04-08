@@ -75,9 +75,6 @@
       return;
     }
 
-    console.log(
-      `[Waveform] Loading time range: ${new Date(startTime * 1000).toISOString()} to ${new Date(endTime * 1000).toISOString()}`
-    );
     isLoadingData = true;
 
     try {
@@ -91,7 +88,6 @@
       // Flatten grouped data back into samples array with device_id
       const samples = flattenGroupedSamples<SessionSample>(response.devices);
 
-      console.log(`[Waveform] Loaded ${samples.length} samples`);
       loadedSamples = samples;
       loadedTimeRange = { start: startTime, end: endTime };
 
@@ -296,8 +292,6 @@
   const createChart = () => {
     if (!plotContainer || loadedSamples.length === 0) return;
 
-    console.log('[Waveform] Creating chart...');
-
     const { data, devices, sortedSamples } = prepareChartData(loadedSamples);
 
     // Pre-compute verified indices for performance
@@ -389,7 +383,6 @@
 
     if (!uPlotLib) return;
     chart = new uPlotLib(opts, data, plotContainer);
-    console.log('[Waveform] Chart created');
   };
 
   // Initialize: load first window of data

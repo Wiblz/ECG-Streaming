@@ -24,7 +24,6 @@ export function addSamples(newSamples: BufferedECGSample[]) {
   for (const [device_id, newDeviceSamples] of byDevice) {
     if (!_samples.has(device_id)) {
       _samples.set(device_id, []);
-      // console.log(`[Live ECG Waveforms] ✓ New device: ${device_id}`);
     }
 
     // Get current samples, add new ones

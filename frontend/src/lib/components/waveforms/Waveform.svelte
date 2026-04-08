@@ -112,9 +112,6 @@
       return;
     }
 
-    console.log(
-      `[Waveform] Loading time range: ${new Date(startTime * 1000).toISOString()} to ${new Date(endTime * 1000).toISOString()}`
-    );
     isLoadingData = true;
 
     try {
@@ -128,7 +125,6 @@
       // Flatten grouped data back into samples array with device_id
       const samples = flattenGroupedSamples<T>(response.devices);
 
-      console.log(`[Waveform] Loaded ${samples.length} samples`);
       loadedSamples = samples;
       loadedTimeRange = { start: startTime, end: endTime };
 

@@ -90,8 +90,6 @@
   let chartApi: WaveformPlotApi | null = null;
   let animationFrameId: number | null = null;
   let lastUpdateTime = 0;
-  let frameCount = 0;
-  let lastFpsLog = 0;
 
   let deviceOrder: string[] = $state([]);
   let samplesByDevice: (T | null)[][] = $state([]);
@@ -125,36 +123,24 @@
     if (totalSamples === 0) {
       samplesAreFresh = false;
       isStreaming = false;
-      console.log(`[${title}] Poll: no samples`);
       return;
     }
 
     const now = Date.now() / 1000;
-    const STALE_THRESHOLD = 30; // Increased from 20 to handle 8 devices + network jitter
+    const STALE_THRESHOLD = 30;
 
     let hasFreshData = false;
-    let oldestAge = Infinity;
     for (const deviceSamples of samples.values()) {
       if (deviceSamples.length === 0) continue;
       const newestSample = deviceSamples[deviceSamples.length - 1];
-      const age = now - newestSample.global_time;
-      if (age < oldestAge) oldestAge = age;
-      if (age < STALE_THRESHOLD) {
+      if (now - newestSample.global_time < STALE_THRESHOLD) {
         hasFreshData = true;
         break;
       }
     }
 
-    const wasStreaming = isStreaming;
-    const wasFresh = samplesAreFresh;
     samplesAreFresh = hasFreshData;
     isStreaming = wsState === ConnectionState.CONNECTED && hasFreshData && !isPaused();
-
-    if (wasStreaming !== isStreaming || wasFresh !== samplesAreFresh) {
-      console.log(
-        `[${title}] Poll: devices=${samples.size}, samples=${totalSamples}, fresh=${hasFreshData}, streaming=${isStreaming}, oldestAge=${oldestAge.toFixed(1)}s`
-      );
-    }
   }
 
   // Initialize plot options when devices become available
@@ -196,16 +182,9 @@
   // Use shared session start time for synchronization across all waveforms
   const sessionStartTime = $derived(getSessionStartTime());
 
-  let lastWindowLog = 0;
-
   // Get current time window based on wall-clock progression (shared across all waveforms)
   function getCurrentTimeWindow(): { minTime: number; maxTime: number } | null {
-    const currentTime = getCurrentPlaybackTime();
-    const window = calculateTimeWindow(currentTime, WINDOW_DURATION);
-
-    // Debug logging disabled (was causing performance issues by reading samples every frame)
-
-    return window;
+    return calculateTimeWindow(getCurrentPlaybackTime(), WINDOW_DURATION);
   }
 
   // Check if alignment cache is valid
@@ -222,9 +201,7 @@
     devices: string[];
     samples: T[];
   } {
-    const perfStart = performance.now();
     const devices = Array.from(sampleMap.keys()).sort();
-    const t1 = performance.now();
 
     if (devices.length === 0 || sampleMap.size === 0) {
       alignmentCache = null;
@@ -249,28 +226,15 @@
       // Use absolute time (seconds from session start)
       const currentStartTime = sessionStartTime ?? deviceSamples[0].global_time;
 
-      // Debug: Log currentStartTime to understand time reference
-      const now = Date.now();
-      if (now - lastWindowLog > 5000) {
-        console.log(
-          `[${title}] Single-device path: currentStartTime=${currentStartTime.toFixed(3)}, ` +
-            `sessionStartTime=${sessionStartTime?.toFixed(3) ?? 'null'}, ` +
-            `firstSample=${deviceSamples[0].global_time.toFixed(3)}`
-        );
-      }
-
       // Filter samples by time window if provided using binary search
       let filteredSamples = deviceSamples;
       if (timeWindow) {
-        const beforeFilterCount = deviceSamples.length;
-
         // Binary search for start index
         let left = 0;
         let right = deviceSamples.length;
         while (left < right) {
           const mid = Math.floor((left + right) / 2);
-          const relTime = deviceSamples[mid].global_time - currentStartTime;
-          if (relTime < timeWindow.minTime) {
+          if (deviceSamples[mid].global_time - currentStartTime < timeWindow.minTime) {
             left = mid + 1;
           } else {
             right = mid;
@@ -283,40 +247,14 @@
         right = deviceSamples.length;
         while (left < right) {
           const mid = Math.floor((left + right) / 2);
-          const relTime = deviceSamples[mid].global_time - currentStartTime;
-          if (relTime <= timeWindow.maxTime) {
+          if (deviceSamples[mid].global_time - currentStartTime <= timeWindow.maxTime) {
             left = mid + 1;
           } else {
             right = mid;
           }
         }
-        const endIdx = left;
 
-        filteredSamples = deviceSamples.slice(startIdx, endIdx);
-        const afterFilterCount = filteredSamples.length;
-
-        if (now - lastWindowLog > 5000) {
-          if (afterFilterCount > 0) {
-            const firstRelTime = filteredSamples[0].global_time - currentStartTime;
-            const lastRelTime =
-              filteredSamples[filteredSamples.length - 1].global_time - currentStartTime;
-            console.log(
-              `[${title}] Filter: ${beforeFilterCount} -> ${afterFilterCount}, ` +
-                `relTime: [${firstRelTime.toFixed(1)}, ${lastRelTime.toFixed(1)}], ` +
-                `window: [${timeWindow.minTime.toFixed(1)}, ${timeWindow.maxTime.toFixed(1)}]`
-            );
-          } else if (beforeFilterCount > 0) {
-            const sampleRelTimes = deviceSamples.map((s) => s.global_time - currentStartTime);
-            const minRelTime = Math.min(...sampleRelTimes);
-            const maxRelTime = Math.max(...sampleRelTimes);
-            console.error(
-              `[${title}] FILTERED ALL ${beforeFilterCount} SAMPLES! ` +
-                `Sample relTime: [${minRelTime.toFixed(1)}, ${maxRelTime.toFixed(1)}], ` +
-                `window: [${timeWindow.minTime.toFixed(1)}, ${timeWindow.maxTime.toFixed(1)}], ` +
-                `currentPlaybackTime: ${getCurrentPlaybackTime()?.toFixed(1)}`
-            );
-          }
-        }
+        filteredSamples = deviceSamples.slice(startIdx, left);
       }
 
       const timestamps = filteredSamples.map((s) => s.global_time - currentStartTime);
@@ -324,27 +262,19 @@
 
       deviceOrder = devices;
       const verifiedIndices: number[] = [];
-      for (let i = 0; i < filteredSamples.length; i += 1) {
-        const sample = filteredSamples[i];
-        if (sample.time_verified) {
-          verifiedIndices.push(i);
-        }
+      for (let i = 0; i < filteredSamples.length; i++) {
+        if (filteredSamples[i].time_verified) verifiedIndices.push(i);
       }
       samplesByDevice = [filteredSamples];
       verifiedIndicesByDevice.clear();
       verifiedIndicesByDevice.set(devices[0], verifiedIndices);
 
-      return {
-        data: [timestamps, values],
-        devices,
-        samples: filteredSamples
-      };
+      return { data: [timestamps, values], devices, samples: filteredSamples };
     }
 
     // Multiple devices - align by timestamp
     // Check if we can use cached alignment
     const cacheIsValid = isCacheValid(sampleMap);
-    const t2 = performance.now();
 
     if (cacheIsValid && alignmentCache && sessionStartTime !== null) {
       // Try incremental update
@@ -356,20 +286,14 @@
         maxGapSeconds,
         alignMode
       );
-
       if (!updateSuccess) {
         // Incremental update failed - need full rebuild
-        console.log(`[${title}] Incremental update failed, forcing full rebuild`);
         alignmentCache = null;
       }
     }
-    const t3 = performance.now();
 
     if (!cacheIsValid || !alignmentCache) {
       // Need to rebuild alignment cache
-      const rebuildStart = performance.now();
-      console.log(`[${title}] Rebuilding alignment cache for ${devices.length} devices`);
-
       // Find the device with the most samples to use as time base
       const maxDevice = findBaseDevice(sampleMap);
       if (!maxDevice) {
@@ -409,10 +333,7 @@
       // Calculate timestamp range for cache
       const timestampRange =
         aligned.timestamps.length > 0
-          ? {
-              min: aligned.timestamps[0],
-              max: aligned.timestamps[aligned.timestamps.length - 1]
-            }
+          ? { min: aligned.timestamps[0], max: aligned.timestamps[aligned.timestamps.length - 1] }
           : { min: 0, max: 0 };
 
       // Update cache
@@ -433,11 +354,7 @@
       for (const [key, value] of verifiedEntries) {
         verifiedIndicesByDevice.set(key, value);
       }
-
-      const rebuildDuration = performance.now() - rebuildStart;
-      console.log(`[${title}] Rebuild took ${rebuildDuration.toFixed(1)}ms`);
     }
-    const t4 = performance.now();
 
     // Now filter by time window if provided
     const cachedTimestamps = alignmentCache!.timestamps;
@@ -450,11 +367,7 @@
       samplesByDevice = cachedSamplesByDevice;
       // verifiedIndicesByDevice already set when cache was built
 
-      return {
-        data: [cachedTimestamps, ...cachedSeriesData],
-        devices,
-        samples: cachedBaseSamples
-      };
+      return { data: [cachedTimestamps, ...cachedSeriesData], devices, samples: cachedBaseSamples };
     }
 
     // Use render cache to filter by time window without creating new arrays
@@ -472,19 +385,7 @@
     // Don't extract verified indices every frame - they don't change during streaming
     // and extracting them creates new arrays. Only extract when cache is rebuilt.
 
-    const t5 = performance.now();
-    const perfDuration = performance.now() - perfStart;
-    if (perfDuration > 5) {
-      console.log(
-        `[${title}] prepare: ${perfDuration.toFixed(1)}ms | setup=${(t1 - perfStart).toFixed(1)}ms, cacheCheck=${(t2 - t1).toFixed(1)}ms, incremental=${(t3 - t2).toFixed(1)}ms, rebuild=${(t4 - t3).toFixed(1)}ms, filter=${(t5 - t4).toFixed(1)}ms, verified=${(perfDuration - t5).toFixed(1)}ms`
-      );
-    }
-
-    return {
-      data: renderCache.toUPlotData(),
-      devices,
-      samples: [] // Not used in time-windowed path
-    };
+    return { data: renderCache.toUPlotData(), devices, samples: [] };
   }
 
   function rebuildPlotOptions(devices: string[]) {
@@ -503,53 +404,23 @@
       spanGaps: true,
       plugins: tooltipsPlugin ? [tooltipsPlugin] : [],
       scales: {
-        x: {
-          time: false,
-          auto: false,
-          range: () => xAxisRange
-        }
+        x: { time: false, auto: false, range: () => xAxisRange }
       },
-      legend: {
-        show: true
-      },
+      legend: { show: true },
       createDeviceSeries,
       createAxes
     });
   }
 
-  let lastRafTime = 0;
-  let rafGaps: number[] = [];
-
   // Update function for time-based chart updates using requestAnimationFrame
   function updateChart(currentTime: number) {
-    const frameStart = performance.now();
-    const t0 = performance.now();
-
     // Poll streaming status instead of using reactive derived
     pollStreamingStatus();
-    const t0b = performance.now();
 
-    // Track RAF callback timing to detect scheduling delays
-    if (lastRafTime > 0) {
-      const rafGap = frameStart - lastRafTime;
-      rafGaps.push(rafGap);
-      if (rafGaps.length > 100) rafGaps.shift();
-    }
-    lastRafTime = frameStart;
-
-    const t1 = performance.now();
-
-    if (!plotReady || !isStreaming) {
+    if (!plotReady || !isStreaming || !samplesAreFresh) {
       animationFrameId = null;
       return;
     }
-
-    if (!samplesAreFresh) {
-      console.log(`[${title}] Animation stopped: samples not fresh`);
-      animationFrameId = null;
-      return;
-    }
-    const t2 = performance.now();
 
     // Throttle based on UPDATE_INTERVAL_MS for configurable frame rate
     const deltaTime = currentTime - lastUpdateTime;
@@ -560,102 +431,30 @@
     }
 
     lastUpdateTime = currentTime;
-    const t3 = performance.now();
 
     const timeWindow = getCurrentTimeWindow();
-    const t4 = performance.now();
     if (!timeWindow) {
       // Schedule next frame
       animationFrameId = requestAnimationFrame(updateChart);
       return;
     }
 
-    const prepareStart = performance.now();
     const { data, devices } = prepareChartData(samples, timeWindow);
-    const prepareEnd = performance.now();
-    const t5 = performance.now();
 
     // Update the range array (plot will use function to read it)
     xAxisRange[0] = timeWindow.minTime;
     xAxisRange[1] = timeWindow.maxTime;
 
-    // Periodic logging every 30 updates (disabled)
-    // updateCounter++;
-    // if (updateCounter % 30 === 0) {
-    // 	const wallTime = Date.now() / 1000;
-    // 	const devices = Array.from(samples.keys());
-    // 	const bufferInfo = devices.map((deviceId) => {
-    // 		const deviceSamples = samples.get(deviceId)!;
-    // 		const lastSample = deviceSamples[deviceSamples.length - 1];
-    // 		if (!lastSample) return `${deviceId}: none`;
-    // 		const relTime = lastSample.global_time - (sessionStartTime ?? 0);
-    // 		return `${deviceId}: rel=${relTime.toFixed(2)}s`;
-    // 	}).join(', ');
-
-    // 	console.log(
-    // 		`[${title}] window=[${timeWindow.minTime.toFixed(2)}, ${timeWindow.maxTime.toFixed(2)}], sessionStart=${sessionStartTime?.toFixed(2)}, buffer: ${bufferInfo}, dataPoints=${data[0].length}`
-    // 	);
-    // }
-
     // Call uPlot API directly instead of using Svelte reactivity
-    const setDataStart = performance.now();
-
     if (chartApi) {
       chartApi.setData(data);
     }
 
-    const setDataEnd = performance.now();
-    const t6 = performance.now();
-
     if (devices.length === 0) {
       plotOptions = null;
     }
-    const t7 = performance.now();
 
-    const frameEnd = performance.now();
-    const frameDuration = frameEnd - frameStart;
-
-    // Detailed frame breakdown
-    console.log(
-      `[${title}] FRAME: ${frameDuration.toFixed(1)}ms | ` +
-        `poll=${(t0b - t0).toFixed(1)}ms, init=${(t1 - t0b).toFixed(1)}ms, checks=${(t2 - t1).toFixed(1)}ms, throttle=${(t3 - t2).toFixed(1)}ms, ` +
-        `window=${(t4 - t3).toFixed(1)}ms, prepare=${(t5 - t4).toFixed(1)}ms, setData=${(t6 - t5).toFixed(1)}ms, ` +
-        `cleanup=${(t7 - t6).toFixed(1)}ms, logging=${(frameEnd - t7).toFixed(1)}ms`
-    );
-
-    frameCount++;
-    const now = performance.now();
-    if (now - lastFpsLog > 2000) {
-      const fps = frameCount / ((now - lastFpsLog) / 1000);
-      const maxRafGap = rafGaps.length > 0 ? Math.max(...rafGaps) : 0;
-      const jankFrames = rafGaps.filter((gap) => gap > 50).length;
-
-      console.log(
-        `[${title}] FPS: ${fps.toFixed(1)}, frames: ${frameCount}, max RAF gap: ${maxRafGap.toFixed(0)}ms, jank: ${jankFrames}`
-      );
-      frameCount = 0;
-      lastFpsLog = now;
-      rafGaps = [];
-    }
-
-    if (frameDuration > 20) {
-      console.log(
-        `[${title}] SLOW: ${frameDuration.toFixed(1)}ms (prepare=${(prepareEnd - prepareStart).toFixed(1)}ms, setData=${(setDataEnd - setDataStart).toFixed(1)}ms)`
-      );
-    }
-
-    // Measure time until next frame actually starts
-    const beforeSchedule = performance.now();
-    animationFrameId = requestAnimationFrame((time) => {
-      const afterSchedule = performance.now();
-      const schedulingDelay = afterSchedule - beforeSchedule;
-      if (schedulingDelay > 50) {
-        console.log(
-          `[${title}] DELAY: ${schedulingDelay.toFixed(1)}ms between end of frame and start of next RAF`
-        );
-      }
-      updateChart(time);
-    });
+    animationFrameId = requestAnimationFrame(updateChart);
   }
 
   // Start/stop animation loop based on streaming state
@@ -663,16 +462,12 @@
     if (isStreaming && plotReady) {
       // Start animation loop
       if (animationFrameId === null) {
-        console.log(`[${title}] Starting animation loop`);
         lastUpdateTime = performance.now();
         animationFrameId = requestAnimationFrame(updateChart);
       }
     } else {
       // Stop animation loop
       if (animationFrameId !== null) {
-        console.log(
-          `[${title}] Stopping animation loop (isStreaming=${isStreaming}, plotReady=${plotReady})`
-        );
         cancelAnimationFrame(animationFrameId);
         animationFrameId = null;
       }

@@ -18,23 +18,6 @@ export function setSessionStartTime(time: number): void {
     _sessionStartTime = time;
     _wallClockStartTime = Date.now() / 1000; // Record wall-clock time
     _initialOffset = _wallClockStartTime - time; // Save the offset
-    console.log(
-      '[session-time] Session start - sample time:',
-      time,
-      'wall-clock:',
-      _wallClockStartTime,
-      'age:',
-      (_wallClockStartTime - time).toFixed(1) + 's'
-    );
-  } else {
-    console.log(
-      '[session-time] Attempted to set session time to',
-      time,
-      'but already set to',
-      _sessionStartTime,
-      '(diff:',
-      (time - _sessionStartTime).toFixed(1) + 's)'
-    );
   }
 }
 
@@ -42,7 +25,6 @@ export function resetSessionStartTime(): void {
   _sessionStartTime = null;
   _wallClockStartTime = null;
   _initialOffset = null;
-  // console.log('[session-time] Session start time reset')
 }
 
 /**
@@ -55,11 +37,5 @@ export function getCurrentPlaybackTime(): number | null {
     return null;
   }
 
-  // Calculate current time in wall-clock space
-  const now = Date.now() / 1000;
-  const elapsedWallClock = now - _wallClockStartTime;
-
-  // Convert to sample time space by subtracting the fixed offset
-  // This keeps the relationship between window and samples stable
-  return elapsedWallClock;
+  return Date.now() / 1000 - _wallClockStartTime;
 }

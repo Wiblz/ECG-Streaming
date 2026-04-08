@@ -101,11 +101,7 @@ function removeDroppedSamplesFromCache<T extends PlottableSample>(
   }
 
   const firstKeepIdx = left;
-
-  if (firstKeepIdx === 0) {
-    // No samples to remove
-    return;
-  }
+  if (firstKeepIdx === 0) return;
 
   // Remove from timestamps (use slice instead of splice to avoid shifting)
   cache.timestamps = cache.timestamps.slice(firstKeepIdx);
@@ -129,8 +125,6 @@ export function updateAlignmentCache<T extends PlottableSample>(
   maxGapSeconds: number,
   alignMode: AlignMode
 ): boolean {
-  const perfStart = performance.now();
-
   // Get current buffer timestamp range
   const bufferRange = getBufferTimestampRange(sampleMap, sessionStartTime);
   if (!bufferRange) {
@@ -140,7 +134,6 @@ export function updateAlignmentCache<T extends PlottableSample>(
 
   // Check if buffer shrank unexpectedly (need full rebuild)
   if (bufferRange.max < cache.timestampRange.max - 1) {
-    console.log('[Incremental] Buffer max decreased significantly, forcing rebuild');
     return false;
   }
 
@@ -182,27 +175,12 @@ export function updateAlignmentCache<T extends PlottableSample>(
         newAligned.data.slice(1) as (number | null)[][],
         newAligned.samplesByDevice
       );
-
-      const perfDuration = performance.now() - perfStart;
-      console.log(
-        `[Incremental] Appended ${newTimestamps.length} new timestamps in ${perfDuration.toFixed(1)}ms`
-      );
     }
   }
 
   // Handle dropped samples (bufferMin > cache.min)
   if (bufferRange.min > cache.timestampRange.min) {
-    const removeStart = performance.now();
-    const countBefore = cache.timestamps.length;
     removeDroppedSamplesFromCache(cache, bufferRange.min);
-    const removedCount = countBefore - cache.timestamps.length;
-
-    if (removedCount > 0) {
-      const perfDuration = performance.now() - removeStart;
-      console.log(
-        `[Incremental] Removed ${removedCount} dropped timestamps in ${perfDuration.toFixed(1)}ms`
-      );
-    }
   }
 
   // Update cache range and sample counts
