@@ -15,6 +15,7 @@
   import { getDevices, setDevices } from '$lib/state/devices.svelte';
   import { samples as ecgSamples } from '$lib/state/ecg-data';
   import { samples as accSamples } from '$lib/state/acc-data';
+  import { Antenna } from 'lucide-svelte';
 
   let ecgWs: ECGWebSocket;
   let accWs: AccelerometerWebSocket;
@@ -96,7 +97,7 @@
         <Card title="Streaming Devices" badge={devices.length}>
           {#if devices.length === 0}
             <div class="text-center py-8">
-              <div class="text-4xl mb-2">📡</div>
+              <Antenna class="w-8 h-8 mx-auto mb-2 text-text-secondary" />
               <p class="text-sm font-medium text-text mb-1">No devices streaming</p>
               <p class="text-xs text-text-secondary">Waiting for ECG data...</p>
             </div>

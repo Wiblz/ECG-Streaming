@@ -7,6 +7,10 @@
   import { statusEvents } from '$lib/state/status-events.svelte';
   import type { Collector, DeviceInfo } from '$lib/types/api';
   import { formatTimeSince } from '$lib/utils/format';
+  import CollectorHealthBadge from '$lib/components/ui/CollectorHealthBadge.svelte';
+  import CollectorTypeIcon from '$lib/components/ui/CollectorTypeIcon.svelte';
+  import DeviceStatusBadge from '$lib/components/ui/DeviceStatusBadge.svelte';
+  import { Bot, Plug, Pencil, CheckCheck } from 'lucide-svelte';
   import type { PageProps } from './$types';
 
   let { data }: PageProps = $props();
@@ -25,14 +29,20 @@
   // Filter and sort — URL-driven, reset to page 1 on change
   const filterStatus = $derived(data.filters.status ?? 'all');
   const sortBy = $derived(data.filters.sort_by ?? 'last_seen');
+  const showSimulated = $derived(data.filters.show_simulated ?? false);
 
-  function updateFilters(updates: { status?: string; sort_by?: string; sort_order?: string }) {
+  function updateFilters(updates: {
+    status?: string;
+    sort_by?: string;
+    sort_order?: string;
+    show_simulated?: boolean;
+  }) {
     const params = new URLSearchParams(page.url.searchParams);
     for (const [key, value] of Object.entries(updates)) {
       if (value === 'all' || value === null || value === undefined) {
         params.delete(key);
       } else {
-        params.set(key, value);
+        params.set(key, String(value));
       }
     }
     // Reset to page 1 on filter/sort change
@@ -128,9 +138,7 @@
           connected: sseCollector.connected,
           health: sseCollector.health,
           samples_sent: sseCollector.samples_sent,
-          active_devices: sseCollector.active_devices,
-          last_heartbeat: sseCollector.last_heartbeat,
-          time_since_heartbeat: sseCollector.time_since_heartbeat
+          active_devices: sseCollector.active_devices
         } as Collector;
       }
       return collector;
@@ -138,72 +146,6 @@
   });
 
   // Helper functions for color mapping
-  function getDeviceStatusColors(status: DeviceInfo['status']) {
-    switch (status) {
-      case 'STREAMING':
-        return {
-          bg: 'bg-status-success',
-          text: 'text-status-success-fg',
-          border: 'border-status-success-border'
-        };
-      case 'CONNECTED':
-        return {
-          bg: 'bg-status-info',
-          text: 'text-status-info-fg',
-          border: 'border-status-info-border'
-        };
-      case 'CONNECTING':
-        return {
-          bg: 'bg-status-warning',
-          text: 'text-status-warning-fg',
-          border: 'border-status-warning-border'
-        };
-      case 'ERROR':
-        return {
-          bg: 'bg-status-error',
-          text: 'text-status-error-fg',
-          border: 'border-status-error-border'
-        };
-      case 'DISCONNECTED':
-      case 'UNKNOWN':
-      default:
-        return {
-          bg: 'bg-status-neutral',
-          text: 'text-status-neutral-fg',
-          border: 'border-status-neutral-border'
-        };
-    }
-  }
-
-  function getCollectorHealthColors(health: Collector['health']) {
-    switch (health) {
-      case 'healthy':
-        return {
-          bg: 'bg-status-success',
-          text: 'text-status-success-fg',
-          border: 'border-status-success-border'
-        };
-      case 'warning':
-        return {
-          bg: 'bg-status-warning',
-          text: 'text-status-warning-fg',
-          border: 'border-status-warning-border'
-        };
-      case 'disconnected':
-        return {
-          bg: 'bg-status-neutral',
-          text: 'text-status-neutral-fg',
-          border: 'border-status-neutral-border'
-        };
-      default:
-        return {
-          bg: 'bg-status-neutral',
-          text: 'text-status-neutral-fg',
-          border: 'border-status-neutral-border'
-        };
-    }
-  }
-
   // Devices with live SSE status applied — filtering/sorting done server-side
   const filteredDevices = $derived(liveDevices);
 
@@ -224,22 +166,20 @@
         <h2 class="text-lg font-semibold text-text mb-4">Collectors</h2>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {#each liveCollectors as collector (collector.collector_id)}
-            {@const healthColors = getCollectorHealthColors(collector.health)}
             <div class="bg-surface border border-border rounded-xl shadow-sm p-6">
               <div class="flex items-start justify-between mb-3">
-                <div class="flex-1 min-w-0">
-                  <h3 class="text-sm font-semibold text-text truncate">
-                    {collector.display_name}
-                  </h3>
-                  <p class="text-xs text-text-secondary font-mono truncate">
-                    {collector.collector_id}
-                  </p>
+                <div class="flex items-center gap-2 flex-1 min-w-0">
+                  <CollectorTypeIcon collectorType={collector.collector_type} />
+                  <div class="min-w-0">
+                    <h3 class="text-sm font-semibold text-text truncate">
+                      {collector.display_name}
+                    </h3>
+                    <p class="text-xs text-text-secondary font-mono truncate">
+                      {collector.collector_id}
+                    </p>
+                  </div>
                 </div>
-                <span
-                  class="flex-shrink-0 px-2 py-1 text-xs font-medium rounded-full border {healthColors.bg} {healthColors.text} {healthColors.border}"
-                >
-                  {collector.health}
-                </span>
+                <CollectorHealthBadge health={collector.health} />
               </div>
 
               <div class="space-y-1 text-xs text-text-secondary">
@@ -323,6 +263,20 @@
             <option value="status">Status</option>
           </select>
         </div>
+        <div class="flex items-end pb-1">
+          <label class="flex items-center gap-2 cursor-pointer select-none text-sm text-text">
+            <input
+              type="checkbox"
+              checked={showSimulated}
+              onchange={(e) =>
+                updateFilters({
+                  show_simulated: (e.target as HTMLInputElement).checked ? true : false
+                })}
+              class="rounded border-border accent-status-info-fg focus:ring-focus cursor-pointer"
+            />
+            Show simulated
+          </label>
+        </div>
       </div>
 
       <div class="text-sm text-text-secondary">
@@ -334,7 +288,7 @@
     <!-- Devices Table -->
     {#if filteredDevices.length === 0}
       <div class="bg-surface border border-border rounded-xl shadow-sm p-12 text-center">
-        <div class="text-6xl mb-4">🔌</div>
+        <Plug class="w-12 h-12 mx-auto mb-4 text-text-secondary" />
         <h3 class="text-lg font-semibold text-text mb-2">No devices found</h3>
         <p class="text-sm text-text-secondary">
           {total === 0
@@ -381,7 +335,6 @@
           </thead>
           <tbody class="bg-surface divide-y divide-border">
             {#each filteredDevices as device (device.device_id)}
-              {@const colors = getDeviceStatusColors(device.status)}
               {@const isEditing = editingDevice === device.device_id}
               {@const deviceCollector = device.collector_id
                 ? collectorMap.get(device.collector_id)
@@ -431,48 +384,26 @@
                             class="shrink-0 p-0.5 text-text-muted hover:text-text-secondary hover:bg-surface-muted rounded transition-colors opacity-0 group-hover:opacity-100"
                             title="Edit nickname"
                           >
-                            <svg
-                              class="size-4"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                stroke-width="2"
-                                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                              />
-                            </svg>
+                            <Pencil class="size-4" />
                           </button>
                         </div>
-                        <div class="text-xs text-text-secondary font-mono truncate">
+                        <div class="flex items-center gap-1 text-xs text-text-secondary font-mono">
                           {device.device_id}
+                          {#if device.is_simulated}<Bot size={12} class="-translate-y-px" />{/if}
                         </div>
                       {:else}
                         <div class="flex items-center gap-1.5">
                           <span class="text-sm font-medium font-mono text-text truncate">
                             {device.device_id}
                           </span>
+                          {#if device.is_simulated}<Bot size={14} class="-translate-y-px" />{/if}
                           <button
                             onclick={() =>
                               startEditingNickname(device.device_id, device.nickname || null)}
                             class="shrink-0 p-0.5 text-text-muted hover:text-text-secondary hover:bg-surface-muted rounded transition-colors opacity-0 group-hover:opacity-100"
                             title="Edit nickname"
                           >
-                            <svg
-                              class="size-4"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                stroke-width="2"
-                                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                              />
-                            </svg>
+                            <Pencil class="size-4" />
                           </button>
                         </div>
                       {/if}
@@ -498,13 +429,12 @@
 
                 <!-- Status -->
                 <td class="px-6 py-4 whitespace-nowrap">
-                  <span
-                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border {colors.bg} {colors.text} {colors.border}"
-                  >
-                    {device.status || 'DISCONNECTED'}
-                  </span>
+                  <DeviceStatusBadge status={device.status} />
                   {#if device.sync_ready}
-                    <div class="text-xs text-status-success-fg mt-1">✓ Synced</div>
+                    <div class="flex items-center gap-1 text-xs text-status-success-fg mt-1">
+                      <CheckCheck class="w-3.5 h-3.5" />
+                      <span>Synced</span>
+                    </div>
                   {/if}
                 </td>
 

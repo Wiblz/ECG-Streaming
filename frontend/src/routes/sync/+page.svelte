@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Button from '$lib/components/ui/Button.svelte';
+  import { Maximize, Minimize, Play, Square, Volume2, VolumeX } from 'lucide-svelte';
   import Header from '$lib/components/layout/Header.svelte';
   import PulsingCircle from '$lib/components/status/PulsingCircle.svelte';
 
@@ -100,7 +101,7 @@
         onclick={toggleFullscreen}
         title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
       >
-        {isFullscreen ? '⊡' : '⛶'}
+        {#if isFullscreen}<Minimize class="w-4 h-4" />{:else}<Maximize class="w-4 h-4" />{/if}
       </Button>
     </div>
 
@@ -127,17 +128,17 @@
             onclick={toggleRunning}
             class="px-8"
           >
-            {isRunning ? '⏸ Stop' : '▶ Start'}
+            {#if isRunning}<Square class="w-4 h-4" /> Stop{:else}<Play class="w-4 h-4" /> Start{/if}
           </Button>
 
           <!-- Sound toggle -->
           <Button
             variant={soundEnabled ? 'primary' : 'secondary'}
-            size="lg"
+            size="icon-lg"
             onclick={toggleSound}
             title={soundEnabled ? 'Mute sound' : 'Enable sound'}
           >
-            {soundEnabled ? '🔊' : '🔇'}
+            {#if soundEnabled}<Volume2 size={20} />{:else}<VolumeX size={20} />{/if}
           </Button>
         </div>
 

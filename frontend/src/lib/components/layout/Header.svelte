@@ -5,6 +5,7 @@
   import { isMockMode, setMockMode } from '$lib/api/client';
   import { getActiveSession, isRecording, setActiveSession } from '$lib/state/session.svelte';
   import favicon from '$lib/assets/favicon.svg';
+  import { Sun, Moon, FlaskConical, Radio, ChevronRight } from 'lucide-svelte';
 
   interface Props {
     /**
@@ -163,19 +164,7 @@
         <nav class="flex items-center gap-2 text-sm">
           {#each breadcrumbs as crumb, i (crumb.href)}
             {#if i > 0}
-              <svg
-                class="w-4 h-4 text-text-muted"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M9 5l7 7-7 7"
-                />
-              </svg>
+              <ChevronRight class="w-4 h-4 text-text-muted" />
             {/if}
             <a
               href={crumb.href}
@@ -224,10 +213,10 @@
           class="relative inline-flex items-center w-14 h-7 rounded-full border border-border transition-colors bg-surface-muted dark:bg-status-info"
         >
           <span
-            class="absolute inset-0 flex items-center justify-between px-1.5 text-xs pointer-events-none"
+            class="absolute inset-0 flex items-center justify-between px-1.5 pointer-events-none"
           >
-            <span>☀️</span>
-            <span>🌙</span>
+            <Sun class="w-3 h-3 text-amber-500" />
+            <Moon class="w-3 h-3 text-slate-400" />
           </span>
           <span
             class="relative z-10 w-5 h-5 rounded-full bg-white shadow transition-transform translate-x-0.5 dark:translate-x-7"
@@ -244,11 +233,13 @@
             ? 'Using mock data - Click to use real API'
             : 'Using real API - Click to use mock data'}
         >
-          {#if mockMode}
-            🧪 Mock Mode
-          {:else}
-            📡 Live Mode
-          {/if}
+          <span class="flex items-center gap-1.5">
+            {#if mockMode}
+              <FlaskConical class="w-3.5 h-3.5" /> Mock Mode
+            {:else}
+              <Radio class="w-3.5 h-3.5" /> Live Mode
+            {/if}
+          </span>
         </button>
 
         {#if children}

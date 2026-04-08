@@ -9,7 +9,7 @@
     /**
      * Button size
      */
-    size?: 'sm' | 'md' | 'lg';
+    size?: 'sm' | 'md' | 'lg' | 'icon-sm' | 'icon-md' | 'icon-lg';
     /**
      * Whether the button is disabled
      */
@@ -65,13 +65,16 @@
   const sizeClasses = {
     sm: 'px-3 py-1.5 text-xs',
     md: 'px-4 py-2 text-sm',
-    lg: 'px-6 py-3 text-base'
+    lg: 'px-6 py-3 text-base',
+    'icon-sm': 'w-7 h-7 text-xs',
+    'icon-md': 'w-9 h-9 text-sm',
+    'icon-lg': 'w-12 h-12 text-base'
   };
 
   // Variant styles using theme colors
   const variantClasses = {
     primary: 'bg-primary-fg hover:bg-primary-hover text-white',
-    secondary: 'bg-secondary-fg hover:bg-secondary-hover text-white',
+    secondary: 'bg-secondary-fg hover:bg-secondary-hover text-text',
     success: 'bg-status-success-fg hover:bg-status-success-hover text-white',
     danger: 'bg-status-error-fg hover:bg-status-error-hover text-white',
     warning: 'bg-status-warning-fg hover:bg-status-warning-hover text-text',

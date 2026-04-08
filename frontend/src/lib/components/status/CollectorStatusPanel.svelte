@@ -1,51 +1,13 @@
 <script lang="ts">
   import { statusEvents } from '$lib/state/status-events.svelte';
-  import type { Collector } from '$lib/types/api';
   import { formatUptime } from '$lib/utils/format';
+  import CollectorHealthBadge from '$lib/components/ui/CollectorHealthBadge.svelte';
+  import { TriangleAlert } from 'lucide-svelte';
 
   // Use reactive state from SSE client
   let collectors = $derived(statusEvents.getCollectors());
   let error = $derived(statusEvents.connectionStatus === 'error' ? statusEvents.error : null);
   let lastUpdate = $derived(statusEvents.lastUpdate);
-
-  // Helper functions for color mapping
-  function getCollectorHealthColors(health: Collector['health']) {
-    switch (health) {
-      case 'healthy':
-        return {
-          badge: 'bg-status-success-fg',
-          badgeText: 'text-white'
-        };
-      case 'warning':
-        return {
-          badge: 'bg-status-warning-fg',
-          badgeText: 'text-white'
-        };
-      case 'disconnected':
-        return {
-          badge: 'bg-status-error-fg',
-          badgeText: 'text-white'
-        };
-      default:
-        return {
-          badge: 'bg-status-neutral-fg',
-          badgeText: 'text-white'
-        };
-    }
-  }
-
-  function getCollectorHealthLabel(health: Collector['health']): string {
-    const labels: Record<Collector['health'], string> = {
-      healthy: 'Healthy',
-      warning: 'Warning',
-      disconnected: 'Disconnected'
-    };
-    return labels[health] || 'Unknown';
-  }
-
-  function getStatusBadgeClasses(colors: { badge: string; badgeText: string }): string {
-    return `inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${colors.badge} ${colors.badgeText}`;
-  }
 </script>
 
 <div class="collector-panel">
@@ -58,7 +20,7 @@
 
   {#if error}
     <div class="error-message">
-      <span>⚠️</span>
+      <TriangleAlert class="w-4 h-4 flex-shrink-0" />
       <span>{error}</span>
     </div>
   {:else if collectors.length === 0}
@@ -68,16 +30,13 @@
   {:else}
     <div class="collectors-grid">
       {#each collectors as collector (collector.collector_id)}
-        {@const healthColors = getCollectorHealthColors(collector.health)}
         <div class="collector-card">
           <div class="collector-header">
             <div class="collector-title">
               <h3>{collector.display_name}</h3>
               <span class="collector-id">{collector.collector_id}</span>
             </div>
-            <div class={getStatusBadgeClasses(healthColors)}>
-              {getCollectorHealthLabel(collector.health)}
-            </div>
+            <CollectorHealthBadge health={collector.health} />
           </div>
 
           <div class="collector-info">
@@ -108,12 +67,6 @@
                 <span class="label">Connected:</span>
                 <span class="value">{formatUptime(Date.now() / 1000 - collector.connected_at)}</span
                 >
-              </div>
-            {/if}
-            {#if collector.time_since_heartbeat !== null && collector.time_since_heartbeat !== undefined}
-              <div class="info-row">
-                <span class="label">Last Heartbeat:</span>
-                <span class="value">{formatUptime(collector.time_since_heartbeat)} ago</span>
               </div>
             {/if}
             {#if collector.connected}
