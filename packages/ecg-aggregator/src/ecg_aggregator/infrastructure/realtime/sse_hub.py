@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 
 from ecg_common.logging import get_logger
+from fastapi.sse import ServerSentEvent
 
 from ecg_aggregator.application.dto.realtime import (
     BufferStatsData,
@@ -29,20 +30,20 @@ class SSEHub:
     """Manage SSE connections and broadcast status update events."""
 
     def __init__(self, event_bus: DomainEventBus | None = None) -> None:
-        self._clients: set[asyncio.Queue] = set()
+        self._clients: set[asyncio.Queue[ServerSentEvent]] = set()
         self._lock = asyncio.Lock()
         self._event_bus = event_bus
         self._task: asyncio.Task[None] | None = None
 
-    async def connect(self) -> asyncio.Queue:
+    async def connect(self) -> asyncio.Queue[ServerSentEvent]:
         """Register a new SSE client connection."""
-        client_queue: asyncio.Queue = asyncio.Queue()
+        client_queue: asyncio.Queue[ServerSentEvent] = asyncio.Queue()
         async with self._lock:
             self._clients.add(client_queue)
         logger.info(f"SSE client connected. Total clients: {len(self._clients)}")
         return client_queue
 
-    async def disconnect(self, client_queue: asyncio.Queue) -> None:
+    async def disconnect(self, client_queue: asyncio.Queue[ServerSentEvent]) -> None:
         """Unregister an SSE client connection."""
         async with self._lock:
             self._clients.discard(client_queue)
@@ -53,7 +54,7 @@ class SSEHub:
         if not self._clients:
             return
 
-        message = {"event": event, "data": data.model_dump()}
+        message = ServerSentEvent(data=data, event=event)
 
         async with self._lock:
             clients = list(self._clients)

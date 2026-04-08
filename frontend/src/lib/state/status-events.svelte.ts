@@ -4,7 +4,7 @@
  */
 
 import { get_api_base_url } from '$lib/api/client';
-import type { BufferStats, Collector, DeviceStatus } from '$lib/types/api';
+import type { Collector, DeviceStatus } from '$lib/types/api';
 import { SvelteMap } from 'svelte/reactivity';
 import type {
   BufferStatsData,
@@ -131,7 +131,7 @@ class StatusEventsClient {
           version: existing?.version || null,
           collector_type: existing?.collector_type || null,
           is_simulated: existing?.is_simulated || false,
-          health: data.status === 'HEALTHY' ? 'healthy' : 'warning',
+          health: data.status === 'HEALTHY' || data.status === 'CONNECTED' ? 'healthy' : 'warning',
           samples_sent: data.samples_sent ?? existing?.samples_sent,
           active_devices: data.active_devices ?? existing?.active_devices,
           connected: true,
@@ -160,7 +160,7 @@ class StatusEventsClient {
         device_id: deviceId,
         collector_id: data.collector_id,
         collector_name: null, // Will be filled by components if needed
-        status: data.status as DeviceStatus['status'],
+        status: data.status,
         last_update: Date.now() / 1000,
         battery_level: data.battery_level ?? null,
         error_message: null
@@ -178,24 +178,7 @@ class StatusEventsClient {
    */
   private handleBufferStats(event: MessageEvent) {
     try {
-      const data = JSON.parse(event.data) as BufferStatsData | BufferStats;
-      if ('ecg_buffer' in data && 'acc_buffer' in data) {
-        this.bufferStats = data;
-      } else {
-        const empty: BufferStats = {
-          total_samples: 0,
-          duration_seconds: 0,
-          device_count: 0,
-          samples_per_device: {},
-          samples_per_second: 0,
-          samples_per_second_per_device: {},
-          oldest_timestamp: null,
-          newest_timestamp: null,
-          total_processed: 0,
-          buffer_utilization: 0
-        };
-        this.bufferStats = { ecg_buffer: data, acc_buffer: empty };
-      }
+      this.bufferStats = JSON.parse(event.data) as BufferStatsData;
       this.lastUpdate = new Date();
     } catch (err) {
       console.error('[SSE] Error parsing buffer_stats:', err);
