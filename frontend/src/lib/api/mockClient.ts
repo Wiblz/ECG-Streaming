@@ -174,7 +174,7 @@ export class MockClient implements ApiClient {
   }
 
   async getCollectors(): Promise<CollectorsResponse> {
-    return { collectors: this.collectorsCache, count: this.collectorsCache.length };
+    return { collectors: this.collectorsCache };
   }
 
   async getStats(): Promise<{

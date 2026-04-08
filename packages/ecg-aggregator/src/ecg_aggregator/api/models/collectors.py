@@ -1,8 +1,9 @@
 """Collector-related API models."""
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
-from ecg_aggregator.domain.time import HostTimeSeconds, Seconds
+from ecg_aggregator.domain.devices import is_simulated_collector
+from ecg_aggregator.domain.time import HostTimeSeconds
 
 
 class CollectorInfo(BaseModel):
@@ -14,16 +15,19 @@ class CollectorInfo(BaseModel):
     display_name: str | None = None
     device_ids: list[str] = Field(default_factory=list)
     version: str | None = None
-    metadata: dict[str, object] = Field(default_factory=dict)
     first_seen: HostTimeSeconds | None = None
     last_seen: HostTimeSeconds | None = None
     connected_at: HostTimeSeconds | None = None
-    last_heartbeat: HostTimeSeconds | None = None
-    time_since_heartbeat: Seconds | None = None
     samples_sent: int = 0
     active_devices: int = 0
+    collector_type: str | None = None
     health: str  # "healthy", "warning", "disconnected"
     connected: bool
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def is_simulated(self) -> bool:
+        return is_simulated_collector(self.collector_id)
 
 
 class CollectorsResponse(BaseModel):
@@ -32,4 +36,3 @@ class CollectorsResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     collectors: list[CollectorInfo]
-    count: int

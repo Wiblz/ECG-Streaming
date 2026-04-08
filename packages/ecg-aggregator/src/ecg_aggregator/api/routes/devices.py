@@ -29,6 +29,7 @@ async def list_devices(
     pagination: Annotated[PaginationParams, Depends(pagination_params)],
     search: str | None = None,
     sync_ready: bool | None = None,
+    show_simulated: bool = False,
     sort_by: DeviceSummarySortField = "device_id",
     sort_order: SortOrder = SortOrder.ASC,
 ) -> DevicesSummaryResponse:
@@ -38,6 +39,7 @@ async def list_devices(
         offset=pagination.offset,
         search=search,
         sync_ready=sync_ready,
+        show_simulated=show_simulated,
         sort_by=sort_by,
         sort_order=sort_order,
     )
@@ -71,6 +73,7 @@ async def get_all_devices(
     pagination: Annotated[PaginationParams, Depends(pagination_params)],
     search: str | None = None,
     sync_ready: bool | None = None,
+    show_simulated: bool = False,
     status: DeviceStatus | None = None,
     collector_id: str | None = None,
     has_nickname: bool | None = None,
@@ -83,6 +86,7 @@ async def get_all_devices(
         offset=pagination.offset,
         search=search,
         sync_ready=sync_ready,
+        show_simulated=show_simulated,
         status=status,
         collector_id=collector_id,
         has_nickname=has_nickname,

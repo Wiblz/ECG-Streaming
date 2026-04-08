@@ -13,6 +13,7 @@ from ecg_aggregator.api.deps import get_runtime, get_sse_hub
 from ecg_aggregator.application.dto.realtime import (
     BufferStatsData,
     ConnectedEventData,
+    DeviceUpdateData,
     HeartbeatEventData,
 )
 from ecg_aggregator.application.runtime import ApplicationRuntime
@@ -49,6 +50,18 @@ async def status_events(
                 acc_buffer=stats.acc_buffer,
             )
             yield {"event": "buffer_stats", "data": json.dumps(initial_stats.model_dump())}
+
+            # Seed current device states so clients catch up if devices were already streaming
+            for device_status in runtime.device_query_service.list_device_statuses():
+                if device_status.collector_id is None:
+                    continue
+                initial_device = DeviceUpdateData(
+                    device_id=device_status.device_id,
+                    collector_id=device_status.collector_id,
+                    status=device_status.status,
+                    battery_level=device_status.battery_level,
+                )
+                yield {"event": "device_update", "data": json.dumps(initial_device.model_dump())}
 
             last_heartbeat = time.time()
 

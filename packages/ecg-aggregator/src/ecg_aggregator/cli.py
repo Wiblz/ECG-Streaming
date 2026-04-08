@@ -219,8 +219,7 @@ def generate_collectors_table(aggregator: ECGAggregator) -> Table:
         display_name = collector_data.display_name
         device_ids = collector_data.device_ids
         status = "CONNECTED"  # Collectors dict only contains connected collectors
-        metadata = collector_data.metadata
-        collector_type = metadata.get("type", "unknown")
+        collector_type = str(collector_data.metadata.get("type", "unknown"))
 
         table.add_row(
             collector_id,

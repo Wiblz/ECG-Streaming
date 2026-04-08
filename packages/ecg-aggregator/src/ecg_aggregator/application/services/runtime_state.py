@@ -150,14 +150,14 @@ class DeviceRegistry:
         return device
 
     def disconnect_collector_devices(self, collector_id: str) -> list[str]:
-        """Mark all devices for a collector as disconnected."""
-        now = HostTimeSeconds(time.time())
-        disconnected: list[str] = []
-        for device_id, device in self.device_statuses.items():
-            if device.collector_id == collector_id:
-                device.status = DeviceStatus.DISCONNECTED
-                device.last_update = now
-                disconnected.append(device_id)
+        """Remove all devices for a collector from the registry."""
+        disconnected = [
+            device_id
+            for device_id, device in self.device_statuses.items()
+            if device.collector_id == collector_id
+        ]
+        for device_id in disconnected:
+            del self.device_statuses[device_id]
         return disconnected
 
     def count_active_devices_for_collector(

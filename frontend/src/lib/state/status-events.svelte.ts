@@ -129,13 +129,12 @@ class StatusEventsClient {
           collector_id: collectorId,
           display_name: data.display_name || existing?.display_name || collectorId,
           version: existing?.version || null,
-          metadata: existing?.metadata || {},
-          last_heartbeat: Date.now() / 1000,
-          time_since_heartbeat: 0,
+          collector_type: existing?.collector_type || null,
+          is_simulated: existing?.is_simulated || false,
           health: data.status === 'HEALTHY' ? 'healthy' : 'warning',
           samples_sent: data.samples_sent ?? existing?.samples_sent,
           active_devices: data.active_devices ?? existing?.active_devices,
-          connected: true, // We're in the else block, so not disconnected
+          connected: true,
           device_ids: existing?.device_ids,
           connected_at: existing?.connected_at ?? Date.now() / 1000
         };

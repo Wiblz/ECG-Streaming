@@ -39,6 +39,7 @@ class DeviceQueryService:
         offset: int,
         search: str | None,
         sync_ready: bool | None,
+        show_simulated: bool | None,
         sort_by: DeviceSummarySortField,
         sort_order: SortOrder,
     ) -> PaginatedResult[DeviceSummaryDTO]:
@@ -63,6 +64,8 @@ class DeviceQueryService:
 
         if sync_ready is not None:
             devices = [device for device in devices if device.sync_ready is sync_ready]
+        if not show_simulated:
+            devices = [device for device in devices if not device.is_simulated]
 
         reverse = sort_order is SortOrder.DESC
         if sort_by == "sync_ready":
@@ -110,6 +113,7 @@ class DeviceQueryService:
         offset: int,
         search: str | None,
         sync_ready: bool | None,
+        show_simulated: bool | None,
         status: DeviceStatus | None,
         collector_id: str | None,
         has_nickname: bool | None,
@@ -184,6 +188,8 @@ class DeviceQueryService:
 
         if sync_ready is not None:
             devices = [device for device in devices if device.sync_ready is sync_ready]
+        if not show_simulated:
+            devices = [device for device in devices if not device.is_simulated]
         if status is not None:
             devices = [device for device in devices if device.status == status]
         if collector_id is not None:

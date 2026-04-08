@@ -83,8 +83,6 @@ class DeviceRepository:
                 )
 
                 self._conn.commit()
-                self._conn.execute("PRAGMA wal_checkpoint(FULL)")
-
                 logger.info(f"Updated nickname for device {device_id} to '{nickname}'")
                 return True
 
@@ -108,8 +106,8 @@ class DeviceRepository:
 
                 cursor.execute(
                     """
-                    INSERT INTO collectors (collector_id, display_name, version, metadata, first_seen, last_seen, last_heartbeat)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO collectors (collector_id, display_name, version, metadata, first_seen, last_seen)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     ON CONFLICT(collector_id) DO UPDATE SET
                         display_name = ?,
                         version = ?,
@@ -121,7 +119,6 @@ class DeviceRepository:
                         display_name,
                         version,
                         metadata_json,
-                        current_time,
                         current_time,
                         current_time,
                         display_name,
@@ -139,21 +136,20 @@ class DeviceRepository:
                 logger.error(f"Error upserting collector: {e}")
                 return False
 
-    def update_collector_heartbeat(self, collector_id: str) -> bool:
-        """Update collector's last heartbeat timestamp."""
+    def update_collector_last_seen(self, collector_id: str) -> bool:
+        """Update collector's last_seen timestamp."""
         with self._lock:
             try:
                 cursor = self._conn.cursor()
-                current_time = time.time()
                 cursor.execute(
-                    "UPDATE collectors SET last_heartbeat = ?, last_seen = ? WHERE collector_id = ?",
-                    (current_time, current_time, collector_id),
+                    "UPDATE collectors SET last_seen = ? WHERE collector_id = ?",
+                    (time.time(), collector_id),
                 )
                 self._conn.commit()
                 return cursor.rowcount > 0
 
             except Exception as e:
-                logger.error(f"Error updating collector heartbeat: {e}")
+                logger.error(f"Error updating collector last_seen: {e}")
                 return False
 
     def get_all_collectors(self) -> list[dict]:
@@ -162,7 +158,7 @@ class DeviceRepository:
             try:
                 cursor = self._conn.cursor()
                 cursor.execute("""
-                    SELECT collector_id, display_name, version, metadata, first_seen, last_seen, last_heartbeat
+                    SELECT collector_id, display_name, version, metadata, first_seen, last_seen
                     FROM collectors
                     ORDER BY last_seen DESC
                 """)
@@ -175,7 +171,6 @@ class DeviceRepository:
                         "metadata": json.loads(row[3]) if row[3] else {},
                         "first_seen": row[4],
                         "last_seen": row[5],
-                        "last_heartbeat": row[6],
                     }
                     for row in cursor.fetchall()
                 ]

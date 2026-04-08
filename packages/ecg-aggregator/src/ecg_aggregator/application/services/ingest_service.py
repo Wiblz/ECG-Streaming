@@ -459,6 +459,8 @@ class IngestService:
         if self.event_bus:
             await self.event_bus.publish(CollectorDisconnected(collector_id=collector_id))
         self.collector_registry.remove(collector_id)
+        if self.database:
+            self.database.update_collector_last_seen(collector_id)
 
     def get_active_device_count(self, active_window_s: Seconds = ACTIVE_DEVICE_WINDOW_S) -> int:
         """Get total number of active devices across all collectors."""

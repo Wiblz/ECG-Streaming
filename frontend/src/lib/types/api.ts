@@ -64,6 +64,7 @@ export interface DeviceInfo {
   last_update?: number;
   battery_level?: number | null;
   error_message?: string | null;
+  is_simulated?: boolean;
 }
 
 export interface BufferStats {
@@ -172,6 +173,7 @@ export interface DeviceSummaryParams extends PaginationParams {
 export interface DeviceListParams extends PaginationParams {
   search?: string;
   sync_ready?: boolean;
+  show_simulated?: boolean; // false = exclude simulated, true = include simulated (default: false)
   status?: 'UNKNOWN' | 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'STREAMING' | 'ERROR';
   collector_id?: string;
   has_nickname?: boolean;
@@ -215,7 +217,7 @@ export interface DeviceStatus {
   collector_id: string | null;
   collector_name: string | null;
   status: 'UNKNOWN' | 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'STREAMING' | 'ERROR';
-  last_update: number;
+  last_update: number | null;
   battery_level: number | null;
   error_message: string | null;
 }
@@ -233,12 +235,11 @@ export interface Collector {
   display_name: string;
   device_ids?: string[];
   version: string | null;
-  metadata: Record<string, unknown>;
+  collector_type: string | null;
+  is_simulated: boolean;
   connected_at?: number;
   first_seen?: number;
   last_seen?: number;
-  last_heartbeat: number | null;
-  time_since_heartbeat: number | null;
   health: 'healthy' | 'warning' | 'disconnected';
   samples_sent?: number;
   active_devices?: number;
@@ -247,7 +248,6 @@ export interface Collector {
 
 export interface CollectorsResponse {
   collectors: Collector[];
-  count: number;
   error?: string;
 }
 

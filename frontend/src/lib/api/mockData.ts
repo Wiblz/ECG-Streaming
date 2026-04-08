@@ -16,70 +16,51 @@ export function getMockCollectors(): Collector[] {
       display_name: 'Lab Station 1',
       device_ids: ['A0:E6:F8:1E:5C:9A', 'B1:D7:A9:2F:6D:8B'],
       version: '1.0.0',
-      metadata: {
-        location: 'Lab Room A',
-        operator: 'Dr. Smith'
-      },
-      connected_at: now - 3600, // Connected 1 hour ago
-      first_seen: now - 86400 * 7, // First seen 7 days ago
+      collector_type: 'ble',
+      is_simulated: false,
+      connected_at: now - 3600,
+      first_seen: now - 86400 * 7,
       last_seen: now,
-      last_heartbeat: now - 2, // 2 seconds ago
-      time_since_heartbeat: 2,
       health: 'healthy',
       samples_sent: 458392,
       active_devices: 2,
       connected: true
     },
-    // Warning collector (slow heartbeat)
     {
       collector_id: 'collector-002',
       display_name: 'Mobile Unit 3',
       device_ids: ['C2:F8:B0:3A:7E:1C'],
       version: '1.0.0',
-      metadata: {
-        location: 'Field Test Site',
-        operator: 'Dr. Johnson'
-      },
-      connected_at: now - 1800, // Connected 30 minutes ago
-      first_seen: now - 86400 * 3, // First seen 3 days ago
+      collector_type: 'usb',
+      is_simulated: false,
+      connected_at: now - 1800,
+      first_seen: now - 86400 * 3,
       last_seen: now,
-      last_heartbeat: now - 20, // 20 seconds ago (warning threshold)
-      time_since_heartbeat: 20,
       health: 'warning',
       samples_sent: 125483,
       active_devices: 1,
       connected: true
     },
-    // Disconnected collector (recently)
     {
       collector_id: 'collector-003',
       display_name: 'Lab Station 2',
       device_ids: ['D3:A9:C1:4B:8F:2D', 'E4:BA:D2:5C:9A:3E'],
       version: '0.9.5',
-      metadata: {
-        location: 'Lab Room B',
-        operator: 'Dr. Williams'
-      },
-      first_seen: now - 86400 * 14, // First seen 14 days ago
-      last_seen: now - 300, // Last seen 5 minutes ago
-      last_heartbeat: now - 300,
-      time_since_heartbeat: 300,
+      collector_type: 'ble',
+      is_simulated: false,
+      first_seen: now - 86400 * 14,
+      last_seen: now - 300,
       health: 'disconnected',
       connected: false
     },
-    // Disconnected collector (long time ago)
     {
       collector_id: 'collector-004',
       display_name: 'Backup Collector',
       version: '0.9.0',
-      metadata: {
-        location: 'Storage',
-        notes: 'Spare unit'
-      },
-      first_seen: now - 86400 * 30, // First seen 30 days ago
-      last_seen: now - 86400 * 2, // Last seen 2 days ago
-      last_heartbeat: now - 86400 * 2,
-      time_since_heartbeat: 86400 * 2,
+      collector_type: null,
+      is_simulated: false,
+      first_seen: now - 86400 * 30,
+      last_seen: now - 86400 * 2,
       health: 'disconnected',
       connected: false
     }
@@ -272,8 +253,6 @@ export function updateMockData(
       return {
         ...collector,
         last_seen: now,
-        last_heartbeat: now - Math.random() * 10,
-        time_since_heartbeat: Math.random() * 10,
         samples_sent: collector.samples_sent
           ? collector.samples_sent + Math.floor(Math.random() * 200)
           : 0

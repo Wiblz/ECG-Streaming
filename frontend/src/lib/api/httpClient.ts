@@ -55,6 +55,7 @@ export class HttpClient implements ApiClient {
         limit: params?.limit,
         offset: params?.offset,
         sync_ready: params?.sync_ready,
+        show_simulated: params?.show_simulated,
         status: params?.status,
         collector_id: params?.collector_id,
         has_nickname: params?.has_nickname,

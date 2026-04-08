@@ -10,10 +10,17 @@ export const load: PageLoad = async ({ url }) => {
   const sort_by = (url.searchParams.get('sort_by') ?? 'last_seen') as DeviceListParams['sort_by'];
   const sort_order = (url.searchParams.get('sort_order') ??
     'desc') as DeviceListParams['sort_order'];
+  const show_simulated = url.searchParams.get('show_simulated') === 'true';
 
   // Fetch both devices and collectors in parallel
   const [devicesResponse, collectorsResponse] = await Promise.all([
-    api.getAllDevices({ ...pagination, status: status ?? undefined, sort_by, sort_order }),
+    api.getAllDevices({
+      ...pagination,
+      status: status ?? undefined,
+      sort_by,
+      sort_order,
+      show_simulated
+    }),
     api.getCollectors()
   ]);
 
@@ -26,6 +33,6 @@ export const load: PageLoad = async ({ url }) => {
       offset: devicesResponse.offset
     },
     collectors: collectorsResponse.collectors,
-    filters: { status, sort_by, sort_order }
+    filters: { status, sort_by, sort_order, show_simulated }
   };
 };

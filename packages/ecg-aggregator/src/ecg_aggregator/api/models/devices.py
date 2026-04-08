@@ -1,9 +1,10 @@
 """Device-related API models."""
 
 from ecg_common import DeviceStatus
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, computed_field
 
 from ecg_aggregator.api.models.base import SyncInfo
+from ecg_aggregator.domain.devices import is_simulated_collector, is_simulated_device
 from ecg_aggregator.domain.time import HostTimeSeconds
 
 
@@ -26,6 +27,13 @@ class DeviceStatusInfo(BaseModel):
     battery_level: int | None = None
     error_message: str | None = None
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def is_simulated(self) -> bool:
+        if self.collector_id is not None:
+            return is_simulated_collector(self.collector_id)
+        return is_simulated_device(self.device_id)
+
 
 class DeviceInfo(BaseModel):
     """Complete device information response model."""
@@ -44,6 +52,13 @@ class DeviceInfo(BaseModel):
     last_update: HostTimeSeconds | None = None
     battery_level: int | None = None
     error_message: str | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def is_simulated(self) -> bool:
+        if self.collector_id is not None:
+            return is_simulated_collector(self.collector_id)
+        return is_simulated_device(self.device_id)
 
     @property
     def sync_confidence(self) -> float:
@@ -74,6 +89,11 @@ class DeviceSummary(BaseModel):
     device_id: str
     sync_ready: bool
     sync: SyncInfo | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def is_simulated(self) -> bool:
+        return is_simulated_device(self.device_id)
 
     @property
     def sync_confidence(self) -> float:

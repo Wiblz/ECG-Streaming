@@ -6,6 +6,7 @@ from typing import TypeVar
 from ecg_common import DeviceStatus
 from pydantic import BaseModel, ConfigDict
 
+from ecg_aggregator.domain.devices import is_simulated_collector, is_simulated_device
 from ecg_aggregator.domain.time import (
     DeviceTimestampUs,
     GlobalTimeSeconds,
@@ -42,6 +43,12 @@ class DeviceStatusDTO(BaseModel):
     battery_level: int | None = None
     error_message: str | None = None
 
+    @property
+    def is_simulated(self) -> bool:
+        if self.collector_id is not None:
+            return is_simulated_collector(self.collector_id)
+        return is_simulated_device(self.device_id)
+
 
 class DeviceSummaryDTO(BaseModel):
     """Device summary DTO."""
@@ -51,6 +58,10 @@ class DeviceSummaryDTO(BaseModel):
     device_id: str
     sync_ready: bool
     sync: SyncInfoDTO | None = None
+
+    @property
+    def is_simulated(self) -> bool:
+        return is_simulated_device(self.device_id)
 
     @property
     def sync_confidence(self) -> float:
@@ -78,6 +89,12 @@ class DeviceInfoDTO(BaseModel):
     last_update: HostTimeSeconds | None = None
     battery_level: int | None = None
     error_message: str | None = None
+
+    @property
+    def is_simulated(self) -> bool:
+        if self.collector_id is not None:
+            return is_simulated_collector(self.collector_id)
+        return is_simulated_device(self.device_id)
 
     @property
     def sync_confidence(self) -> float:
