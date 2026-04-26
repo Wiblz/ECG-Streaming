@@ -8,39 +8,12 @@ A distributed system for collecting, synchronizing, and visualizing ECG data fro
 
 The system is split into two main modules that can run independently:
 
-```
-┌─────────────────────┐         ┌─────────────────────────────────┐
-│   ECG COLLECTOR     │         │   ECG AGGREGATOR + DASHBOARD    │
-│                     │         │                                 │
-│  ┌───────────────┐  │         │  ┌──────────────────────────┐   │
-│  │ Polar H10     │  │  gRPC   │  │  gRPC Server             │   │
-│  │ BLE Drivers   │──┼────────▶│  │  (receives data)         │   │
-│  └───────────────┘  │         │  └──────────────────────────┘   │
-│  ┌───────────────┐  │         │  ┌──────────────────────────┐   │
-│  │ Adapter       │  │         │  │  Time Alignment Engine   │   │
-│  │ Manager       │  │         │  │  (sync timestamps)       │   │
-│  └───────────────┘  │         │  └──────────────────────────┘   │
-│  ┌───────────────┐  │         │  ┌──────────────────────────┐   │
-│  │ gRPC Client   │  │         │  │  SQLite Database         │   │
-│  └───────────────┘  │         │  │  (persistence)           │   │
-│                     │         │  └──────────────────────────┘   │
-└─────────────────────┘         │  ┌──────────────────────────┐   │
-                                │  │  WebSocket API Server    │   │
-                                │  │  (dashboard)             │   │
-                                │  └──────────────────────────┘   │
-                                │              │                  │
-                                └──────────────┼──────────────────┘
-                                               ▼
-                                    ┌──────────────────┐
-                                    │  Web Dashboard   │
-                                    │  (SvelteKit)     │
-                                    └──────────────────┘
-```
+![System Architecture](docs/system_architecture.png)
 
 ### Module Separation
 
 **Collector (`ecg-collector`)**:
-- Connects to N Polar H10 devices via BLE
+- Connects to Polar H10 devices via BLE directly, or via USB-connected ESP32 receivers acting as BLE bridges
 - Manages multiple BLE adapters (hci0, hci1, hci2...)
 - Timestamps samples at collection time
 - Streams data to aggregator via gRPC
@@ -52,57 +25,41 @@ The system is split into two main modules that can run independently:
 - Serves real-time dashboard via WebSocket
 - Provides REST API for metadata
 
+**ESP32 firmware (`esp32/`)**:
+- C firmware for ESP32-S3 receivers
+- Connects to a Polar H10 via BLE and bridges data over USB CDC to the collector
+
+**Simulator (`ecg-simulator`)**:
+- Synthetic collector for testing without physical hardware
+- Streams generated ECG data over gRPC, or replays recorded sessions from the database
+
 ## Quick Start
 
-### Installation
+### Requirements
+
+- Docker & Docker Compose
+- Linux (required for BLE and USB device access)
+- User in `dialout` and `bluetooth` groups for hardware access
+
+### Setup
 
 ```bash
-# Install all packages
-uv pip install -e packages/ecg-common
-uv pip install -e packages/ecg-collector
-uv pip install -e packages/ecg-aggregator
-```
-
-### Configuration
-
-```bash
-# Copy example configs
+# 1. Copy and edit collector config
 cp packages/ecg-collector/config.example.yaml packages/ecg-collector/config.yaml
-cp packages/ecg-aggregator/config.example.yaml packages/ecg-aggregator/config.yaml
+nano packages/ecg-collector/config.yaml  # set aggregator.host: "aggregator"
 
-# Edit configuration
-# - Add your Polar H10 device IDs
-# - Configure aggregator host/port
-nano packages/ecg-collector/config.yaml
-nano packages/ecg-aggregator/config.yaml
+# 2. Build images
+./stack.sh build
+
+# 3. Start the stack
+./stack.sh up-usb   # USB/ESP32 mode
+./stack.sh up       # BLE mode
+
+# 4. Open dashboard
+open http://localhost:5173
 ```
 
-### Running
-
-**Local deployment (single machine):**
-
-```bash
-# Terminal 1: Start aggregator
-ecg-aggregator run
-
-# Terminal 2: Start collector
-ecg-collector
-
-# Access dashboard at http://localhost:8000
-```
-
-Run these commands from the repo root so the default config paths resolve, or pass `--config` explicitly.
-
-**Distributed deployment:**
-
-```bash
-# On server (e.g., 192.168.1.100):
-ecg-aggregator run
-
-# On edge device(s) with BLE adapters:
-# Edit packages/ecg-collector/config.yaml: aggregator.host = "192.168.1.100"
-ecg-collector
-```
+See [docs/DOCKER_QUICKSTART.md](docs/DOCKER_QUICKSTART.md) for full setup instructions.
 
 ## Project Structure
 
@@ -110,50 +67,55 @@ ecg-collector
 ECG-Streaming/
 ├── packages/
 │   ├── ecg-common/           # Shared models, gRPC protocol, logging
-│   │   └── src/ecg_common/
-│   │       ├── models.py     # Data models (ECGSample, etc.)
-│   │       ├── proto/        # gRPC protocol definitions
-│   │       └── logging.py    # Logging utilities
-│   │
-│   ├── ecg-collector/        # Collector module
-│   │   ├── config.example.yaml  # Collector config example
-│   │   └── src/ecg_collector/
-│   │       ├── collector/    # BLE device drivers
-│   │       ├── grpc_client.py  # gRPC client
-│   │       ├── config.py     # Configuration
-│   │       ├── main.py       # Entry point
-│   │       └── cli.py        # CLI utilities
-│   │
-│   └── ecg-aggregator/       # Aggregator + Dashboard
-│       ├── config.example.yaml  # Aggregator config example
-│       └── src/ecg_aggregator/
-│           ├── grpc_server.py  # gRPC server
-│           ├── sync/         # Time alignment engine
-│           ├── storage/      # SQLite persistence
-│           ├── api/          # WebSocket/REST API
-│           ├── config.py     # Configuration
-│           └── main.py       # Entry point
-└── README.md                 # This file
+│   ├── ecg-collector/        # Collector (BLE and USB/ESP32 modes)
+│   │   └── config.example.yaml
+│   ├── ecg-aggregator/       # Aggregator, SQLite storage, WebSocket API
+│   │   └── config.example.yaml
+│   └── ecg-simulator/        # Synthetic collector for testing
+├── esp32/                    # ESP32-S3 receiver firmware (C, ESP-IDF)
+├── frontend/                 # SvelteKit web dashboard
+├── docs/                     # Documentation
+├── data/                     # SQLite database (bind-mounted in Docker)
+├── dev.sh                    # Development tooling (fmt, lint, test)
+└── stack.sh                  # Stack management (up, down, sim, pairing)
 ```
+
+## Documentation
+
+- [docs/DOCKER_QUICKSTART.md](docs/DOCKER_QUICKSTART.md) — getting started, running the stack
+- [docs/ESP32_FIRMWARE.md](docs/ESP32_FIRMWARE.md) — ESP-IDF setup, building and flashing receiver firmware
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — dev workflow, tooling
+- [docs/QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md) — command cheatsheet
+- [docs/FRONTEND.md](docs/FRONTEND.md) — frontend development
 
 ## Features
 
 ### Collector Features
-- ✅ Multi-device BLE connection (up to 20+ devices)
-- ✅ Multiple BLE adapter support
-- ✅ Concurrent device management
-- ✅ gRPC streaming to aggregator
-- ✅ Device status monitoring
-- ✅ CLI tools (scan, test-connection)
+- Multi-device BLE connection (up to 20+ devices)
+- Multiple BLE adapter support
+- Concurrent device management
+- gRPC streaming to aggregator
+- Device status monitoring
+- CLI tools (scan, auto-pair, signal)
 
 ### Aggregator Features
-- ✅ gRPC server for receiving data
-- ✅ Time synchronization engine
-- ✅ SQLite database persistence
-- ✅ WebSocket real-time streaming
-- ✅ REST API for metadata
-- ✅ Buffer management (30s window)
-- ✅ Dashboard web interface
+- gRPC server for receiving data
+- Time synchronization engine
+- SQLite database persistence
+- WebSocket real-time streaming
+- REST API for metadata
+- Buffer management (30s window)
+- Dashboard web interface
+
+### Simulator (`ecg-simulator`)
+A synthetic collector for testing without physical hardware. Streams mathematically generated ECG (and optionally accelerometer) data to the aggregator over the same gRPC interface as a real collector. Also supports replaying previously recorded sessions from the database.
+
+```bash
+./stack.sh sim                        # synthetic stream, 20 devices
+./stack.sh sim --devices 5 --acc      # 5 devices with accelerometer
+./stack.sh sim-sessions               # list recorded sessions
+./stack.sh sim-replay 3 --speed 2.0   # replay session 3 at 2x speed
+```
 
 ## API Reference
 
@@ -168,13 +130,15 @@ ECG-Streaming/
 
 ### CLI Tools
 
-**Collector:**
 ```bash
-# Scan for Polar devices
-ecg-collector-cli scan
+# Scan for connected ESP32 devices
+./stack.sh usb-scan
 
-# Test connection to a device
-ecg-collector-cli test-connection "Polar H10 ABC123"
+# Auto-pair ESP32 devices with Polar sensors
+./stack.sh auto-pair
+
+# Scan for BLE devices
+ecg-collector ble scan
 ```
 
 ## Configuration
@@ -188,79 +152,22 @@ See `packages/ecg-collector/config.example.yaml` and `packages/ecg-aggregator/co
 
 **Aggregator:**
 - `grpc.port` - gRPC server port (default: 50051)
-- `api.port` - HTTP/WebSocket port (default: 8000)
+- `api.port` - HTTP/WebSocket port (default: 7999)
 - `storage.database_path` - SQLite database path
-
-## Deployment Scenarios
-
-### Scenario 1: Single Machine (Development/Testing)
-- Run both collector and aggregator on localhost
-- Good for development and testing with a few devices
-
-### Scenario 2: Distributed (Edge + Server)
-- Collector on edge device with BLE adapters
-- Aggregator on server (no BLE hardware required)
-- Good for production with many devices
-
-### Scenario 3: Multiple Collectors
-- Multiple collectors (different locations/rooms)
-- Single aggregator receiving from all
-- Each collector manages subset of devices
 
 ## System Requirements
 
-- **Backend:** Python 3.14+
-- **BLE Support:** Linux with BlueZ (for collector only)
-- **Package Manager:** uv
-- **Frontend:** SvelteKit (coming soon)
-- **Platform:** Linux (Raspberry Pi or PC)
-
-## Performance
-
-- End-to-end latency: < 300 ms
-- WebSocket refresh rate: 30 FPS (configurable)
-- Supports 20+ concurrent devices
-- Stable operation for extended sessions
+- **Platform:** Linux
+- **Runtime:** Docker & Docker Compose
+- **Hardware:** BLE adapter (BLE mode) or USB ports (USB/ESP32 mode)
+- **Development:** Python 3.14+, uv (see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md))
 
 ## Development
 
 ```bash
-# Install development dependencies
-uv pip install -e "packages/ecg-common[dev]"
-uv pip install -e "packages/ecg-collector[dev]"
-uv pip install -e "packages/ecg-aggregator[dev]"
-
-# Run tests
-pytest
-
-# Lint code
-ruff check .
-
-# Format code
-ruff format .
+./dev.sh install   # install packages
+./dev.sh check     # format + lint + type check
+./dev.sh test      # run tests
 ```
 
-## Troubleshooting
-
-**Collector can't connect to devices:**
-- Run `ecg-collector-cli scan` to find device IDs
-- Check BlueZ configuration
-- Verify BLE adapters with `hciconfig`
-
-**Collector can't connect to aggregator:**
-- Check aggregator is running and port is correct
-- Verify firewall rules allow gRPC port (50051)
-- Check network connectivity
-
-**Poor time synchronization:**
-- Increase `aggregator.sync.min_samples`
-- Check for network latency issues
-- Verify device clocks are stable
-
-## License
-
-[Your License Here]
-
-## Contributing
-
-[Your Contributing Guidelines Here]
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for full details.
