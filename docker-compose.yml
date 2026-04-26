@@ -95,6 +95,26 @@ services:
     command: ["watchfiles", "--filter", "python", "python -m ecg_collector.cli usb run --config /app/config.yaml", "/app/packages"]
     restart: unless-stopped
 
+  # ECG Simulator - for testing without hardware
+  # Use with: docker compose run --rm simulator ecg-simulator run
+  simulator:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.simulator.dev
+    container_name: ecg-simulator
+    profiles:
+      - simulator
+    depends_on:
+      aggregator:
+        condition: service_healthy
+    network_mode: host
+    volumes:
+      - ./packages/ecg-common:/app/packages/ecg-common
+      - ./packages/ecg-simulator:/app/packages/ecg-simulator
+      - ./data:/data
+    environment:
+      - PYTHONUNBUFFERED=1
+
   # Frontend - SvelteKit Web Application with hot reload
   frontend:
     build:

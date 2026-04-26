@@ -1,0 +1,19 @@
+FROM python:3.14-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir uv
+
+COPY packages/ecg-common /app/packages/ecg-common
+COPY packages/ecg-simulator /app/packages/ecg-simulator
+COPY pyproject.toml /app/
+
+RUN --mount=type=cache,target=/root/.cache/uv-simulator \
+    uv pip install --system -e packages/ecg-common
+RUN --mount=type=cache,target=/root/.cache/uv-simulator \
+    uv pip install --system -e packages/ecg-simulator
