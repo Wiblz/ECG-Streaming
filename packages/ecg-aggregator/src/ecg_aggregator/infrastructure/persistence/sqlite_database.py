@@ -59,9 +59,9 @@ class ECGDatabase:
 
     def _init_db(self) -> None:
         """Initialize database schema using yoyo migrations."""
+        self._apply_migrations()
         with self._get_connection() as conn:
             conn.execute("PRAGMA journal_mode=DELETE")
-        self._apply_migrations()
 
     def _apply_migrations(self) -> None:
         """Apply pending database migrations using yoyo."""

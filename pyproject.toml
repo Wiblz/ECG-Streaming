@@ -57,19 +57,7 @@ exclude = [
 ]
 
 [[tool.mypy.overrides]]
-module = "ecg_common.proto.ecg_streaming_pb2"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "ecg_common.proto.ecg_streaming_pb2_grpc"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
 module = "bleak.*"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "scipy.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

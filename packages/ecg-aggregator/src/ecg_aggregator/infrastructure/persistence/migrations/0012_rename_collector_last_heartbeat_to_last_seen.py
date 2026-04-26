@@ -19,17 +19,19 @@ steps = [
             metadata TEXT,
             first_seen REAL NOT NULL,
             last_seen REAL NOT NULL
-        );
+        )
+        """,
+        "DROP TABLE collectors_new",
+    ),
+    step(
+        """
         INSERT INTO collectors_new
             SELECT collector_id, display_name, version, metadata, first_seen,
                    COALESCE(last_heartbeat, last_seen)
-            FROM collectors;
-        DROP TABLE collectors;
-        ALTER TABLE collectors_new RENAME TO collectors;
+            FROM collectors
         """,
-        """
-        ALTER TABLE collectors ADD COLUMN last_heartbeat REAL;
-        UPDATE collectors SET last_heartbeat = last_seen;
-        """,
+        None,
     ),
+    step("DROP TABLE collectors", None),
+    step("ALTER TABLE collectors_new RENAME TO collectors", None),
 ]

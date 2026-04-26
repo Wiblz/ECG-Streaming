@@ -24,11 +24,12 @@ services:
     volumes:
       - ./packages/ecg-common:/app/packages/ecg-common
       - ./packages/ecg-aggregator:/app/packages/ecg-aggregator
-      - ./ecg_data.db:/app/ecg_data.db
+      - ./data:/data
       - ./packages/ecg-aggregator/config.yaml:/app/config.yaml:ro
       - ./logs:/tmp:rw  # Mount logs directory for persistence
     environment:
       - PYTHONUNBUFFERED=1
+      - ECG_AGGREGATOR_STORAGE__DATABASE_PATH=/data/ecg_data.db
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.connect(('localhost', 50051)); s.close()"]

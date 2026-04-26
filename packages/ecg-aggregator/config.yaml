@@ -13,7 +13,7 @@ sync:
 # HTTP/WebSocket API (serves dashboard and REST API)
 api:
   port: 7999                     # HTTP/WebSocket server port
-  websocket_fps: 30              # WebSocket broadcast rate (frames/sec)
+  websocket_push_rate_hz: 30     # WebSocket push rate in Hz
   cors_origins:
     - "*"                        # CORS origins (change for production)
 

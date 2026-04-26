@@ -53,5 +53,6 @@ logs/
 # Project specific
 *.db
 *.sqlite
-data/
+data/*
+!data/.gitkeep
 recordings/
