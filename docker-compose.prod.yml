@@ -4,17 +4,14 @@ name: ecg-streaming-prod
 # Uses optimized builds, named volumes, no hot reload
 #
 # Usage:
-#   ./stack.sh build-prod      # Build production images
+#   ./stack.sh pull-prod       # Pull production images from registry
 #   ./stack.sh up-prod         # Start with BLE collector
 #   ./stack.sh up-prod-usb     # Start with USB collector
 #   ./stack.sh up-prod-agg     # Aggregator + frontend only
 
 services:
   aggregator:
-    image: ecg-streaming-aggregator:prod
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.aggregator
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER}/ecg-streaming-aggregator:${IMAGE_TAG:-latest}
     container_name: ecg-aggregator-prod
     ports:
       - "50051:50051"
@@ -35,10 +32,7 @@ services:
       start_period: 40s
 
   collector-ble:
-    image: ecg-streaming-collector:prod
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.collector
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER}/ecg-streaming-collector:${IMAGE_TAG:-latest}
     container_name: ecg-collector-ble-prod
     profiles:
       - ble
@@ -58,10 +52,7 @@ services:
     restart: unless-stopped
 
   collector-usb:
-    image: ecg-streaming-collector:prod
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.collector
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER}/ecg-streaming-collector:${IMAGE_TAG:-latest}
     container_name: ecg-collector-usb-prod
     profiles:
       - usb
@@ -81,15 +72,12 @@ services:
     restart: unless-stopped
 
   frontend:
-    image: ecg-streaming-frontend:prod
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.frontend
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER}/ecg-streaming-frontend:${IMAGE_TAG:-latest}
     container_name: ecg-frontend-prod
     depends_on:
       - aggregator
     ports:
-      - "4173:4173"
+      - "80:80"
     environment:
       - NODE_ENV=production
       - PUBLIC_AGGREGATOR_URL=http://localhost:7999

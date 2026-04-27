@@ -21,18 +21,11 @@ COPY frontend/ ./
 RUN pnpm build
 
 # Production stage
-FROM node:24-slim AS runner
-
-WORKDIR /app
+FROM nginx:alpine AS runner
 
 # Copy built static files
-COPY --from=builder /app/build /app/build
+COPY --from=builder /app/build /usr/share/nginx/html
 
-# Install serve globally for serving static files
-RUN npm install -g serve
+EXPOSE 80
 
-# Expose port
-EXPOSE 4173
-
-# Serve the built static app
-CMD ["serve", "-s", "build", "-l", "4173"]
+CMD ["nginx", "-g", "daemon off;"]

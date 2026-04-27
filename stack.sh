@@ -17,10 +17,9 @@ case "$cmd" in
         docker compose build simulator
         echo "==> Done."
         ;;
-    build-prod)
-        echo "==> Building prod Docker images..."
-        docker compose $PROD build aggregator frontend
-        docker compose $PROD build collector-ble collector-usb
+    pull-prod)
+        echo "==> Pulling prod Docker images..."
+        docker compose $PROD pull
         echo "==> Done."
         ;;
     up)
@@ -44,19 +43,19 @@ case "$cmd" in
     up-prod)
         echo "==> Starting prod stack (BLE collector)..."
         docker compose $PROD --profile ble up -d
-        echo "  Frontend:   http://localhost:4173"
+        echo "  Frontend:   http://localhost"
         echo "  Aggregator: http://localhost:7999"
         ;;
     up-prod-usb)
         echo "==> Starting prod stack (USB collector)..."
         docker compose $PROD --profile usb up -d
-        echo "  Frontend:   http://localhost:4173"
+        echo "  Frontend:   http://localhost"
         echo "  Aggregator: http://localhost:7999"
         ;;
     up-prod-agg)
         echo "==> Starting prod aggregator + frontend only..."
         docker compose $PROD up -d aggregator frontend
-        echo "  Frontend:   http://localhost:4173"
+        echo "  Frontend:   http://localhost"
         echo "  Aggregator: http://localhost:7999"
         ;;
     down)
@@ -115,7 +114,7 @@ case "$cmd" in
         echo "  clean           Stop dev stack and remove containers and volumes"
         echo ""
         echo "Production stack:"
-        echo "  build-prod      Build all prod Docker images"
+        echo "  pull-prod       Pull prod Docker images from registry"
         echo "  up-prod         Start prod stack with BLE collector"
         echo "  up-prod-usb     Start prod stack with USB collector"
         echo "  up-prod-agg     Start prod aggregator + frontend only"
