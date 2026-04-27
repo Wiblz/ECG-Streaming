@@ -84,7 +84,8 @@ Then reflash as above. The `--no-stub` and reduced baud rate avoid a known disco
 After flashing and rebooting, confirm the board is recognised:
 
 ```bash
-./stack.sh usb-scan
+./stack.sh usb-scan          # dev
+./stack.sh --prod usb-scan   # prod
 ```
 
 The board should appear in the scan output and be ready for pairing.

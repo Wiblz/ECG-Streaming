@@ -140,8 +140,8 @@ $UV sync --package ecg-collector
 
 # Generate configuration file in package directory
 echo "Creating configuration..."
-CONFIG_DIR="$INSTALL_DIR/packages/ecg-collector"
-CONFIG_PATH="$CONFIG_DIR/config.yaml"
+CONFIG_DIR="$INSTALL_DIR/config"
+CONFIG_PATH="$CONFIG_DIR/collector.yaml"
 mkdir -p "$CONFIG_DIR"
 cat > "$CONFIG_PATH" << CONFIG
 collector_id: "$(hostname)-collector"
@@ -190,4 +190,4 @@ echo "To run the collector:"
 echo "  ssh -t $SSH_TARGET 'cd $INSTALL_DIR && .venv/bin/ecg-collector'"
 echo ""
 echo "To edit config:"
-echo "  ssh $SSH_TARGET 'nano $INSTALL_DIR/packages/ecg-collector/config.yaml'"
+echo "  ssh $SSH_TARGET 'nano $INSTALL_DIR/config/collector.yaml'"

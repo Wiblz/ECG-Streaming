@@ -1,134 +1,117 @@
 #!/usr/bin/env bash
 # stack.sh — manage the ECG streaming stack and run CLI utilities
-# Usage: ./stack.sh <command> [args...]
+# Usage: ./stack.sh [--prod] <command> [args...]
 
 set -euo pipefail
+
+# Parse --prod flag
+PROD=false
+if [[ "${1:-}" == "--prod" ]]; then
+    PROD=true
+    shift
+fi
 
 cmd="${1:-help}"
 shift || true
 
-PROD="-f docker-compose.prod.yml"
+if $PROD; then
+    COMPOSE="docker compose -f docker-compose.prod.yml"
+    FRONTEND_URL="http://localhost"
+    ENV="prod"
+else
+    COMPOSE="docker compose"
+    FRONTEND_URL="http://localhost:5173"
+    ENV="dev"
+fi
 
 case "$cmd" in
     build)
-        echo "==> Building dev Docker images..."
-        docker compose build aggregator frontend
-        docker compose build collector-ble collector-usb
-        docker compose build simulator
-        echo "==> Done."
-        ;;
-    pull-prod)
-        echo "==> Pulling prod Docker images..."
-        docker compose $PROD pull
+        if $PROD; then
+            echo "==> Pulling prod Docker images..."
+            $COMPOSE pull
+        else
+            echo "==> Building dev Docker images..."
+            $COMPOSE build aggregator frontend
+            $COMPOSE build collector-ble collector-usb
+            $COMPOSE build simulator
+        fi
         echo "==> Done."
         ;;
     up)
-        echo "==> Starting dev stack (BLE collector)..."
-        docker compose --profile ble up -d
-        echo "  Frontend:   http://localhost:5173"
+        echo "==> Starting $ENV stack (BLE collector)..."
+        $COMPOSE --profile ble up -d
+        echo "  Frontend:   $FRONTEND_URL"
         echo "  Aggregator: http://localhost:7999"
         ;;
     up-usb)
-        echo "==> Starting dev stack (USB collector)..."
-        docker compose --profile usb up -d
-        echo "  Frontend:   http://localhost:5173"
+        echo "==> Starting $ENV stack (USB collector)..."
+        $COMPOSE --profile usb up -d
+        echo "  Frontend:   $FRONTEND_URL"
         echo "  Aggregator: http://localhost:7999"
         ;;
     up-agg)
-        echo "==> Starting dev aggregator + frontend only..."
-        docker compose up -d aggregator frontend
-        echo "  Frontend:   http://localhost:5173"
-        echo "  Aggregator: http://localhost:7999"
-        ;;
-    up-prod)
-        echo "==> Starting prod stack (BLE collector)..."
-        docker compose $PROD --profile ble up -d
-        echo "  Frontend:   http://localhost"
-        echo "  Aggregator: http://localhost:7999"
-        ;;
-    up-prod-usb)
-        echo "==> Starting prod stack (USB collector)..."
-        docker compose $PROD --profile usb up -d
-        echo "  Frontend:   http://localhost"
-        echo "  Aggregator: http://localhost:7999"
-        ;;
-    up-prod-agg)
-        echo "==> Starting prod aggregator + frontend only..."
-        docker compose $PROD up -d aggregator frontend
-        echo "  Frontend:   http://localhost"
+        echo "==> Starting $ENV aggregator + frontend only..."
+        $COMPOSE up -d aggregator frontend
+        echo "  Frontend:   $FRONTEND_URL"
         echo "  Aggregator: http://localhost:7999"
         ;;
     down)
-        echo "==> Stopping dev stack..."
-        docker compose --profile ble --profile usb --profile simulator down
-        ;;
-    down-prod)
-        echo "==> Stopping prod stack..."
-        docker compose $PROD --profile ble --profile usb down
+        echo "==> Stopping $ENV stack..."
+        $COMPOSE --profile ble --profile usb --profile simulator down
         ;;
     logs)
-        docker compose --profile ble --profile usb --profile simulator logs -f "$@"
-        ;;
-    logs-prod)
-        docker compose $PROD --profile ble --profile usb logs -f "$@"
+        $COMPOSE --profile ble --profile usb --profile simulator logs -f "$@"
         ;;
     clean)
-        echo "==> Removing dev containers and volumes..."
-        docker compose --profile ble --profile usb --profile simulator down -v
-        echo "==> Done."
-        ;;
-    clean-prod)
-        echo "==> Removing prod containers and volumes..."
-        docker compose $PROD --profile ble --profile usb down -v
+        echo "==> Removing $ENV containers and volumes..."
+        $COMPOSE --profile ble --profile usb --profile simulator down -v
         echo "==> Done."
         ;;
     sim)
         echo "==> Running simulator..."
-        docker compose run --rm simulator ecg-simulator run "$@"
+        $COMPOSE run --rm simulator ecg-simulator run "$@"
         ;;
     sim-replay)
         echo "==> Replaying session..."
-        docker compose run --rm simulator ecg-simulator replay --db /data/ecg_data.db "$@"
+        $COMPOSE run --rm simulator ecg-simulator replay --db /data/ecg_data.db "$@"
         ;;
     sim-sessions)
-        docker compose run --rm simulator ecg-simulator sessions --db /data/ecg_data.db "$@"
+        $COMPOSE run --rm simulator ecg-simulator sessions --db /data/ecg_data.db "$@"
+        ;;
+    ble-scan)
+        echo "==> Scanning for BLE Polar devices..."
+        $COMPOSE --profile ble run --rm collector-ble ecg-collector ble scan "$@"
         ;;
     usb-scan)
         echo "==> Scanning for ESP32 devices..."
-        docker compose run --rm collector-usb ecg-collector usb scan "$@"
+        $COMPOSE --profile usb run --rm collector-usb ecg-collector usb scan "$@"
         ;;
     auto-pair)
         echo "==> Auto-pairing ESP32 devices with Polar sensors..."
-        docker compose run --rm collector-usb ecg-collector usb auto-pair "$@"
+        $COMPOSE --profile usb run --rm collector-usb ecg-collector usb auto-pair "$@"
         ;;
     help|*)
-        echo "Usage: ./stack.sh <command> [args...]"
+        echo "Usage: ./stack.sh [--prod] <command> [args...]"
         echo ""
-        echo "Development stack:"
-        echo "  build           Build all dev Docker images"
-        echo "  up              Start dev stack with BLE collector"
-        echo "  up-usb          Start dev stack with USB collector"
-        echo "  up-agg          Start dev aggregator + frontend only"
-        echo "  down            Stop dev stack"
-        echo "  logs            Follow dev logs (extra args passed to docker compose logs)"
-        echo "  clean           Stop dev stack and remove containers and volumes"
+        echo "Pass --prod before the command to target the production stack."
         echo ""
-        echo "Production stack:"
-        echo "  pull-prod       Pull prod Docker images from registry"
-        echo "  up-prod         Start prod stack with BLE collector"
-        echo "  up-prod-usb     Start prod stack with USB collector"
-        echo "  up-prod-agg     Start prod aggregator + frontend only"
-        echo "  down-prod       Stop prod stack"
-        echo "  logs-prod       Follow prod logs"
-        echo "  clean-prod      Stop prod stack and remove containers and volumes"
+        echo "Stack management:"
+        echo "  build           Build dev images / pull prod images"
+        echo "  up              Start stack with BLE collector"
+        echo "  up-usb          Start stack with USB collector"
+        echo "  up-agg          Start aggregator + frontend only"
+        echo "  down            Stop stack"
+        echo "  logs            Follow logs (extra args passed to docker compose logs)"
+        echo "  clean           Stop stack and remove containers and volumes"
         echo ""
-        echo "Simulator:"
-        echo "  sim [args]           Run synthetic simulator (args passed to ecg-simulator run)"
+        echo "Simulator (dev only):"
+        echo "  sim [args]           Run synthetic simulator"
         echo "  sim-replay [args]    Replay a recorded session"
         echo "  sim-sessions [args]  List recorded sessions"
         echo ""
         echo "Device utilities:"
-        echo "  usb-scan [args]  Scan for connected ESP32 devices"
-        echo "  auto-pair [args] Auto-pair ESP32 devices with Polar sensors"
+        echo "  ble-scan [args]   Scan for BLE Polar devices"
+        echo "  usb-scan [args]   Scan for connected ESP32 devices"
+        echo "  auto-pair [args]  Auto-pair ESP32 devices with Polar sensors"
         ;;
 esac

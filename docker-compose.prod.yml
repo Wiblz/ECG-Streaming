@@ -4,10 +4,10 @@ name: ecg-streaming-prod
 # Uses optimized builds, named volumes, no hot reload
 #
 # Usage:
-#   ./stack.sh pull-prod       # Pull production images from registry
-#   ./stack.sh up-prod         # Start with BLE collector
-#   ./stack.sh up-prod-usb     # Start with USB collector
-#   ./stack.sh up-prod-agg     # Aggregator + frontend only
+#   ./stack.sh --prod build    # Pull production images from registry
+#   ./stack.sh --prod up       # Start with BLE collector
+#   ./stack.sh --prod up-usb   # Start with USB collector
+#   ./stack.sh --prod up-agg   # Aggregator + frontend only
 
 services:
   aggregator:
@@ -18,7 +18,7 @@ services:
       - "7999:7999"
     volumes:
       - ./data:/data
-      - ./packages/ecg-aggregator/config.yaml:/app/config.yaml:ro
+      - ./config/aggregator.yaml:/app/config.yaml:ro
       - ./logs:/logs:rw
     environment:
       - PYTHONUNBUFFERED=1
@@ -42,7 +42,7 @@ services:
     network_mode: host
     privileged: true
     volumes:
-      - ./packages/ecg-collector/config.yaml:/app/config.yaml:ro
+      - ./config/collector.yaml:/app/config.yaml:ro
       - /var/run/dbus:/var/run/dbus:ro
       - ./logs:/logs:rw
     environment:
@@ -61,7 +61,7 @@ services:
         condition: service_healthy
     privileged: true
     volumes:
-      - ./packages/ecg-collector/config.yaml:/app/config.yaml:ro
+      - ./config/collector.yaml:/app/config.yaml:ro
       - /dev:/dev
       - /run/udev:/run/udev:ro
       - /var/run/dbus:/var/run/dbus:ro

@@ -58,4 +58,4 @@ data/*
 recordings/
 
 # Deployment-specific collector config (contains device IDs)
-packages/ecg-collector/config.yaml
+config/collector.yaml

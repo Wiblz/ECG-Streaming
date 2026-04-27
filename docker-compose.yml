@@ -20,7 +20,7 @@ services:
       - ./packages/ecg-common:/app/packages/ecg-common
       - ./packages/ecg-aggregator:/app/packages/ecg-aggregator
       - ./data:/data
-      - ./packages/ecg-aggregator/config.yaml:/app/config.yaml:ro
+      - ./config/aggregator.yaml:/app/config.yaml:ro
       - ./logs:/logs:rw
     environment:
       - PYTHONUNBUFFERED=1
@@ -52,7 +52,7 @@ services:
     volumes:
       - ./packages/ecg-common:/app/packages/ecg-common
       - ./packages/ecg-collector:/app/packages/ecg-collector
-      - ./packages/ecg-collector/config.yaml:/app/config.yaml:ro
+      - ./config/collector.yaml:/app/config.yaml:ro
       - /var/run/dbus:/var/run/dbus:ro
       - ./logs:/logs:rw
     environment:
@@ -79,7 +79,7 @@ services:
     volumes:
       - ./packages/ecg-common:/app/packages/ecg-common
       - ./packages/ecg-collector:/app/packages/ecg-collector
-      - ./packages/ecg-collector/config.yaml:/app/config.yaml:ro
+      - ./config/collector.yaml:/app/config.yaml:ro
       - /dev:/dev  # Mount all devices
       - /run/udev:/run/udev:ro  # For udev device detection
       - /var/run/dbus:/var/run/dbus:ro

@@ -45,8 +45,8 @@ The system is split into two main modules that can run independently:
 
 ```bash
 # 1. Copy and edit collector config
-cp packages/ecg-collector/config.example.yaml packages/ecg-collector/config.yaml
-nano packages/ecg-collector/config.yaml  # set aggregator.host: "aggregator"
+cp config/collector.yaml.example config/collector.yaml
+nano config/collector.yaml  # add your device IDs
 
 # 2. Build images
 ./stack.sh build
@@ -68,10 +68,11 @@ ECG-Streaming/
 ├── packages/
 │   ├── ecg-common/           # Shared models, gRPC protocol, logging
 │   ├── ecg-collector/        # Collector (BLE and USB/ESP32 modes)
-│   │   └── config.example.yaml
 │   ├── ecg-aggregator/       # Aggregator, SQLite storage, WebSocket API
-│   │   └── config.example.yaml
 │   └── ecg-simulator/        # Synthetic collector for testing
+├── config/                   # Runtime configuration
+│   ├── aggregator.yaml
+│   └── collector.yaml.example
 ├── esp32/                    # ESP32-S3 receiver firmware (C, ESP-IDF)
 ├── frontend/                 # SvelteKit web dashboard
 ├── docs/                     # Documentation
@@ -131,19 +132,19 @@ A synthetic collector for testing without physical hardware. Streams mathematica
 ### CLI Tools
 
 ```bash
+# Scan for BLE Polar devices
+./stack.sh ble-scan
+
 # Scan for connected ESP32 devices
 ./stack.sh usb-scan
 
 # Auto-pair ESP32 devices with Polar sensors
 ./stack.sh auto-pair
-
-# Scan for BLE devices
-ecg-collector ble scan
 ```
 
 ## Configuration
 
-See `packages/ecg-collector/config.example.yaml` and `packages/ecg-aggregator/config.example.yaml` for detailed configuration options:
+See `config/collector.yaml.example` and `config/aggregator.yaml` for detailed configuration options:
 
 **Collector:**
 - `device_ids` - List of Polar H10 device IDs

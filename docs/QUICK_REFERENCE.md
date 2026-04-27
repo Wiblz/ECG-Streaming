@@ -13,22 +13,26 @@
 | `./dev.sh install`| Install all packages (dev deps)     |
 | `./dev.sh clean`  | Remove caches and generated files   |
 
-## Stack (`./stack.sh`)
+## Stack (`./stack.sh [--prod]`)
 
-| Command                  | What it does                              |
-|--------------------------|-------------------------------------------|
-| `./stack.sh build`       | Build all Docker images                   |
-| `./stack.sh up`          | Start stack with BLE collector            |
-| `./stack.sh up-usb`      | Start stack with USB collector            |
-| `./stack.sh up-agg`      | Start aggregator + frontend only          |
-| `./stack.sh down`        | Stop all services                         |
-| `./stack.sh logs`        | Follow logs                               |
-| `./stack.sh clean`       | Remove containers and volumes             |
-| `./stack.sh sim [args]`  | Run synthetic simulator                   |
-| `./stack.sh sim-replay`  | Replay a recorded session                 |
-| `./stack.sh sim-sessions`| List recorded sessions                    |
-| `./stack.sh usb-scan`    | Scan for connected ESP32 devices          |
-| `./stack.sh auto-pair`   | Auto-pair ESP32 devices with Polar sensors|
+Pass `--prod` before any command to target the production stack.
+
+| Command                       | What it does                              |
+|-------------------------------|-------------------------------------------|
+| `./stack.sh build`            | Build dev images                          |
+| `./stack.sh --prod build`     | Pull prod images from registry            |
+| `./stack.sh up`               | Start stack with BLE collector            |
+| `./stack.sh up-usb`           | Start stack with USB collector            |
+| `./stack.sh up-agg`           | Start aggregator + frontend only          |
+| `./stack.sh down`             | Stop all services                         |
+| `./stack.sh logs`             | Follow logs                               |
+| `./stack.sh clean`            | Remove containers and volumes             |
+| `./stack.sh sim [args]`       | Run synthetic simulator                   |
+| `./stack.sh sim-replay`       | Replay a recorded session                 |
+| `./stack.sh sim-sessions`     | List recorded sessions                    |
+| `./stack.sh ble-scan`         | Scan for BLE Polar devices                |
+| `./stack.sh usb-scan`         | Scan for connected ESP32 devices          |
+| `./stack.sh auto-pair`        | Auto-pair ESP32 devices with Polar sensors|
 
 ## Simulator options
 

@@ -4,8 +4,8 @@
 
 ```bash
 # 1. Copy and edit config
-cp packages/ecg-collector/config.example.yaml packages/ecg-collector/config.yaml
-vim packages/ecg-collector/config.yaml  # Set aggregator host to "aggregator"
+cp config/collector.yaml.example config/collector.yaml
+vim config/collector.yaml  # Add your device IDs
 
 # 2. Build images
 ./stack.sh build
@@ -36,7 +36,7 @@ open http://localhost:5173
 
 ## Configuration
 
-Edit `packages/ecg-collector/config.yaml`:
+Edit `config/collector.yaml` with your device IDs. See `config/collector.yaml.example` for the full structure.
 
 ```yaml
 # IMPORTANT: Use container name for Docker networking
@@ -74,6 +74,9 @@ aggregator:
 ## Device Utilities
 
 ```bash
+# Scan for BLE Polar devices
+./stack.sh ble-scan
+
 # Scan for connected ESP32 devices
 ./stack.sh usb-scan
 
@@ -100,6 +103,28 @@ Run a synthetic data stream against the aggregator (useful for testing without h
 
 # Replay a session
 ./stack.sh sim-replay 3
+```
+
+## Production Stack
+
+Pass `--prod` before any command to use production images from the registry:
+
+```bash
+# Pull images
+./stack.sh --prod build
+
+# Start
+./stack.sh --prod up-agg
+./stack.sh --prod up-usb
+
+# Stop
+./stack.sh --prod down
+```
+
+Requires a `.env` file with:
+```
+GITHUB_REPOSITORY_OWNER=your-username-lowercase
+IMAGE_TAG=latest
 ```
 
 ## Common Issues
