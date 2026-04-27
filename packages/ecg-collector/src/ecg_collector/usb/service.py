@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import json
 import time
 from typing import cast
 
@@ -19,6 +20,7 @@ from ecg_collector.usb.pairing import PairingManager
 
 logger = get_logger(__name__)
 ble_debug_logger = get_logger("ecg_collector.ble_debug")
+LOCAL_API_PORT = 18765
 EXPECTED_PROTOCOL_VERSION = 4
 type EspOperationalMessage = esp_collector_pb2.EspMessage
 type EspDiscoveryMessage = esp_collector_pb2.EspDiscoveryMessage
@@ -98,6 +100,9 @@ class MultiUsbCollectorService(DataCollector):
         self._scan_name_prefix = "Polar"
         self._last_scan_request_ts = 0.0
         self._pending_scanner_esp_ids: set[str] = set()
+
+        # Local API server
+        self._local_api_server: asyncio.Server | None = None
 
         # Initialize auto-pairing modules
         self._inventory_manager = EspInventoryManager()
@@ -538,6 +543,58 @@ class MultiUsbCollectorService(DataCollector):
         except Exception as e:
             logger.error("Failed to request BLE scan from ESP %s: %s", selected.esp_id, e)
 
+    async def _handle_local_api_request(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        try:
+            first_line = await asyncio.wait_for(reader.readline(), timeout=2.0)
+            parts = first_line.decode().split()
+            path = parts[1] if len(parts) >= 2 else "/"
+
+            if path == "/usb/inventory":
+                esps = [
+                    {
+                        "esp_id": e.esp_id,
+                        "device_path": e.device_path,
+                        "current_target": e.current_target,
+                        "polar_connected": e.polar_connected,
+                        "config_required": e.config_required,
+                        "app_version": e.app_version,
+                        "idf_version": e.idf_version,
+                        "protocol_version": e.protocol_version,
+                        "scanner_active": e.scanner_active,
+                        "polar_battery_known": e.polar_battery_known,
+                        "polar_battery_percent": e.polar_battery_percent,
+                        "last_seen_ts": e.last_seen_ts,
+                    }
+                    for e in self._inventory_manager.esp_inventory.values()
+                ]
+                body = json.dumps({"esps": esps}).encode()
+                writer.write(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                    + str(len(body)).encode()
+                    + b"\r\n\r\n"
+                    + body
+                )
+            else:
+                writer.write(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
+        except Exception:
+            with contextlib.suppress(Exception):
+                writer.write(b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n")
+        finally:
+            with contextlib.suppress(Exception):
+                await writer.drain()
+                writer.close()
+
+    async def _start_local_api(self) -> None:
+        try:
+            self._local_api_server = await asyncio.start_server(
+                self._handle_local_api_request, host="127.0.0.1", port=LOCAL_API_PORT
+            )
+            logger.info("Local API listening on 127.0.0.1:%d", LOCAL_API_PORT)
+        except OSError as e:
+            logger.warning("Could not start local API on port %d: %s", LOCAL_API_PORT, e)
+
     async def start(self) -> None:
         logger.info("Starting multi-USB collector: %s", self.collector_id)
         self.running = True
@@ -564,7 +621,8 @@ class MultiUsbCollectorService(DataCollector):
             )
             logger.info("Started auto-pairing background loops")
 
-            # Start USB discovery loop
+            # Start local API and USB discovery loop
+            await self._start_local_api()
             self._discovery_task = asyncio.create_task(self._discovery_loop())
 
             for device_path in device_paths:
@@ -586,6 +644,12 @@ class MultiUsbCollectorService(DataCollector):
 
     async def stop(self) -> None:
         logger.info("Stopping multi-USB collector")
+
+        if self._local_api_server:
+            self._local_api_server.close()
+            with contextlib.suppress(Exception):
+                await self._local_api_server.wait_closed()
+            self._local_api_server = None
 
         # Stop auto-pairing modules
         await self._inventory_manager.stop()

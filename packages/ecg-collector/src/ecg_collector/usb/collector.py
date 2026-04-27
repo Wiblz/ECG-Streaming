@@ -531,10 +531,16 @@ async def probe_usb_device(
                     break
 
                 frame_bytes = bytes(buffer[4 : 4 + frame_length])
+
+                try:
+                    usb_frame = usb_transport_pb2.UsbFrame()
+                    usb_frame.ParseFromString(frame_bytes)
+                except Exception:
+                    buffer.pop(0)
+                    continue
+
                 del buffer[: 4 + frame_length]
 
-                usb_frame = usb_transport_pb2.UsbFrame()
-                usb_frame.ParseFromString(frame_bytes)
                 computed_crc = zlib.crc32(usb_frame.payload) & 0xFFFFFFFF
                 if computed_crc != usb_frame.crc32:
                     continue
@@ -542,8 +548,11 @@ async def probe_usb_device(
                 if usb_frame.payload_type != usb_transport_pb2.USB_PAYLOAD_TYPE_ESP_MESSAGE:
                     continue
 
-                esp_msg = esp_collector_pb2.EspMessage()
-                esp_msg.ParseFromString(usb_frame.payload)
+                try:
+                    esp_msg = esp_collector_pb2.EspMessage()
+                    esp_msg.ParseFromString(usb_frame.payload)
+                except Exception:
+                    continue
                 msg_type = esp_msg.WhichOneof("message")
 
                 if msg_type == "device_info":

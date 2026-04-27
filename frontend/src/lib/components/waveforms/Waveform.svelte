@@ -513,7 +513,7 @@
     <WaveformPlot
       data={plotData}
       options={plotOptions}
-      plotClass="border border-border rounded-lg"
+      plotClass="min-h-[400px] border border-border rounded-lg"
       onReady={(api) => {
         chartApi = api;
       }}

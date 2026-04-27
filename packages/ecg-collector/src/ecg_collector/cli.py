@@ -2,8 +2,11 @@
 
 import asyncio
 import contextlib
+import json
 import sys
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -217,6 +220,22 @@ def usb_scan(
     console.print("[blue]Scanning for USB devices...[/blue]")
 
     async def _scan() -> None:
+        from ecg_collector.usb.service import LOCAL_API_PORT
+
+        # Try to fetch live inventory from a running collector first
+        live_esps: dict[str, dict] = {}
+        try:
+            resp = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: urllib.request.urlopen(
+                    f"http://127.0.0.1:{LOCAL_API_PORT}/usb/inventory", timeout=1
+                ),
+            )
+            data = json.loads(resp.read())
+            live_esps = {e["device_path"]: e for e in data.get("esps", [])}
+        except urllib.error.URLError, OSError, KeyError:
+            pass
+
         # Discover device groups
         device_groups = await discover_and_group_usb_interfaces()
 
@@ -226,7 +245,10 @@ def usb_scan(
 
         # Create table structure
         def create_table() -> Table:
-            table = Table(title="USB Devices Found")
+            title = "USB Devices Found"
+            if live_esps:
+                title += " [dim](live from collector)[/dim]"
+            table = Table(title=title)
             table.add_column("Physical Device", style="cyan", no_wrap=True)
             table.add_column("Iface", style="dim", no_wrap=True)
             table.add_column("Device Path", style="green")
@@ -281,8 +303,18 @@ def usb_scan(
                 polar = ""
                 config = ""
 
-                # Extract device info if received
-                if group.device_info:
+                # Prefer live data from running collector over probe results
+                data_path = group.data_interface.device_path if group.data_interface else None
+                live = live_esps.get(data_path) if data_path else None
+
+                if live:
+                    esp_id = live.get("esp_id", "")
+                    target = live.get("current_target") or "<unassigned>"
+                    app = live.get("app_version", "")
+                    proto = str(live.get("protocol_version", ""))
+                    polar = "Connected" if live.get("polar_connected") else "Disconnected"
+                    config = "Unconfigured" if live.get("config_required") else "Configured"
+                elif group.device_info:
                     esp_id = group.device_info.esp_id
                     target = group.device_info.current_target or "<unassigned>"
                     app = group.device_info.app_version
@@ -292,9 +324,12 @@ def usb_scan(
 
                 # Add data interface row
                 if group.data_interface:
-                    status_display = get_status_display(
-                        group.probe_status, group.error_message, group.partial_info
-                    )
+                    if live:
+                        status_display = "[green]Live[/green]"
+                    else:
+                        status_display = get_status_display(
+                            group.probe_status, group.error_message, group.partial_info
+                        )
                     table.add_row(
                         physical_device_display,
                         "DATA",
@@ -312,7 +347,9 @@ def usb_scan(
                 if group.log_interface:
                     log_status = "[blue]Available[/blue]"
                     # Show ESP ID in log row if we got device_info from data interface
-                    log_esp_id = esp_id if group.probe_status == ProbeStatus.RECEIVED else ""
+                    log_esp_id = (
+                        esp_id if (live or group.probe_status == ProbeStatus.RECEIVED) else ""
+                    )
                     table.add_row(
                         "",  # Empty for grouped display
                         "LOG",
@@ -328,19 +365,27 @@ def usb_scan(
 
             return table
 
-        # Display live-updating table during probing
-        with Live(update_table(), console=console, refresh_per_second=4) as live:
-            await probe_usb_groups(
-                device_groups,
-                timeout_s=timeout,
-                on_update=lambda group_key, group: live.update(update_table()),
-            )
+        if live_esps:
+            # Collector is running — display immediately without probing
+            console.print(update_table())
+        else:
+            # No collector running — probe ports as before
+            with Live(update_table(), console=console, refresh_per_second=4) as live:
+                await probe_usb_groups(
+                    device_groups,
+                    timeout_s=timeout,
+                    on_update=lambda group_key, group: live.update(update_table()),
+                )
 
-        app_versions = {
-            g.device_info.app_version
-            for g in device_groups.values()
-            if g.device_info and g.device_info.app_version
-        }
+        app_versions: set[str] = set()
+        if live_esps:
+            app_versions = {e["app_version"] for e in live_esps.values() if e.get("app_version")}
+        else:
+            app_versions = {
+                g.device_info.app_version
+                for g in device_groups.values()
+                if g.device_info and g.device_info.app_version
+            }
         if len(app_versions) > 1:
             console.print(
                 f"[yellow]Warning: multiple ESP app versions detected: {', '.join(sorted(app_versions))}[/yellow]"
@@ -350,7 +395,12 @@ def usb_scan(
         total_devices = len(device_groups)
         data_interfaces = sum(1 for g in device_groups.values() if g.data_interface)
         log_interfaces = sum(1 for g in device_groups.values() if g.log_interface)
-        received = sum(1 for g in device_groups.values() if g.probe_status == ProbeStatus.RECEIVED)
+        if live_esps:
+            received = len(live_esps)
+        else:
+            received = sum(
+                1 for g in device_groups.values() if g.probe_status == ProbeStatus.RECEIVED
+            )
 
         console.print(
             f"\n[green]Found {total_devices} physical device(s)[/green] "
