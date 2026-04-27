@@ -1,8 +1,13 @@
-# Production Docker Compose - optimized builds (no hot reload)
+name: ecg-streaming-prod
+
+# Docker Compose - Production Environment
+# Uses optimized builds, named volumes, no hot reload
+#
 # Usage:
-#   make docker-prod-build     # Build production images
-#   make docker-prod-usb       # Start with USB collector
-#   make docker-prod           # Start with BLE collector
+#   ./stack.sh build-prod      # Build production images
+#   ./stack.sh up-prod         # Start with BLE collector
+#   ./stack.sh up-prod-usb     # Start with USB collector
+#   ./stack.sh up-prod-agg     # Aggregator + frontend only
 
 services:
   aggregator:
@@ -10,12 +15,12 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.aggregator
-    container_name: ecg-aggregator
+    container_name: ecg-aggregator-prod
     ports:
       - "50051:50051"
       - "7999:7999"
     volumes:
-      - aggregator-data:/data
+      - ./data:/data
       - ./packages/ecg-aggregator/config.yaml:/app/config.yaml:ro
       - ./logs:/logs:rw
     environment:
@@ -34,7 +39,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.collector
-    container_name: ecg-collector-ble
+    container_name: ecg-collector-ble-prod
     profiles:
       - ble
     depends_on:
@@ -57,20 +62,18 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.collector
-    container_name: ecg-collector-usb
+    container_name: ecg-collector-usb-prod
     profiles:
       - usb
     depends_on:
       aggregator:
         condition: service_healthy
-    devices:
-      - /dev/ttyACM0:/dev/ttyACM0
-      - /dev/ttyACM1:/dev/ttyACM1
-      - /dev/ttyACM2:/dev/ttyACM2
-      - /dev/ttyACM3:/dev/ttyACM3
+    privileged: true
     volumes:
       - ./packages/ecg-collector/config.yaml:/app/config.yaml:ro
+      - /dev:/dev
       - /run/udev:/run/udev:ro
+      - /var/run/dbus:/var/run/dbus:ro
       - ./logs:/logs:rw
     environment:
       - PYTHONUNBUFFERED=1
@@ -82,7 +85,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.frontend
-    container_name: ecg-frontend
+    container_name: ecg-frontend-prod
     depends_on:
       - aggregator
     ports:
@@ -92,10 +95,6 @@ services:
       - PUBLIC_AGGREGATOR_URL=http://localhost:7999
     restart: unless-stopped
 
-volumes:
-  aggregator-data:
-    driver: local
-
 networks:
   default:
-    name: ecg-network
+    name: ecg-network-prod

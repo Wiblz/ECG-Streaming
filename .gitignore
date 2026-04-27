@@ -56,3 +56,6 @@ logs/
 data/*
 !data/.gitkeep
 recordings/
+
+# Deployment-specific collector config (contains device IDs)
+packages/ecg-collector/config.yaml

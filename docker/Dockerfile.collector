@@ -25,9 +25,9 @@ COPY pyproject.toml /app/
 # Install dependencies
 # Use service-specific cache mount to avoid lock contention with aggregator
 RUN --mount=type=cache,target=/root/.cache/uv-collector \
-    uv pip install --system -e "packages/ecg-common[dev]"
+    uv pip install --system packages/ecg-common
 RUN --mount=type=cache,target=/root/.cache/uv-collector \
-    uv pip install --system -e "packages/ecg-collector[dev]"
+    uv pip install --system packages/ecg-collector
 
 # Default command (can be overridden)
 # Note: For USB mode, requires --device flag in docker run

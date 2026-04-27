@@ -20,9 +20,9 @@ COPY pyproject.toml /app/
 # Install dependencies
 # Use service-specific cache mount to avoid lock contention with collector
 RUN --mount=type=cache,target=/root/.cache/uv-aggregator \
-    uv pip install --system -e packages/ecg-common
+    uv pip install --system packages/ecg-common
 RUN --mount=type=cache,target=/root/.cache/uv-aggregator \
-    uv pip install --system -e packages/ecg-aggregator
+    uv pip install --system packages/ecg-aggregator
 
 # Expose ports (gRPC and HTTP API)
 EXPOSE 50051 7999

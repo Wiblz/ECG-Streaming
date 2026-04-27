@@ -2,14 +2,9 @@
 # Uses dev Dockerfiles with hot reload enabled
 #
 # Usage:
-#   docker compose --profile ble up      # BLE collector
-#   docker compose --profile usb up      # USB collector
-#   docker compose up                    # No collector (aggregator + frontend only)
-#
-# Or use Make commands:
-#   make docker-up          # BLE collector
-#   make docker-up-usb      # USB collector
-#   make docker-up-aggregator # No collector
+#   ./stack.sh up        # Start with BLE collector
+#   ./stack.sh up-usb    # Start with USB collector
+#   ./stack.sh up-agg    # Aggregator + frontend only
 
 services:
   # ECG Aggregator - gRPC Server with SQLite database
