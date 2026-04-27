@@ -9,7 +9,7 @@ from typing import Annotated, Literal
 
 import typer
 from ecg_common import __version__
-from ecg_common.logging import get_run_log_paths, setup_logging
+from ecg_common.logging import setup_logging
 from rich.console import Console
 from rich.live import Live
 from rich.table import Table
@@ -139,14 +139,10 @@ def ble_run(
         console.print(f"[red]Failed to load configuration: {e}[/red]")
         sys.exit(1)
 
-    # Setup logging with per-run timestamped files
-    log_file, ble_debug_file = get_run_log_paths(
-        settings.logging.file, settings.logging.ble_debug_file, "collector"
-    )
     setup_logging(
         level=settings.logging.level,
-        log_file=log_file,
-        ble_debug_file=ble_debug_file,
+        log_file=settings.logging.file,
+        ble_debug_file=settings.logging.ble_debug_file,
         log_format=settings.logging.format,
     )
 
@@ -206,10 +202,9 @@ def usb_scan(
     except Exception:
         settings = CollectorSettings()
 
-    log_file, _ = get_run_log_paths(settings.logging.file, None, "collector")
     setup_logging(
         level=settings.logging.level,
-        log_file=log_file,
+        log_file=settings.logging.file,
         log_format=settings.logging.format,
         console=False,  # Disable console logging to avoid interfering with Live display
     )
@@ -399,13 +394,10 @@ def usb_run(
         console.print(f"[red]Failed to load configuration: {e}[/red]")
         settings = CollectorSettings()
 
-    log_file, ble_debug_file = get_run_log_paths(
-        settings.logging.file, settings.logging.ble_debug_file, "collector"
-    )
     setup_logging(
         level=settings.logging.level,
-        log_file=log_file,
-        ble_debug_file=ble_debug_file,
+        log_file=settings.logging.file,
+        ble_debug_file=settings.logging.ble_debug_file,
         log_format=settings.logging.format,
     )
 
@@ -587,10 +579,9 @@ def usb_auto_pair(
         return
 
     # Setup logging so probe logs go to file
-    log_file, _ = get_run_log_paths(settings.logging.file, None, "collector")
     setup_logging(
         level=settings.logging.level,
-        log_file=log_file,
+        log_file=settings.logging.file,
         log_format=settings.logging.format,
         console=False,  # Disable console logging to avoid interfering with Live display
     )

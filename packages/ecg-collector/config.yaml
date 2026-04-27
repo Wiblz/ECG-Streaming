@@ -87,8 +87,8 @@ logging:
   #  level: "DEBUG"                 # DEBUG, INFO, WARNING, ERROR, CRITICAL
   level: "INFO"                 # DEBUG, INFO, WARNING, ERROR, CRITICAL
   format: "detailed"             # simple or detailed
-  file: "/tmp/ecg-collector.log" # Optional log file path
-  ble_debug_file: "/tmp/ecg-ble-debug.log" # Optional BLE debug log file path
+  file: "/logs/ecg-collector.log" # Optional log file path (rotated at 10MB, 3 backups)
+  ble_debug_file: "/logs/ecg-ble-debug.log" # Optional BLE debug log file path (rotated at 10MB, 3 backups)
 
 # USB configuration
 usb:

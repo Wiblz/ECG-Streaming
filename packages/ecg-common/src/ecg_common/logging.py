@@ -2,8 +2,10 @@
 
 import json
 import logging
+import os
 import sys
 from datetime import UTC, datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 
@@ -27,15 +29,19 @@ def setup_logging(
     ble_debug_file: Path | None = None,
     log_format: str = "detailed",
     console: bool = True,
+    max_bytes: int = 10 * 1024 * 1024,
+    backup_count: int = 3,
 ) -> None:
     """Configure application-wide logging.
 
     Args:
         level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-        log_file: Optional path to log file
+        log_file: Optional path to log file (stable filename, rotated by size)
         ble_debug_file: Optional path to BLE debug log file
         log_format: Format style - "simple" or "detailed"
         console: Enable console logging (set to False when using rich Live displays)
+        max_bytes: Max log file size before rotation (default 10MB)
+        backup_count: Number of rotated backup files to keep (default 3)
     """
     # Define log formats
     formats = {
@@ -71,18 +77,35 @@ def setup_logging(
         console_handler.setFormatter(formatter)
         root_logger.addHandler(console_handler)
 
-    # File handler (optional)
+    # File handler (optional) — rotating by size, stable filename
     if log_file:
         log_file.parent.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setLevel(logging.DEBUG)  # Always log everything to file
+        file_handler = RotatingFileHandler(
+            log_file,
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            encoding="utf-8",
+        )
+        file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
+        # Write a run separator so distinct runs are visible within the file
+        run_marker = (
+            f"\n{'=' * 60}\n"
+            f"  RUN START  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  pid={os.getpid()}\n"
+            f"{'=' * 60}"
+        )
+        root_logger.info(run_marker)
 
-    # BLE debug file handler (optional)
+    # BLE debug file handler (optional) — rotating by size, stable filename
     if ble_debug_file:
         ble_debug_file.parent.mkdir(parents=True, exist_ok=True)
-        ble_debug_handler = logging.FileHandler(ble_debug_file)
+        ble_debug_handler = RotatingFileHandler(
+            ble_debug_file,
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            encoding="utf-8",
+        )
         ble_debug_handler.setLevel(logging.DEBUG)
         ble_debug_handler.setFormatter(JsonLineFormatter())
         ble_logger = logging.getLogger("ecg_collector.ble_debug")
@@ -109,36 +132,3 @@ def get_logger(name: str) -> logging.Logger:
         Configured logger instance
     """
     return logging.getLogger(name)
-
-
-def get_run_log_paths(
-    log_file: Path | None,
-    ble_debug_file: Path | None,
-    run_label: str,
-) -> tuple[Path | None, Path | None]:
-    """Create timestamped log paths for this run.
-
-    If a log path is provided, append -{run_label}-{timestamp} before the suffix.
-    If a directory path is provided, create a file named {run_label}-{timestamp}.log
-    inside that directory.
-    """
-    if log_file is None and ble_debug_file is None:
-        return None, None
-
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-
-    def _stamp(path: Path | None, default_suffix: str) -> Path | None:
-        if path is None:
-            return None
-        path = Path(path)
-        path_str = str(path)
-
-        if path.exists() and path.is_dir() or path_str.endswith(("/", "\\")):
-            filename = f"{run_label}-{timestamp}{default_suffix}"
-            return path / filename
-
-        suffix = path.suffix or default_suffix
-        stem = path.stem if path.suffix else path.name
-        return path.with_name(f"{stem}-{run_label}-{timestamp}{suffix}")
-
-    return _stamp(log_file, ".log"), _stamp(ble_debug_file, ".log")

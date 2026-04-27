@@ -17,7 +17,7 @@ services:
     volumes:
       - aggregator-data:/data
       - ./packages/ecg-aggregator/config.yaml:/app/config.yaml:ro
-      - ./logs:/tmp:rw  # Mount logs directory for persistence
+      - ./logs:/logs:rw
     environment:
       - PYTHONUNBUFFERED=1
       - ECG_AGGREGATOR_STORAGE__DATABASE_PATH=/data/ecg_data.db
@@ -45,7 +45,7 @@ services:
     volumes:
       - ./packages/ecg-collector/config.yaml:/app/config.yaml:ro
       - /var/run/dbus:/var/run/dbus:ro
-      - ./logs:/tmp:rw  # Mount logs directory for persistence
+      - ./logs:/logs:rw
     environment:
       - PYTHONUNBUFFERED=1
       - ECG_COLLECTOR_AGGREGATOR__HOST=localhost
@@ -71,7 +71,7 @@ services:
     volumes:
       - ./packages/ecg-collector/config.yaml:/app/config.yaml:ro
       - /run/udev:/run/udev:ro
-      - ./logs:/tmp:rw  # Mount logs directory for persistence
+      - ./logs:/logs:rw
     environment:
       - PYTHONUNBUFFERED=1
     command: ["ecg-collector", "usb", "run", "--config", "/app/config.yaml"]

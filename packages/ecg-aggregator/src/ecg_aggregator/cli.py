@@ -11,7 +11,7 @@ from typing import Annotated
 
 import typer
 from ecg_common import __version__
-from ecg_common.logging import get_logger, get_run_log_paths, setup_logging
+from ecg_common.logging import get_logger, setup_logging
 from rich.console import Console
 from rich.layout import Layout
 from rich.live import Live
@@ -268,14 +268,10 @@ def run(
         console.print(f"[red]✗[/red] Failed to load configuration: {e}")
         raise typer.Exit(1) from e
 
-    # Setup logging with per-run timestamped files
-    log_file, ble_debug_file = get_run_log_paths(
-        settings.logging.file, settings.logging.ble_debug_file, "aggregator"
-    )
     setup_logging(
         level=settings.logging.level,
-        log_file=log_file,
-        ble_debug_file=ble_debug_file,
+        log_file=settings.logging.file,
+        ble_debug_file=settings.logging.ble_debug_file,
         log_format=settings.logging.format,
     )
     uvicorn_error = logging.getLogger("uvicorn.error")

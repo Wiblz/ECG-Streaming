@@ -26,7 +26,7 @@ services:
       - ./packages/ecg-aggregator:/app/packages/ecg-aggregator
       - ./data:/data
       - ./packages/ecg-aggregator/config.yaml:/app/config.yaml:ro
-      - ./logs:/tmp:rw  # Mount logs directory for persistence
+      - ./logs:/logs:rw
     environment:
       - PYTHONUNBUFFERED=1
       - ECG_AGGREGATOR_STORAGE__DATABASE_PATH=/data/ecg_data.db
@@ -59,7 +59,7 @@ services:
       - ./packages/ecg-collector:/app/packages/ecg-collector
       - ./packages/ecg-collector/config.yaml:/app/config.yaml:ro
       - /var/run/dbus:/var/run/dbus:ro
-      - ./logs:/tmp:rw  # Mount logs directory for persistence
+      - ./logs:/logs:rw
     environment:
       - PYTHONUNBUFFERED=1
       - ECG_COLLECTOR_AGGREGATOR__HOST=localhost
@@ -88,7 +88,7 @@ services:
       - /dev:/dev  # Mount all devices
       - /run/udev:/run/udev:ro  # For udev device detection
       - /var/run/dbus:/var/run/dbus:ro
-      - ./logs:/tmp:rw  # Mount logs directory for persistence
+      - ./logs:/logs:rw
     environment:
       - PYTHONUNBUFFERED=1
       - ECG_COLLECTOR_AGGREGATOR__HOST=localhost

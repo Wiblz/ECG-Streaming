@@ -30,5 +30,6 @@ buffer:
 # Logging
 logging:
   level: "INFO"                 # DEBUG, INFO, WARNING, ERROR, CRITICAL
+#  level: "DEBUG"                 # DEBUG, INFO, WARNING, ERROR, CRITICAL
   format: "detailed"             # simple or detailed
-  file: "/tmp/ecg-aggregator.log" # Optional log file path
+  file: "/logs/ecg-aggregator.log" # Optional log file path (rotated at 10MB, 3 backups)
