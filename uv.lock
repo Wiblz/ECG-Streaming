@@ -104,7 +104,7 @@ wheels = [
 
 [[package]]
 name = "ecg-aggregator"
-version = "0.4.0"
+version = "0.5.0"
 source = { editable = "packages/ecg-aggregator" }
 dependencies = [
     { name = "ecg-common" },
@@ -156,7 +156,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "ecg-collector"
-version = "0.4.0"
+version = "0.5.0"
 source = { editable = "packages/ecg-collector" }
 dependencies = [
     { name = "bleak" },
@@ -204,21 +204,21 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "ecg-common"
-version = "0.4.0"
+version = "0.5.0"
 source = { editable = "packages/ecg-common" }
 dependencies = [
     { name = "grpcio" },
-    { name = "grpcio-tools" },
-    { name = "nanopb" },
     { name = "protobuf" },
-    { name = "protoletariat" },
     { name = "pydantic" },
     { name = "pyyaml" },
 ]
 
 [package.optional-dependencies]
 dev = [
+    { name = "grpcio-tools" },
     { name = "mypy" },
+    { name = "nanopb" },
+    { name = "protoletariat" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -226,11 +226,11 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "grpcio", specifier = ">=1.68.0" },
-    { name = "grpcio-tools", specifier = ">=1.68.0" },
+    { name = "grpcio-tools", marker = "extra == 'dev'", specifier = ">=1.68.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13.0" },
-    { name = "nanopb", specifier = ">=0.4.9.1" },
+    { name = "nanopb", marker = "extra == 'dev'", specifier = ">=0.4.9.1" },
     { name = "protobuf", specifier = ">=5.29.0" },
-    { name = "protoletariat", specifier = ">=3.2.0" },
+    { name = "protoletariat", marker = "extra == 'dev'", specifier = ">=3.2.0" },
     { name = "pydantic", specifier = ">=2.10.3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.4" },
     { name = "pyyaml", specifier = ">=6.0.2" },
@@ -240,7 +240,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "ecg-simulator"
-version = "0.1.0"
+version = "0.5.0"
 source = { editable = "packages/ecg-simulator" }
 dependencies = [
     { name = "ecg-common" },

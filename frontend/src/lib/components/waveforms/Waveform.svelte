@@ -459,9 +459,21 @@
     });
 
     rebuildPlotOptions(plotDevices);
+
+    themeObserver = new MutationObserver(() => {
+      plotOptionsKey = '';
+      rebuildPlotOptions(plotDevices);
+    });
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme']
+    });
   });
 
+  let themeObserver: MutationObserver | null = null;
+
   onDestroy(() => {
+    themeObserver?.disconnect();
     if (fetchTimeout) {
       clearTimeout(fetchTimeout);
     }

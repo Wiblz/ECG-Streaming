@@ -8,10 +8,7 @@ dependencies = [
     "pydantic>=2.10.3",
     "pyyaml>=6.0.2",
     "grpcio>=1.68.0",
-    "grpcio-tools>=1.68.0",
     "protobuf>=5.29.0",
-    "protoletariat>=3.2.0",
-    "nanopb>=0.4.9.1",
 ]
 
 [project.optional-dependencies]
@@ -19,6 +16,9 @@ dev = [
     "pytest>=8.3.4",
     "ruff>=0.8.4",
     "mypy>=1.13.0",
+    "grpcio-tools>=1.68.0",
+    "protoletariat>=3.2.0",
+    "nanopb>=0.4.9.1",
 ]
 
 [build-system]
