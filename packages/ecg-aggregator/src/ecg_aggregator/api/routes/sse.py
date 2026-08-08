@@ -51,7 +51,11 @@ async def status_events(
         yield ServerSentEvent(data=initial_stats, event="buffer_stats")
 
         # Seed current collector states so clients catch up if collectors were already connected
-        for collector in runtime.collector_query_service.list_collectors():
+        loop = asyncio.get_running_loop()
+        collectors = await loop.run_in_executor(
+            None, runtime.collector_query_service.list_collectors
+        )
+        for collector in collectors:
             sse_status: CollectorStatus = (
                 "DISCONNECTED" if collector.health == "disconnected" else "HEALTHY"
             )

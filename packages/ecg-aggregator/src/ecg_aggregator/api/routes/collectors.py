@@ -1,5 +1,6 @@
 """Collector HTTP routes."""
 
+import asyncio
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
@@ -16,6 +17,10 @@ async def get_collectors(
     runtime: Annotated[ApplicationRuntime, Depends(get_runtime)],
 ) -> CollectorsResponse:
     """Get all collectors, both connected and known from the database."""
+    loop = asyncio.get_running_loop()
+    collector_dtos = await loop.run_in_executor(
+        None, runtime.collector_query_service.list_collectors
+    )
     collectors = [
         CollectorInfo(
             collector_id=dto.collector_id,
@@ -31,6 +36,6 @@ async def get_collectors(
             health=dto.health,
             connected=dto.connected,
         )
-        for dto in runtime.collector_query_service.list_collectors()
+        for dto in collector_dtos
     ]
     return CollectorsResponse(collectors=collectors)

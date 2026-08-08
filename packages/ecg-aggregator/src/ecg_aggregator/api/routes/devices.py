@@ -1,5 +1,7 @@
 """Device HTTP routes."""
 
+import asyncio
+from functools import partial
 from typing import Annotated
 
 from ecg_common import DeviceStatus
@@ -81,17 +83,22 @@ async def get_all_devices(
     sort_order: SortOrder = SortOrder.DESC,
 ) -> DevicesAllResponse:
     """Get all known devices, including disconnected ones."""
-    result = runtime.device_query_service.list_all_devices(
-        limit=pagination.limit,
-        offset=pagination.offset,
-        search=search,
-        sync_ready=sync_ready,
-        show_simulated=show_simulated,
-        status=status,
-        collector_id=collector_id,
-        has_nickname=has_nickname,
-        sort_by=sort_by,
-        sort_order=sort_order,
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(
+        None,
+        partial(
+            runtime.device_query_service.list_all_devices,
+            limit=pagination.limit,
+            offset=pagination.offset,
+            search=search,
+            sync_ready=sync_ready,
+            show_simulated=show_simulated,
+            status=status,
+            collector_id=collector_id,
+            has_nickname=has_nickname,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        ),
     )
     paginated_devices = [DeviceInfo.model_validate(device.model_dump()) for device in result.items]
     return DevicesAllResponse(
@@ -110,7 +117,10 @@ async def update_device_nickname(
     runtime: Annotated[ApplicationRuntime, Depends(get_runtime)],
 ) -> UpdateNicknameResponse:
     """Update a device's nickname."""
-    success = runtime.device_query_service.update_device_nickname(device_id, update.nickname)
+    loop = asyncio.get_running_loop()
+    success = await loop.run_in_executor(
+        None, runtime.device_query_service.update_device_nickname, device_id, update.nickname
+    )
     if success:
         return UpdateNicknameResponse(
             success=True,
