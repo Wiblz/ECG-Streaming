@@ -66,14 +66,14 @@ class ManagedDevice:
             return False
 
         # Calculate backoff delay: 2^retry_count seconds, capped at max_retry_delay
-        delay = min(float(2**self.retry_count), self.max_retry_delay)
+        delay = self.get_retry_delay()
         time_since_attempt = time.time() - self.last_connection_attempt
 
         return bool(time_since_attempt >= delay)
 
     def get_retry_delay(self) -> float:
         """Get current retry delay in seconds."""
-        return float(min(2**self.retry_count, self.max_retry_delay))
+        return min(2.0 ** min(self.retry_count, 30), self.max_retry_delay)
 
 
 class DeviceStateManager:
@@ -196,6 +196,12 @@ class DeviceStateManager:
         ):
             logger.warning(f"Device {device.device_id} disconnected unexpectedly")
             await self._handle_disconnection(device)
+
+        # Connected but not streaming means a start_streaming attempt failed;
+        # without this retry the device would stay silent until it disconnects.
+        elif device.state == DeviceConnectionState.CONNECTED:
+            logger.info(f"Device {device.device_id} connected but not streaming, retrying stream")
+            await self._start_streaming(device)
 
     async def _attempt_connection(self, device: ManagedDevice) -> None:
         """Attempt to connect to a device.

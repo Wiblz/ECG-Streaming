@@ -177,8 +177,12 @@ class ReplayCollector:
         for task in self._tasks[1:]:
             task.cancel()
         for task in self._tasks[1:]:
-            with contextlib.suppress(asyncio.CancelledError):
+            try:
                 await task
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                console.print(f"[dim]{self.collector_id} task error during stop: {exc}[/dim]")
 
         self._drain_pending_messages()
 
@@ -188,8 +192,12 @@ class ReplayCollector:
         await self._message_queue.put(None)
 
         if self._tasks:
-            with contextlib.suppress(asyncio.CancelledError):
+            try:
                 await self._tasks[0]
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                console.print(f"[dim]{self.collector_id} stream error during stop: {exc}[/dim]")
 
         if self._channel is not None:
             await self._channel.close()
@@ -345,7 +353,8 @@ class ReplayCollector:
                     proto_samples = [
                         common_pb2.ECGSample(
                             value=row["raw_value"],
-                            polar_clock_us=int(row["device_timestamp"] * 1_000_000),
+                            # device_timestamp is stored in microseconds already
+                            polar_clock_us=int(row["device_timestamp"]),
                             device_id=device.device_id,
                             wall_clock_us=now_us,
                             receiver_clock_us=row["receiver_clock_us"] or now_us,
@@ -438,7 +447,7 @@ class ReplayCollector:
                             x=row["x"],
                             y=row["y"],
                             z=row["z"],
-                            polar_clock_us=int(row["device_timestamp"] * 1_000_000),
+                            polar_clock_us=int(row["device_timestamp"]),
                             device_id=device.device_id,
                             wall_clock_us=now_us,
                             receiver_clock_us=row["receiver_clock_us"] or now_us,

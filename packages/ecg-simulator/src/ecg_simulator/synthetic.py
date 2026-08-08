@@ -81,8 +81,12 @@ class SimulatedCollector:
             task.cancel()
 
         for task in self._tasks[1:]:
-            with contextlib.suppress(asyncio.CancelledError):
+            try:
                 await task
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                console.print(f"[dim]{self.collector_id} task error during stop: {exc}[/dim]")
 
         self._drain_pending_messages()
 
@@ -92,8 +96,12 @@ class SimulatedCollector:
         await self._message_queue.put(None)
 
         if self._tasks:
-            with contextlib.suppress(asyncio.CancelledError):
+            try:
                 await self._tasks[0]
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                console.print(f"[dim]{self.collector_id} stream error during stop: {exc}[/dim]")
 
         if self._channel is not None:
             await self._channel.close()
