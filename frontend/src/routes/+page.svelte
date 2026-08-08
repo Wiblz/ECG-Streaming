@@ -28,6 +28,12 @@
   }
 
   onMount(async () => {
+    ecgWs = new ECGWebSocket();
+    ecgWs.connect();
+
+    accWs = new AccelerometerWebSocket();
+    accWs.connect();
+
     // Load device info with nicknames
     try {
       const response = await api.getAllDevices();
@@ -35,12 +41,6 @@
     } catch (e) {
       console.error('Failed to load device info:', e);
     }
-
-    ecgWs = new ECGWebSocket();
-    ecgWs.connect();
-
-    accWs = new AccelerometerWebSocket();
-    accWs.connect();
   });
 
   onDestroy(() => {

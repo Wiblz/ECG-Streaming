@@ -11,6 +11,7 @@
   import CollectorTypeIcon from '$lib/components/ui/CollectorTypeIcon.svelte';
   import DeviceStatusBadge from '$lib/components/ui/DeviceStatusBadge.svelte';
   import { Bot, Plug, Pencil, CheckCheck } from 'lucide-svelte';
+  import { SvelteURLSearchParams } from 'svelte/reactivity';
   import type { PageProps } from './$types';
 
   let { data }: PageProps = $props();
@@ -37,7 +38,7 @@
     sort_order?: string;
     show_simulated?: boolean;
   }) {
-    const params = new URLSearchParams(page.url.searchParams);
+    const params = new SvelteURLSearchParams(page.url.searchParams);
     for (const [key, value] of Object.entries(updates)) {
       if (value === 'all' || value === null || value === undefined) {
         params.delete(key);
@@ -58,7 +59,7 @@
   const totalPages = $derived(Math.ceil(total / limit));
 
   function goToPage(pageNum: number) {
-    const params = new URLSearchParams(page.url.searchParams);
+    const params = new SvelteURLSearchParams(page.url.searchParams);
     params.set('limit', String(limit));
     params.set('offset', String((pageNum - 1) * limit));
     goto(`?${params.toString()}`);

@@ -54,11 +54,15 @@ export class ECGWebSocket {
       };
 
       this.ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
-        if (msg.type === 'init') {
-          this.handleInit(msg as InitMessage);
-        } else if (msg.type === 'data') {
-          this.handleData(msg as DataMessage);
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'init') {
+            this.handleInit(msg as InitMessage);
+          } else if (msg.type === 'data') {
+            this.handleData(msg as DataMessage);
+          }
+        } catch (err) {
+          console.error('[WebSocket] Error parsing message:', err);
         }
       };
 
@@ -82,9 +86,9 @@ export class ECGWebSocket {
   }
 
   private handleInit(msg: InitMessage) {
-    // Merge devices from init message (preserves existing data like nicknames)
+    // Merge devices from init message (preserves existing data like nicknames and sync_ready)
     msg.devices.forEach((deviceId) => {
-      mergeDevice(deviceId, { sync_ready: false });
+      mergeDevice(deviceId, {});
     });
   }
 

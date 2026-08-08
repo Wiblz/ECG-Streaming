@@ -1,10 +1,6 @@
 import { addSamples } from '$lib/state/acc-data';
 import { ConnectionState, setAccWsError, setAccWsState } from '$lib/state/websocket.svelte';
-import type {
-  AccelerometerDataMessage,
-  BufferedAccelerometerSample,
-  InitMessage
-} from '$lib/types/api';
+import type { AccelerometerDataMessage, BufferedAccelerometerSample } from '$lib/types/api';
 import { flattenGroupedSamples } from '$lib/utils/samples';
 
 const DEFAULT_PATH = '/ws/accelerometer';
@@ -60,11 +56,15 @@ export class AccelerometerWebSocket {
       };
 
       this.ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
-        if (msg.type === 'init') {
-          this.handleInit(msg as InitMessage);
-        } else if (msg.type === 'data') {
-          this.handleData(msg as AccelerometerDataMessage);
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'init') {
+            this.handleInit();
+          } else if (msg.type === 'data') {
+            this.handleData(msg as AccelerometerDataMessage);
+          }
+        } catch (err) {
+          console.error('[AccelerometerWebSocket] Error parsing message:', err);
         }
       };
 
@@ -87,7 +87,7 @@ export class AccelerometerWebSocket {
     }
   }
 
-  private handleInit(_msg: InitMessage) {
+  private handleInit() {
     // Devices are already initialized by ECG WebSocket
   }
 

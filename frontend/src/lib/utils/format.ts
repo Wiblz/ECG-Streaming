@@ -30,7 +30,7 @@ export function formatUptime(seconds: number): string {
   if (seconds < 3600) {
     return `${d.minutes()}m`;
   }
-  const hours = d.hours();
+  const hours = Math.floor(d.asHours());
   const minutes = d.minutes();
   return `${hours}h ${minutes}m`;
 }

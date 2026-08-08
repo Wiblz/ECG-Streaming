@@ -28,6 +28,9 @@ const API_BASE =
 export class HttpClient implements ApiClient {
   async getVersion(): Promise<{ version: string }> {
     const res = await fetch(`${API_BASE}/version`);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch version: ${res.statusText}`);
+    }
     return res.json();
   }
 
@@ -44,6 +47,9 @@ export class HttpClient implements ApiClient {
       })
     );
     const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch devices: ${res.statusText}`);
+    }
     return res.json();
   }
 
@@ -64,11 +70,17 @@ export class HttpClient implements ApiClient {
       })
     );
     const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch devices: ${res.statusText}`);
+    }
     return res.json();
   }
 
   async getDeviceStatus(): Promise<DeviceStatusResponse> {
     const res = await fetch(`${API_BASE}/devices/status`);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch device status: ${res.statusText}`);
+    }
     return res.json();
   }
 
@@ -91,6 +103,9 @@ export class HttpClient implements ApiClient {
 
   async getCollectors(): Promise<CollectorsResponse> {
     const res = await fetch(`${API_BASE}/collectors`);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch collectors: ${res.statusText}`);
+    }
     return res.json();
   }
 
@@ -103,16 +118,25 @@ export class HttpClient implements ApiClient {
     acc_buffer: BufferStats;
   }> {
     const res = await fetch(`${API_BASE}/stats`);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch stats: ${res.statusText}`);
+    }
     return res.json();
   }
 
   async getBufferStats(): Promise<BufferStats> {
     const res = await fetch(`${API_BASE}/buffer/stats`);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch buffer stats: ${res.statusText}`);
+    }
     return res.json();
   }
 
   async getAccelerometerBufferStats(): Promise<BufferStats> {
     const res = await fetch(`${API_BASE}/accelerometer/buffer/stats`);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch accelerometer buffer stats: ${res.statusText}`);
+    }
     return res.json();
   }
 
@@ -131,6 +155,9 @@ export class HttpClient implements ApiClient {
       })
     );
     const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch sessions: ${res.statusText}`);
+    }
     return res.json();
   }
 
@@ -166,6 +193,9 @@ export class HttpClient implements ApiClient {
       })
     );
     const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch session samples: ${res.statusText}`);
+    }
     return res.json();
   }
 
@@ -190,6 +220,9 @@ export class HttpClient implements ApiClient {
       })
     );
     const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch session accelerometer samples: ${res.statusText}`);
+    }
     return res.json();
   }
 
@@ -197,6 +230,12 @@ export class HttpClient implements ApiClient {
     const res = await fetch(`${API_BASE}/sessions/${sessionId}`, {
       method: 'DELETE'
     });
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({ detail: 'Unknown error' }));
+      throw new Error(
+        errorData.detail || errorData.error || `Failed to delete session ${sessionId}`
+      );
+    }
     return res.json();
   }
 
@@ -217,6 +256,10 @@ export class HttpClient implements ApiClient {
       method: 'POST',
       body: formData
     });
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({ detail: 'Unknown error' }));
+      throw new Error(errorData.detail || errorData.error || 'Failed to import session');
+    }
     return res.json();
   }
 
@@ -230,6 +273,10 @@ export class HttpClient implements ApiClient {
     const res = await fetch(url, {
       method: 'POST'
     });
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({ detail: 'Unknown error' }));
+      throw new Error(errorData.detail || errorData.error || 'Failed to start session');
+    }
     return res.json();
   }
 
@@ -242,6 +289,10 @@ export class HttpClient implements ApiClient {
     const res = await fetch(`${API_BASE}/sessions/stop`, {
       method: 'POST'
     });
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({ detail: 'Unknown error' }));
+      throw new Error(errorData.detail || errorData.error || 'Failed to stop session');
+    }
     return res.json();
   }
 
@@ -250,6 +301,9 @@ export class HttpClient implements ApiClient {
     session?: Session;
   }> {
     const res = await fetch(`${API_BASE}/sessions/active`);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch active session: ${res.statusText}`);
+    }
     return res.json();
   }
 }

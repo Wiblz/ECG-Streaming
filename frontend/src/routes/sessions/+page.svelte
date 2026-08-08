@@ -139,12 +139,12 @@
   {#if importMessage}
     <div class="fixed top-20 left-1/2 -translate-x-1/2 z-50 animate-slide-down">
       <div
-        class="px-6 py-4 rounded-lg shadow-xl {importMessage.includes('Success')
+        class="px-6 py-4 rounded-lg shadow-xl {importMessage.toLowerCase().includes('success')
           ? 'bg-status-success border border-status-success-border'
           : 'bg-status-error border border-status-error-border'}"
       >
         <p
-          class="text-sm font-medium {importMessage.includes('Success')
+          class="text-sm font-medium {importMessage.toLowerCase().includes('success')
             ? 'text-status-success-fg'
             : 'text-status-error-fg'}"
         >
