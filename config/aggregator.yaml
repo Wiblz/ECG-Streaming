@@ -3,6 +3,7 @@
 # gRPC Server (receives data from collectors)
 grpc:
   port: 50051                    # gRPC server port
+#  host: "127.0.0.1"             # Bind address (default: all interfaces)
 
 # Time synchronization
 sync:
@@ -13,6 +14,7 @@ sync:
 # HTTP/WebSocket API (serves dashboard and REST API)
 api:
   port: 7999                     # HTTP/WebSocket server port
+#  host: "127.0.0.1"             # Bind address (default: all interfaces)
   websocket_push_rate_hz: 30     # WebSocket push rate in Hz
   cors_origins:
     - "*"                        # CORS origins (change for production)

@@ -147,7 +147,7 @@ A synthetic collector for testing without physical hardware. Streams mathematica
 See `config/collector.yaml.example` and `config/aggregator.yaml` for detailed configuration options:
 
 **Collector:**
-- `device_ids` - List of Polar H10 device IDs
+- `devices` - Mapping of Polar H10 device IDs to per-device options
 - `aggregator.host` - Aggregator hostname/IP
 - `aggregator.port` - Aggregator gRPC port (default: 50051)
 
@@ -155,6 +155,16 @@ See `config/collector.yaml.example` and `config/aggregator.yaml` for detailed co
 - `grpc.port` - gRPC server port (default: 50051)
 - `api.port` - HTTP/WebSocket port (default: 7999)
 - `storage.database_path` - SQLite database path
+
+## Security Posture
+
+The stack is designed for a **trusted LAN** (lab or field recording) and ships with no authentication:
+
+- The gRPC ingest port (50051) and the HTTP/WebSocket API (7999) bind to all interfaces by default so remote collectors and dashboards can reach the aggregator.
+- The REST API has no auth: anyone who can reach port 7999 can read, start/stop, and delete sessions.
+- CORS defaults to `*` (without credentials). Set explicit `api.cors_origins` in `config/aggregator.yaml` for anything beyond a trusted network.
+
+Do not expose these ports to untrusted networks. For a single-host deployment, set `grpc.host` and `api.host` to `127.0.0.1` in `config/aggregator.yaml` to restrict access to the local machine.
 
 ## System Requirements
 

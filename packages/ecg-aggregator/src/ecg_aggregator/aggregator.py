@@ -77,6 +77,7 @@ class ECGAggregator:
             device_registry=self.device_registry,
             session_service=self.session_service,
         )
+        self.session_service.set_flush_pending_samples(self.ingest_service.flush_samples)
 
         # gRPC delivery
         self.grpc_servicer = ECGStreamingServicer(self.ingest_service)
@@ -173,7 +174,7 @@ class ECGAggregator:
             self.grpc_servicer, self.grpc_server
         )
 
-        listen_addr = f"[::]:{self.config.grpc.port}"
+        listen_addr = f"{self.config.grpc.host}:{self.config.grpc.port}"
         self.grpc_server.add_insecure_port(listen_addr)
 
         logger.info(f"Starting gRPC server on {listen_addr}")
@@ -188,7 +189,7 @@ class ECGAggregator:
 
         uvicorn_config = uvicorn.Config(
             app=self.http_server.app,
-            host="0.0.0.0",
+            host=self.config.api.host,
             port=self.config.api.port,
             log_level="info",
             log_config=None,

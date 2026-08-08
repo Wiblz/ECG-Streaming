@@ -14,6 +14,10 @@ class GRPCConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    host: str = Field(
+        default="[::]",
+        description="gRPC bind address; use 127.0.0.1 to restrict to local collectors",
+    )
     port: int = Field(
         default=50051,
         description="gRPC server port for receiving data from collectors",
@@ -44,6 +48,10 @@ class APIConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    host: str = Field(
+        default="0.0.0.0",
+        description="HTTP/WebSocket bind address; use 127.0.0.1 to restrict to local access",
+    )
     port: int = Field(
         default=8000,
         description="HTTP/WebSocket API server port",

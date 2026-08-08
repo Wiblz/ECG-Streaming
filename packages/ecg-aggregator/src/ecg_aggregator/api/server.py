@@ -49,10 +49,13 @@ class APIServer:
         if cors_origins is None:
             cors_origins = ["*"]
 
+        # Credentials combined with a wildcard origin make Starlette reflect any
+        # Origin header, letting arbitrary sites use the API from a visitor's
+        # browser; credentials are only safe with an explicit origin list.
         self.app.add_middleware(
             CORSMiddleware,
             allow_origins=cors_origins,
-            allow_credentials=True,
+            allow_credentials="*" not in cors_origins,
             allow_methods=["*"],
             allow_headers=["*"],
         )
