@@ -28,10 +28,3 @@ export function calculateTimeWindow(
     maxTime: currentTime
   };
 }
-
-/**
- * Checks if a timestamp falls within a time window.
- */
-export function isInTimeWindow(timestamp: number, window: TimeWindow): boolean {
-  return timestamp >= window.minTime && timestamp <= window.maxTime;
-}

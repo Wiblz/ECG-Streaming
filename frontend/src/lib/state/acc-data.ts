@@ -50,7 +50,3 @@ export function addSamples(newSamples: BufferedAccelerometerSample[]) {
     }
   }
 }
-
-export function clearSamples() {
-  samples.clear();
-}

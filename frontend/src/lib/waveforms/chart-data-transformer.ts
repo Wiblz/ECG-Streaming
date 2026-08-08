@@ -93,40 +93,6 @@ export function prepareChartData<T extends PlottableSample>(
 }
 
 /**
- * Filters aligned chart data by time window.
- * Used for live waveforms with sliding time windows.
- */
-export function filterChartDataByTimeWindow<T extends PlottableSample>(
-  chartData: ChartDataResult<T>,
-  timeWindow: { minTime: number; maxTime: number }
-): ChartDataResult<T> {
-  const { data, deviceOrder, samplesByDevice, timestamps } = chartData;
-
-  // Find indices within time window
-  const filteredIndices: number[] = [];
-  for (let i = 0; i < timestamps.length; i++) {
-    const time = timestamps[i];
-    if (time >= timeWindow.minTime && time <= timeWindow.maxTime) {
-      filteredIndices.push(i);
-    }
-  }
-
-  // Filter all series data and samples
-  const filteredTimestamps = filteredIndices.map((i) => timestamps[i]);
-  const filteredSeriesData = data.slice(1).map((series) => filteredIndices.map((i) => series[i]));
-  const filteredSamplesByDevice = samplesByDevice.map((deviceSamples) =>
-    filteredIndices.map((i) => deviceSamples[i])
-  );
-
-  return {
-    data: [filteredTimestamps, ...filteredSeriesData],
-    deviceOrder,
-    samplesByDevice: filteredSamplesByDevice,
-    timestamps: filteredTimestamps
-  };
-}
-
-/**
  * Extracts verified point indices from chart data.
  * Verified points are samples that have direct Polar timestamps.
  */

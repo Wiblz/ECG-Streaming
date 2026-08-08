@@ -52,7 +52,3 @@ export function addSamples(newSamples: BufferedECGSample[]) {
     }
   }
 }
-
-export function clearSamples() {
-  samples.clear();
-}
