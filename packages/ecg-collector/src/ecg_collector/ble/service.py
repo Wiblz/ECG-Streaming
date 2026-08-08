@@ -62,6 +62,7 @@ class BleCollectorService(DataCollector):
 
         self._collection_tasks: dict[str, asyncio.Task] = {}
         self._monitor_task: asyncio.Task | None = None
+        self._grpc_task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
         """Start the BLE collector service."""
@@ -78,8 +79,8 @@ class BleCollectorService(DataCollector):
         self._ble_discovery.start()
         await self._ble_discovery.scan_once()
 
-        # Start gRPC client
-        asyncio.create_task(self.grpc_client.run())
+        # Start gRPC client (supervised, reconnects with backoff)
+        self._grpc_task = asyncio.create_task(self.grpc_client.run())
 
         # Wait for initial connection
         await asyncio.sleep(0.5)
@@ -147,6 +148,11 @@ class BleCollectorService(DataCollector):
         await self.adapter_manager.disconnect_all()
 
         # Disconnect from aggregator
+        if self._grpc_task:
+            self._grpc_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._grpc_task
+            self._grpc_task = None
         await self.grpc_client.disconnect()
 
         await self._ble_discovery.stop()

@@ -171,8 +171,14 @@ def ble_run(
     # Create and run service
     service = BleCollectorService(settings)
 
+    async def _run() -> None:
+        try:
+            await service.start()
+        finally:
+            await service.stop()
+
     try:
-        asyncio.run(service.start())
+        asyncio.run(_run())
     except KeyboardInterrupt:
         console.print("\n[yellow]Interrupted by user[/yellow]")
     except Exception as e:

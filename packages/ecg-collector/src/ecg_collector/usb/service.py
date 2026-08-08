@@ -606,7 +606,7 @@ class MultiUsbCollectorService(DataCollector):
                     "No USB device paths provided; continuing with auto-discovery enabled"
                 )
 
-            # Start gRPC client
+            # Start gRPC client (supervised, reconnects with backoff)
             self._grpc_task = asyncio.create_task(self.grpc_client.run())
 
             # Start auto-pairing modules
@@ -632,9 +632,9 @@ class MultiUsbCollectorService(DataCollector):
 
             while self.running:
                 if self._grpc_task and self._grpc_task.done():
-                    logger.warning("gRPC task ended unexpectedly; collector will keep running")
+                    logger.error("gRPC client task exited unexpectedly; restarting")
                     self._grpc_task = asyncio.create_task(self.grpc_client.run())
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(5.0)
 
         except Exception as e:
             logger.error("Multi-USB collector error: %s", e, exc_info=True)
