@@ -43,6 +43,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
             Messages to send back to collector
         """
         collector_id: str | None = None
+        generation: int | None = None
         try:
             async for message in request_iterator:
                 msg_type = message.WhichOneof("message")
@@ -55,6 +56,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
                     (
                         collector_id,
                         device_ids,
+                        generation,
                         registration_response,
                     ) = await self._handle_registration(message)
                     yield registration_response
@@ -95,12 +97,12 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
         finally:
             if collector_id:
                 logger.info(f"Collector {collector_id} disconnected")
-                await self.ingest_service.disconnect_collector(collector_id)
+                await self.ingest_service.disconnect_collector(collector_id, generation=generation)
 
     async def _handle_registration(
         self,
         message: collector_aggregator_pb2.CollectorMessage,
-    ) -> tuple[str, list[str], collector_aggregator_pb2.AggregatorMessage]:
+    ) -> tuple[str, list[str], int, collector_aggregator_pb2.AggregatorMessage]:
         """Handle collector registration and build the registration acknowledgement."""
         reg = message.registration
         collector_id = reg.collector_id
@@ -113,7 +115,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
         if device_ids:
             logger.info(f"  Devices: {', '.join(device_ids)}")
 
-        ack_dto = await self.ingest_service.register_collector(
+        ack_dto, generation = await self.ingest_service.register_collector(
             CollectorRegistrationDTO(
                 collector_id=collector_id,
                 display_name=display_name,
@@ -132,6 +134,7 @@ class ECGStreamingServicer(collector_aggregator_pb2_grpc.ECGStreamingServiceServ
         return (
             collector_id,
             device_ids,
+            generation,
             collector_aggregator_pb2.AggregatorMessage(registration_ack=ack),
         )
 

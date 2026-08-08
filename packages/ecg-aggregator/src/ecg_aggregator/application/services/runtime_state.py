@@ -1,5 +1,6 @@
 """Runtime registries for connected collectors and devices."""
 
+import itertools
 import time
 from dataclasses import dataclass, field
 
@@ -23,6 +24,7 @@ class CollectorMetadata:
     last_seen: HostTimeSeconds
     samples_sent: int = 0
     active_devices: int = 0
+    generation: int = 0
 
 
 @dataclass
@@ -43,6 +45,7 @@ class CollectorRegistry:
 
     def __init__(self) -> None:
         self.collectors: dict[str, CollectorMetadata] = {}
+        self._generations = itertools.count(1)
 
     def register(
         self,
@@ -65,9 +68,15 @@ class CollectorRegistry:
             last_seen=now,
             samples_sent=0,
             active_devices=0,
+            generation=next(self._generations),
         )
         self.collectors[collector_id] = collector
         return collector
+
+    def current_generation(self, collector_id: str) -> int | None:
+        """Get the registration generation of the current entry, if any."""
+        collector = self.collectors.get(collector_id)
+        return collector.generation if collector is not None else None
 
     def record_activity(self, collector_id: str) -> None:
         """Update the last-seen timestamp for a connected collector."""

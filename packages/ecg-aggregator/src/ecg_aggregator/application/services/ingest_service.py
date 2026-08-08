@@ -110,6 +110,10 @@ class IngestService:
         """Stop periodic batch flushing."""
         await self._sample_batch_writer.stop()
 
+    async def flush_samples(self) -> None:
+        """Force-flush buffered samples to the database."""
+        await self._sample_batch_writer.flush(force=True)
+
     def start_stats_task(self, interval_s: float = 1.0) -> None:
         """Start periodic buffer stats publishing."""
         if self._stats_task is None or self._stats_task.done():
@@ -152,9 +156,13 @@ class IngestService:
 
     async def register_collector(
         self, registration: CollectorRegistrationDTO
-    ) -> RegistrationAckDTO:
-        """Register a collector and initialize its runtime state."""
-        self.collector_registry.register(
+    ) -> tuple[RegistrationAckDTO, int]:
+        """Register a collector and initialize its runtime state.
+
+        Returns the ack DTO and the registration generation owned by the
+        calling stream; a later re-registration supersedes it.
+        """
+        collector = self.collector_registry.register(
             collector_id=registration.collector_id,
             display_name=registration.display_name,
             device_ids=registration.device_ids,
@@ -172,28 +180,11 @@ class IngestService:
             )
 
         if self.database:
-            self.database.upsert_collector(
-                collector_id=registration.collector_id,
-                display_name=registration.display_name,
-                version=registration.version,
-                metadata=registration.metadata,
+            # Committing writes contend with the batch writer's DB lock; keep
+            # them off the event loop.
+            await asyncio.get_running_loop().run_in_executor(
+                None, self._persist_registration, registration
             )
-
-            for device_id in registration.device_ids:
-                self.database.ensure_device(device_id)
-                self.database.upsert_device_collector_mapping(
-                    device_id=device_id,
-                    collector_id=registration.collector_id,
-                )
-
-            for device_id, nickname in registration.device_nicknames.items():
-                if nickname:
-                    self.database.update_device_nickname(device_id, nickname)
-                    logger.info(
-                        "Set nickname for %s to '%s' from collector config",
-                        device_id,
-                        nickname,
-                    )
 
         for device_id in registration.device_ids:
             self.device_registry.ensure_device(
@@ -202,11 +193,42 @@ class IngestService:
                 status=DeviceStatus.DISCONNECTED,
             )
 
-        return RegistrationAckDTO(
-            accepted=True,
-            message=f"Collector {registration.collector_id} registered successfully",
-            server_time_ms=int(time.time() * 1000),
+        return (
+            RegistrationAckDTO(
+                accepted=True,
+                message=f"Collector {registration.collector_id} registered successfully",
+                server_time_ms=int(time.time() * 1000),
+            ),
+            collector.generation,
         )
+
+    def _persist_registration(self, registration: CollectorRegistrationDTO) -> None:
+        """Persist collector registration state; called from a worker thread."""
+        if not self.database:
+            return
+
+        self.database.upsert_collector(
+            collector_id=registration.collector_id,
+            display_name=registration.display_name,
+            version=registration.version,
+            metadata=registration.metadata,
+        )
+
+        for device_id in registration.device_ids:
+            self.database.ensure_device(device_id)
+            self.database.upsert_device_collector_mapping(
+                device_id=device_id,
+                collector_id=registration.collector_id,
+            )
+
+        for device_id, nickname in registration.device_nicknames.items():
+            if nickname:
+                self.database.update_device_nickname(device_id, nickname)
+                logger.info(
+                    "Set nickname for %s to '%s' from collector config",
+                    device_id,
+                    nickname,
+                )
 
     async def process_ecg_batch(
         self,
@@ -238,9 +260,7 @@ class IngestService:
 
             if not synced:
                 samples_no_sync += 1
-                continue
-
-            if synced.confidence >= 0.8:
+            elif synced.confidence >= 0.8:
                 self.ecg_buffer.add_sample(
                     device_id=batch.device_id,
                     global_time=synced.global_time,
@@ -441,9 +461,25 @@ class IngestService:
                 )
             )
 
-    async def disconnect_collector(self, collector_id: str) -> None:
-        """Handle collector disconnect cleanup. No-op if collector was never registered."""
-        if collector_id not in self.collector_registry.collectors:
+    async def disconnect_collector(
+        self, collector_id: str, *, generation: int | None = None
+    ) -> None:
+        """Handle collector disconnect cleanup.
+
+        No-op if the collector was never registered, or if `generation` is given
+        and a newer registration has superseded it (a stale stream's teardown
+        must not remove the live entry).
+        """
+        current_generation = self.collector_registry.current_generation(collector_id)
+        if current_generation is None:
+            return
+        if generation is not None and generation != current_generation:
+            logger.debug(
+                "Ignoring stale disconnect for collector %s: stream generation %d superseded by %d",
+                collector_id,
+                generation,
+                current_generation,
+            )
             return
         for device_id in self.device_registry.disconnect_collector_devices(collector_id):
             self._clear_device_stream_state(device_id)
@@ -460,7 +496,9 @@ class IngestService:
             await self.event_bus.publish(CollectorDisconnected(collector_id=collector_id))
         self.collector_registry.remove(collector_id)
         if self.database:
-            self.database.update_collector_last_seen(collector_id)
+            await asyncio.get_running_loop().run_in_executor(
+                None, self.database.update_collector_last_seen, collector_id
+            )
 
     def get_active_device_count(self, active_window_s: Seconds = ACTIVE_DEVICE_WINDOW_S) -> int:
         """Get total number of active devices across all collectors."""
@@ -566,8 +604,12 @@ class IngestService:
         update_collector_health: bool,
         samples_received_attr: str,
     ) -> None:
-        """Run shared post-batch persistence and runtime bookkeeping."""
-        await self._sample_batch_writer.flush()
+        """Run shared post-batch runtime bookkeeping.
+
+        Buffered samples are flushed by the periodic flush task, not here —
+        awaiting a flush per batch would serialize all collectors' ingest
+        behind SQLite write latency.
+        """
         setattr(self, samples_received_attr, getattr(self, samples_received_attr) + sample_count)
 
         if collector_id:
