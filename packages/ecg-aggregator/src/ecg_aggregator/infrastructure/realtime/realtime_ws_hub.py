@@ -26,6 +26,9 @@ logger = get_logger(__name__)
 class RealtimeWebSocketHub:
     """Own websocket delivery and polling-based browser fanout."""
 
+    SEND_TIMEOUT_SECONDS: float = 3.0
+    CLOSE_TIMEOUT_SECONDS: float = 1.0
+
     def __init__(
         self,
         ecg_buffer: ECGDataBuffer,
@@ -185,33 +188,56 @@ class RealtimeWebSocketHub:
                 }
 
                 send_start = time.time()
-                disconnected = []
-                for connection in connections:
-                    try:
-                        await connection.send_json(message)
-                    except Exception as exc:
-                        logger.error(f"[{log_prefix}] Error sending to WebSocket: {exc}")
-                        disconnected.append(connection)
+                recipients = list(connections)
+                await asyncio.gather(
+                    *(
+                        self._send_to_connection(connection, connections, message, log_prefix)
+                        for connection in recipients
+                    )
+                )
 
                 send_duration = (time.time() - send_start) * 1000
                 broadcast_duration = (time.time() - broadcast_start) * 1000
 
                 if send_duration > 50:
                     logger.warning(
-                        f"[{log_prefix}] Slow send: {send_duration:.1f}ms to {len(connections)} clients"
+                        f"[{log_prefix}] Slow send: {send_duration:.1f}ms to {len(recipients)} clients"
                     )
                 if broadcast_duration > 50:
                     logger.warning(
                         f"[{log_prefix}] Slow broadcast cycle: {broadcast_duration:.1f}ms total"
                     )
 
-                for connection in disconnected:
-                    if connection in connections:
-                        connections.remove(connection)
-
             except Exception as exc:
                 logger.error(f"[{log_prefix}] Error in broadcast loop: {exc}", exc_info=True)
                 await asyncio.sleep(1.0)
+
+    async def _send_to_connection(
+        self,
+        connection: WebSocket,
+        connections: list[WebSocket],
+        message: dict[str, object],
+        log_prefix: str,
+    ) -> None:
+        """Send a broadcast message to one client, dropping it on timeout or error."""
+        try:
+            await asyncio.wait_for(connection.send_json(message), timeout=self.SEND_TIMEOUT_SECONDS)
+        except TimeoutError:
+            logger.error(
+                f"[{log_prefix}] Send timed out after {self.SEND_TIMEOUT_SECONDS}s, "
+                f"dropping slow WebSocket client"
+            )
+            await self._drop_connection(connection, connections)
+        except Exception as exc:
+            logger.error(f"[{log_prefix}] Error sending to WebSocket: {exc}")
+            await self._drop_connection(connection, connections)
+
+    async def _drop_connection(self, connection: WebSocket, connections: list[WebSocket]) -> None:
+        """Unregister a connection and close it, tolerating repeated calls."""
+        if connection in connections:
+            connections.remove(connection)
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(connection.close(), timeout=self.CLOSE_TIMEOUT_SECONDS)
 
     async def start(self) -> None:
         """Start polling broadcast tasks."""

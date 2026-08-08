@@ -23,6 +23,9 @@ logger = get_logger(__name__)
 class CalibrationWebSocketHub:
     """Manage calibration websocket connections and broadcasts."""
 
+    SEND_TIMEOUT_SECONDS: float = 3.0
+    CLOSE_TIMEOUT_SECONDS: float = 1.0
+
     def __init__(
         self,
         calibration_service: CalibrationService,
@@ -58,23 +61,34 @@ class CalibrationWebSocketHub:
         exclude: WebSocket | None = None,
     ) -> None:
         """Broadcast a typed calibration message to all clients."""
-        if not self._connections:
+        recipients = [connection for connection in self._connections if connection != exclude]
+        if not recipients:
             return
 
         payload = message.model_dump()
-        disconnected: list[WebSocket] = []
-        for connection in self._connections:
-            if connection == exclude:
-                continue
-            try:
-                await connection.send_json(payload)
-            except Exception as exc:
-                logger.error("Error broadcasting to calibration WebSocket: %s", exc)
-                disconnected.append(connection)
+        await asyncio.gather(
+            *(self._send_to_connection(connection, payload) for connection in recipients)
+        )
 
-        for connection in disconnected:
-            if connection in self._connections:
-                self._connections.remove(connection)
+    async def _send_to_connection(self, connection: WebSocket, payload: dict[str, object]) -> None:
+        """Send a broadcast payload to one client, dropping it on timeout or error."""
+        try:
+            await asyncio.wait_for(connection.send_json(payload), timeout=self.SEND_TIMEOUT_SECONDS)
+        except TimeoutError:
+            logger.error(
+                "Calibration WebSocket send timed out after %.1fs, dropping slow client",
+                self.SEND_TIMEOUT_SECONDS,
+            )
+            await self._drop_connection(connection)
+        except Exception as exc:
+            logger.error("Error broadcasting to calibration WebSocket: %s", exc)
+            await self._drop_connection(connection)
+
+    async def _drop_connection(self, connection: WebSocket) -> None:
+        """Unregister a connection and close it, tolerating repeated calls."""
+        self.disconnect(connection)
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(connection.close(), timeout=self.CLOSE_TIMEOUT_SECONDS)
 
     async def handle_websocket(self, websocket: WebSocket) -> None:
         """Handle a calibration WebSocket connection lifecycle."""
