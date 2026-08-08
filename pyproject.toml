@@ -35,7 +35,8 @@ line-ending = "auto"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["packages"]
+norecursedirs = ["esp32", "frontend", "notebooks", ".venv", "node_modules"]
 
 [tool.mypy]
 python_version = "3.14"
