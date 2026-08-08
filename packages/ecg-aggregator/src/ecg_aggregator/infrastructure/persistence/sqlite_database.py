@@ -60,8 +60,7 @@ class ECGDatabase:
     def _init_db(self) -> None:
         """Initialize database schema using yoyo migrations."""
         self._apply_migrations()
-        with self._get_connection() as conn:
-            conn.execute("PRAGMA journal_mode=DELETE")
+        self._get_connection()
 
     def _apply_migrations(self) -> None:
         """Apply pending database migrations using yoyo."""
@@ -98,6 +97,8 @@ class ECGDatabase:
         """Return the shared SQLite connection, creating it if needed."""
         if self._conn is None:
             self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA synchronous=NORMAL")
         return self._conn
 
     def close(self) -> None:

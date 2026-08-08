@@ -236,8 +236,10 @@ class SampleRepository:
                 self._conn.commit()
                 logger.debug(f"Stored {len(samples)} ECG samples in batch")
 
-            except Exception as e:
-                logger.error(f"Error storing ECG batch: {e}")
+            except Exception:
+                # Propagate so SampleBatchWriter keeps the rows for retry.
+                self._conn.rollback()
+                raise
 
     def add_acc_samples_batch(self, samples: list[AccBatchRow]) -> None:
         """Store multiple accelerometer samples efficiently."""
@@ -304,8 +306,9 @@ class SampleRepository:
                 self._conn.commit()
                 logger.debug(f"Stored {len(samples)} accelerometer samples in batch")
 
-            except Exception as e:
-                logger.error(f"Error storing accelerometer batch: {e}")
+            except Exception:
+                self._conn.rollback()
+                raise
 
     def get_stats(self) -> dict:
         """Get sample and device statistics."""

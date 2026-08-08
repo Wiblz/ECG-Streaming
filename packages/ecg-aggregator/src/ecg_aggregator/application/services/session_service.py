@@ -1,5 +1,8 @@
 """Session lifecycle application service."""
 
+import asyncio
+from collections.abc import Awaitable, Callable
+
 from ecg_common import DeviceStatus
 from ecg_common.logging import get_logger
 
@@ -38,6 +41,11 @@ class SessionService:
         self.device_registry = device_registry
         self._active_session_id: int | None = None
         self._active_session_start_time: HostTimeSeconds | None = None
+        self._flush_pending_samples: Callable[[], Awaitable[None]] | None = None
+
+    def set_flush_pending_samples(self, flush: Callable[[], Awaitable[None]]) -> None:
+        """Register a hook that flushes buffered samples to the database."""
+        self._flush_pending_samples = flush
 
     def start_session(self, notes: str | None = None) -> int:
         """Start a new recording session."""
@@ -75,7 +83,7 @@ class SessionService:
             logger.info("  Streaming: %s", ", ".join(active_devices))
         return session_id
 
-    def stop_session(self) -> int:
+    async def stop_session(self) -> int:
         """Stop the current recording session."""
         if self._active_session_id is None:
             raise NoActiveSessionError("Cannot stop session: no active session")
@@ -83,16 +91,31 @@ class SessionService:
         if not self.database:
             raise SessionPersistenceError("Cannot stop session: no database configured")
 
-        success = self.database.end_session(self._active_session_id)
-        if not success:
-            raise SessionPersistenceError(
-                f"Failed to persist end of session {self._active_session_id}"
-            )
-
+        # Deactivate before flushing so ingest stops tagging new samples, and
+        # flush before end_session so every tagged row is in the database when
+        # end_session prunes out-of-range rows and freezes the session counts.
         stopped_session_id = self._active_session_id
-        session = self.database.get_session(stopped_session_id)
+        stopped_start_time = self._active_session_start_time
         self._active_session_id = None
         self._active_session_start_time = None
+
+        loop = asyncio.get_running_loop()
+        try:
+            if self._flush_pending_samples is not None:
+                await self._flush_pending_samples()
+            success = await loop.run_in_executor(
+                None, self.database.end_session, stopped_session_id
+            )
+        except Exception:
+            self._active_session_id = stopped_session_id
+            self._active_session_start_time = stopped_start_time
+            raise
+        if not success:
+            self._active_session_id = stopped_session_id
+            self._active_session_start_time = stopped_start_time
+            raise SessionPersistenceError(f"Failed to persist end of session {stopped_session_id}")
+
+        session = await loop.run_in_executor(None, self.database.get_session, stopped_session_id)
 
         if session:
             logger.info(
