@@ -59,3 +59,10 @@ recordings/
 
 # Deployment-specific collector config (contains device IDs)
 config/collector.yaml
+
+# Local working files
+/.codex
+/Screenshot from *.png
+/*.pdf
+notebooks/all/
+notebooks/no-outlier/
