@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_call:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install packages
+        run: uv sync --all-packages --all-extras --no-default-groups
+
+      - name: Format check
+        run: uv run --no-sync ruff format --check packages/ecg-common packages/ecg-collector packages/ecg-aggregator packages/ecg-simulator
+
+      - name: Lint
+        run: uv run --no-sync ruff check packages/ecg-common packages/ecg-collector packages/ecg-aggregator packages/ecg-simulator --exclude "*_pb2*.py"
+
+      - name: Type check
+        run: uv run --no-sync mypy packages/ecg-common packages/ecg-collector packages/ecg-aggregator packages/ecg-simulator
+
+      - name: Tests
+        run: |
+          uv run --no-sync pytest -q || ec=$?
+          if [ "${ec:-0}" -eq 5 ]; then
+            echo "No tests collected"
+            ec=0
+          fi
+          exit "${ec:-0}"
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm check
+
+      - name: Lint
+        run: pnpm lint

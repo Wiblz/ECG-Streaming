@@ -10,17 +10,28 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+
   meta:
+    needs: checks
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.meta.outputs.version }}
       owner: ${{ steps.meta.outputs.owner }}
+      is_release: ${{ steps.meta.outputs.is_release }}
     steps:
       - name: Extract metadata
         id: meta
         run: |
           echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
           echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+          # Only v* release tags may move the :latest images
+          if [[ "$GITHUB_REF_NAME" == v* ]]; then
+            echo "is_release=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_release=false" >> $GITHUB_OUTPUT
+          fi
 
   build-aggregator:
     needs: meta
@@ -50,7 +61,7 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ needs.meta.outputs.owner }}/ecg-streaming-aggregator:${{ needs.meta.outputs.version }}
-            ghcr.io/${{ needs.meta.outputs.owner }}/ecg-streaming-aggregator:latest
+            ${{ needs.meta.outputs.is_release == 'true' && format('ghcr.io/{0}/ecg-streaming-aggregator:latest', needs.meta.outputs.owner) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -82,7 +93,7 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ needs.meta.outputs.owner }}/ecg-streaming-collector:${{ needs.meta.outputs.version }}
-            ghcr.io/${{ needs.meta.outputs.owner }}/ecg-streaming-collector:latest
+            ${{ needs.meta.outputs.is_release == 'true' && format('ghcr.io/{0}/ecg-streaming-collector:latest', needs.meta.outputs.owner) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -114,6 +125,6 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ needs.meta.outputs.owner }}/ecg-streaming-frontend:${{ needs.meta.outputs.version }}
-            ghcr.io/${{ needs.meta.outputs.owner }}/ecg-streaming-frontend:latest
+            ${{ needs.meta.outputs.is_release == 'true' && format('ghcr.io/{0}/ecg-streaming-frontend:latest', needs.meta.outputs.owner) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
