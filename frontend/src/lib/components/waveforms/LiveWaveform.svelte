@@ -72,15 +72,16 @@
     alignMode = 'exact'
   }: Props = $props();
 
-  let createDeviceSeries:
+  let createDeviceSeries = $state<
     | ((
         deviceIds: string[],
         getVerifiedIndices?: (deviceId: string) => number[],
         deviceNicknames?: Map<string, string>,
         spanGaps?: boolean
       ) => uPlot.Series[])
-    | null = null;
-  let createAxes: ((yLabel: string) => uPlot.Axis[]) | null = null;
+    | null
+  >(null);
+  let createAxes = $state<((yLabel: string) => uPlot.Axis[]) | null>(null);
   let tooltipsPlugin: ReturnType<typeof import('$lib/utils/uplot-tooltips').tooltipsPlugin> | null =
     null;
   // Reuse array references to avoid forcing uPlot to redraw from scratch
@@ -95,6 +96,21 @@
   let samplesByDevice: (T | null)[][] = $state([]);
   // eslint-disable-next-line svelte/prefer-svelte-reactivity
   let verifiedIndicesByDevice = new Map<string, number[]>();
+
+  /**
+   * Assign deviceOrder only when the device list actually changed.
+   *
+   * prepareChartData runs every animation frame and produces a fresh array each
+   * time. Assigning it unconditionally dirties the $state on every frame, which
+   * retriggers the rebuildPlotOptions effect and recreates the uPlot instance
+   * ~30x/second, so the chart never renders past its first frames.
+   */
+  function setDeviceOrder(next: string[]): void {
+    if (deviceOrder.length === next.length && deviceOrder.every((d, i) => d === next[i])) {
+      return;
+    }
+    deviceOrder = next;
+  }
 
   // Cache for aligned data to avoid re-aligning on every frame
   // Note: Not reactive - this is an internal optimization that doesn't need reactivity
@@ -205,7 +221,7 @@
 
     if (devices.length === 0 || sampleMap.size === 0) {
       alignmentCache = null;
-      deviceOrder = [];
+      setDeviceOrder([]);
       samplesByDevice = [];
       verifiedIndicesByDevice.clear();
       return { data: [[], []], devices: [], samples: [] };
@@ -260,7 +276,7 @@
       const timestamps = filteredSamples.map((s) => s.global_time - currentStartTime);
       const values = filteredSamples.map((s) => getValue(s));
 
-      deviceOrder = devices;
+      setDeviceOrder(devices);
       const verifiedIndices: number[] = [];
       for (let i = 0; i < filteredSamples.length; i++) {
         if (filteredSamples[i].time_verified) verifiedIndices.push(i);
@@ -298,7 +314,7 @@
       const maxDevice = findBaseDevice(sampleMap);
       if (!maxDevice) {
         alignmentCache = null;
-        deviceOrder = [];
+        setDeviceOrder([]);
         samplesByDevice = [];
         verifiedIndicesByDevice.clear();
         return { data: [[], []], devices: [], samples: [] };
@@ -307,7 +323,7 @@
       const baseSamples = sampleMap.get(maxDevice)!;
       if (baseSamples.length === 0) {
         alignmentCache = null;
-        deviceOrder = [];
+        setDeviceOrder([]);
         samplesByDevice = [];
         verifiedIndicesByDevice.clear();
         return { data: [[], []], devices: [], samples: [] };
@@ -363,7 +379,7 @@
     const cachedSamplesByDevice = alignmentCache!.samplesByDevice;
 
     if (!timeWindow) {
-      deviceOrder = alignmentCache!.deviceOrder;
+      setDeviceOrder(alignmentCache!.deviceOrder);
       samplesByDevice = cachedSamplesByDevice;
       // verifiedIndicesByDevice already set when cache was built
 
@@ -379,7 +395,7 @@
       timeWindow
     );
 
-    deviceOrder = alignmentCache!.deviceOrder;
+    setDeviceOrder(alignmentCache!.deviceOrder);
     samplesByDevice = renderCache.samplesByDevice;
 
     // Don't extract verified indices every frame - they don't change during streaming

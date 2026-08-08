@@ -31,28 +31,32 @@
   let tooManyDevices = $state(false);
 
   // Poll for updates every 500ms (matches polling architecture)
-  setInterval(() => {
-    // Update streaming indicators
-    ecgStreaming = ecgWsState === ConnectionState.CONNECTED && ecgSamples.size > 0;
-    accStreaming = accWsState === ConnectionState.CONNECTED && accSamples.size > 0;
+  $effect(() => {
+    const interval = setInterval(() => {
+      // Update streaming indicators
+      ecgStreaming = ecgWsState === ConnectionState.CONNECTED && ecgSamples.size > 0;
+      accStreaming = accWsState === ConnectionState.CONNECTED && accSamples.size > 0;
 
-    // Count unique devices across both ECG and ACC
-    const ecgDevices = Array.from(ecgSamples.keys());
-    const accDevices = Array.from(accSamples.keys());
-    const allDevices = [...ecgDevices, ...accDevices];
-    const newCount = new Set(allDevices).size;
+      // Count unique devices across both ECG and ACC
+      const ecgDevices = Array.from(ecgSamples.keys());
+      const accDevices = Array.from(accSamples.keys());
+      const allDevices = [...ecgDevices, ...accDevices];
+      const newCount = new Set(allDevices).size;
 
-    // Update device count and auto-collapse if needed
-    if (newCount !== activeDeviceCount) {
-      activeDeviceCount = newCount;
-      tooManyDevices = activeDeviceCount > 4;
+      // Update device count and auto-collapse if needed
+      if (newCount !== activeDeviceCount) {
+        activeDeviceCount = newCount;
+        tooManyDevices = activeDeviceCount > 4;
 
-      // Auto-collapse when exceeding threshold
-      if (tooManyDevices && isExpanded) {
-        isExpanded = false;
+        // Auto-collapse when exceeding threshold
+        if (tooManyDevices && isExpanded) {
+          isExpanded = false;
+        }
       }
-    }
-  }, 500);
+    }, 500);
+
+    return () => clearInterval(interval);
+  });
 </script>
 
 <Card title="Live Waveforms" padding={isExpanded ? 'normal' : 'none'}>
