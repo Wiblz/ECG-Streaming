@@ -90,6 +90,16 @@ case "$cmd" in
         echo "==> Auto-pairing ESP32 devices with Polar sensors..."
         $COMPOSE --profile usb run --rm collector-usb ecg-collector usb auto-pair "$@"
         ;;
+    led-identify)
+        if [[ $# -lt 1 ]]; then
+            echo "Usage: ./stack.sh led-identify <esp-id> [extra args...]" >&2
+            exit 2
+        fi
+        esp_id="$1"
+        shift
+        echo "==> Triggering LED identify on ESP $esp_id..."
+        $COMPOSE --profile usb run --rm collector-usb ecg-collector usb signal --esp-id "$esp_id" "$@"
+        ;;
     help|*)
         echo "Usage: ./stack.sh [--prod] <command> [args...]"
         echo ""
@@ -110,8 +120,9 @@ case "$cmd" in
         echo "  sim-sessions [args]  List recorded sessions"
         echo ""
         echo "Device utilities:"
-        echo "  ble-scan [args]   Scan for BLE Polar devices"
-        echo "  usb-scan [args]   Scan for connected ESP32 devices"
-        echo "  auto-pair [args]  Auto-pair ESP32 devices with Polar sensors"
+        echo "  ble-scan [args]              Scan for BLE Polar devices"
+        echo "  usb-scan [args]              Scan for connected ESP32 devices"
+        echo "  auto-pair [args]             Auto-pair ESP32 devices with Polar sensors"
+        echo "  led-identify <esp-id> [args] Cycle the LED on the given ESP32 to locate it physically"
         ;;
 esac

@@ -4,7 +4,7 @@
 #
 # Example: ./install-collector.sh pi@192.168.1.100 192.168.1.50 "Polar1,Polar2" "Lab RPi"
 
-set -e
+set -e -u -o pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -55,7 +55,7 @@ echo -e "${GREEN}✓ SSH connection OK${NC}"
 # Create installation directory
 INSTALL_DIR="/home/$SSH_USER/ecg-collector"
 echo -e "${YELLOW}Creating installation directory: $INSTALL_DIR${NC}"
-ssh "$SSH_TARGET" "mkdir -p $INSTALL_DIR"
+ssh "$SSH_TARGET" "mkdir -p '$INSTALL_DIR'"
 
 # Package the collector
 echo -e "${YELLOW}Packaging collector...${NC}"
@@ -79,7 +79,7 @@ scp "$TARBALL" "$SSH_TARGET:$INSTALL_DIR/ecg-collector.tar.gz"
 # Create remote installation script
 cat > "$TEMP_DIR/remote-install.sh" << 'REMOTE_SCRIPT'
 #!/bin/bash
-set -e
+set -e -u -o pipefail
 
 INSTALL_DIR="$1"
 AGGREGATOR_HOST="$2"
@@ -146,8 +146,8 @@ mkdir -p "$CONFIG_DIR"
 cat > "$CONFIG_PATH" << CONFIG
 collector_id: "$(hostname)-collector"
 display_name: "$DISPLAY_NAME"
-device_ids:
-$(echo "$DEVICE_IDS" | tr ',' '\n' | sed 's/^/  - /')
+devices:
+$(echo "$DEVICE_IDS" | tr ',' '\n' | sed 's/^ *//;s/ *$//;s/.*/  "&":/')
 
 ble:
   max_devices_per_adapter: 7
@@ -173,21 +173,21 @@ echo "Installation directory: $INSTALL_DIR"
 echo "Configuration file: $CONFIG_PATH"
 echo ""
 echo "To run the collector:"
-echo "  cd $INSTALL_DIR && .venv/bin/ecg-collector"
+echo "  cd $INSTALL_DIR && .venv/bin/ecg-collector ble run --config $CONFIG_PATH"
 REMOTE_SCRIPT
 
 # Transfer and execute remote installation script
 scp "$TEMP_DIR/remote-install.sh" "$SSH_TARGET:$INSTALL_DIR/remote-install.sh"
-ssh "$SSH_TARGET" "chmod +x $INSTALL_DIR/remote-install.sh"
+ssh "$SSH_TARGET" "chmod +x '$INSTALL_DIR/remote-install.sh'"
 
 echo -e "${YELLOW}Running remote installation...${NC}"
-ssh -t "$SSH_TARGET" "$INSTALL_DIR/remote-install.sh '$INSTALL_DIR' '$AGGREGATOR_HOST' '$DEVICE_IDS' '$DISPLAY_NAME'"
+ssh -t "$SSH_TARGET" "'$INSTALL_DIR/remote-install.sh' '$INSTALL_DIR' '$AGGREGATOR_HOST' '$DEVICE_IDS' '$DISPLAY_NAME'"
 
 echo ""
 echo -e "${GREEN}=== Installation Complete ===${NC}"
 echo ""
 echo "To run the collector:"
-echo "  ssh -t $SSH_TARGET 'cd $INSTALL_DIR && .venv/bin/ecg-collector'"
+echo "  ssh -t $SSH_TARGET 'cd $INSTALL_DIR && .venv/bin/ecg-collector ble run --config config/collector.yaml'"
 echo ""
 echo "To edit config:"
 echo "  ssh $SSH_TARGET 'nano $INSTALL_DIR/config/collector.yaml'"
