@@ -5,6 +5,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/stream_buffer.h"
+#include "freertos/task.h"
 
 #include "esp_err.h"
 #include "esp_log.h"
@@ -113,9 +114,54 @@ size_t usb_cdc_write_binary(const uint8_t *data, size_t len) {
     if (!data || len == 0) {
         return 0;
     }
-    tinyusb_cdcacm_write_queue(CDC_BINARY_PORT, data, len);
+    size_t queued = tinyusb_cdcacm_write_queue(CDC_BINARY_PORT, data, len);
     (void)tinyusb_cdcacm_write_flush(CDC_BINARY_PORT, 0);
-    return len;
+    return queued;
+}
+
+// Once a frame write has started it must complete or the stream tears
+// mid-frame, so committed writes get a longer budget than the pre-check.
+#define USB_CDC_COMMIT_TIMEOUT_MS 250
+
+static bool cdc_binary_write_all(const uint8_t *data, size_t len) {
+    TickType_t start = xTaskGetTickCount();
+    size_t written = 0;
+    while (written < len) {
+        written += tinyusb_cdcacm_write_queue(CDC_BINARY_PORT, data + written, len - written);
+        (void)tinyusb_cdcacm_write_flush(CDC_BINARY_PORT, 0);
+        if (written < len) {
+            if ((TickType_t)(xTaskGetTickCount() - start) >= pdMS_TO_TICKS(USB_CDC_COMMIT_TIMEOUT_MS)) {
+                return false;
+            }
+            vTaskDelay(1);
+        }
+    }
+    return true;
+}
+
+bool usb_cdc_write_frame(const uint8_t *prefix, size_t prefix_len,
+                         const uint8_t *body, size_t body_len,
+                         uint32_t timeout_ms) {
+    if (!prefix || prefix_len == 0 || !body || body_len == 0) {
+        return false;
+    }
+
+    size_t total = prefix_len + body_len;
+    // Frames larger than the TX FIFO cannot be reserved up front; require a
+    // fully drained FIFO before committing to a chunked write.
+    size_t needed = (total <= CFG_TUD_CDC_TX_BUFSIZE) ? total : (size_t)CFG_TUD_CDC_TX_BUFSIZE;
+
+    TickType_t start = xTaskGetTickCount();
+    TickType_t timeout_ticks = pdMS_TO_TICKS(timeout_ms);
+    while (tud_cdc_n_write_available(CDC_BINARY_PORT) < needed) {
+        if ((TickType_t)(xTaskGetTickCount() - start) >= timeout_ticks) {
+            return false;
+        }
+        vTaskDelay(1);
+    }
+
+    return cdc_binary_write_all(prefix, prefix_len) &&
+           cdc_binary_write_all(body, body_len);
 }
 
 size_t usb_cdc_write_log(const uint8_t *data, size_t len) {

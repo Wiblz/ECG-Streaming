@@ -58,6 +58,9 @@ class UsbCollector:
         self._last_stats_log = time.monotonic()
         self.stats = UsbCollectorStats()
         self._tx_seq = 0
+        self._rx_seq: int | None = None
+        self.frames_dropped = 0
+        self._last_gap_log = 0.0
 
         # Throughput tracking with rolling window
         self._throughput_window_s = 10.0  # 10 second rolling window
@@ -72,6 +75,7 @@ class UsbCollector:
                 url=self.device_path,
                 baudrate=self.baudrate,
             )
+            self._rx_seq = None
             logger.info(f"Connected to USB device: {self.device_path} @ {self.baudrate} baud")
         except (serial.SerialException, OSError) as e:
             logger.error(f"Failed to open serial port {self.device_path}: {e}")
@@ -120,12 +124,34 @@ class UsbCollector:
         self.writer.write(frame_len + frame_bytes)
         await self.writer.drain()
 
+    def _track_rx_seq(self, seq: int) -> None:
+        """Detect gaps in received UsbFrame seq (fixed32, wraps at 2**32)."""
+        if self._rx_seq is not None:
+            expected = (self._rx_seq + 1) & 0xFFFFFFFF
+            gap = (seq - expected) & 0xFFFFFFFF
+            if gap == 0:
+                pass
+            elif gap < 0x80000000:
+                self.frames_dropped += gap
+                now = time.monotonic()
+                if now - self._last_gap_log >= 1.0:
+                    self._last_gap_log = now
+                    logger.warning(
+                        f"[{self.device_path}] USB frame seq gap: expected {expected}, got {seq} "
+                        f"({gap} frames dropped, {self.frames_dropped} total)"
+                    )
+            else:
+                # Seq went backwards: device rebooted and restarted at 0
+                logger.info(f"[{self.device_path}] USB frame seq reset: {self._rx_seq} -> {seq}")
+        self._rx_seq = seq
+
     async def _process_frame(self, frame_bytes: bytes) -> bool:
         """Parse and process a UsbFrame.
 
         Args:
             frame_bytes: Serialized UsbFrame protobuf
         """
+        message: Message | None = None
         try:
             # Parse UsbFrame
             usb_frame = usb_transport_pb2.UsbFrame()
@@ -140,6 +166,7 @@ class UsbCollector:
                 )
                 return False
 
+            self._track_rx_seq(usb_frame.seq)
             self.stats.frames_received += 1
 
             # Parse payload based on type
@@ -152,25 +179,27 @@ class UsbCollector:
                 if esp_msg.HasField("device_info"):
                     self._esp_id = esp_msg.device_info.esp_id
 
-                # Invoke callback
-                if self.message_callback:
-                    await self.message_callback(esp_msg)
+                message = esp_msg
             elif usb_frame.payload_type == usb_transport_pb2.USB_PAYLOAD_TYPE_ESP_DISCOVERY_MESSAGE:
                 discovery_msg = esp_collector_pb2.EspDiscoveryMessage()
                 discovery_msg.ParseFromString(usb_frame.payload)
                 self.stats.messages_received += 1
 
-                if self.message_callback:
-                    await self.message_callback(discovery_msg)
-
+                message = discovery_msg
             else:
                 logger.warning(f"Unknown payload type: {usb_frame.payload_type}")
-
-            return True
         except Exception as e:
             self.stats.frames_parse_errors += 1
             logger.error(f"[{self.device_path}] Failed to parse frame: {e}")
             return False
+
+        if message is not None and self.message_callback:
+            try:
+                await self.message_callback(message)
+            except Exception as e:
+                logger.error(f"[{self.device_path}] Message callback error: {e}", exc_info=True)
+
+        return True
 
     async def run(self) -> None:
         """Main loop to read and process frames."""
@@ -189,13 +218,15 @@ class UsbCollector:
                     break
 
                 try:
-                    chunk = await self.reader.read(1024)
+                    chunk = await asyncio.wait_for(self.reader.read(1024), timeout=1.0)
+                except TimeoutError:
+                    continue
                 except (serial.SerialException, OSError) as e:
                     logger.error(f"[{self.device_path}] Serial read error: {e}")
                     break
                 if not chunk:
-                    await asyncio.sleep(0.01)
-                    continue
+                    logger.error(f"[{self.device_path}] Serial connection closed (EOF)")
+                    break
 
                 buffer.extend(chunk)
                 self.stats.bytes_received += len(chunk)
@@ -241,9 +272,10 @@ class UsbCollector:
                     esp_info = f" esp_id={self._esp_id}" if self._esp_id else ""
 
                     logger.info(
-                        "[%s] USB stats: frames=%d crc_errors=%d parse_errors=%d messages=%d bytes=%d throughput=%.1f bytes/sec%s",
+                        "[%s] USB stats: frames=%d dropped=%d crc_errors=%d parse_errors=%d messages=%d bytes=%d throughput=%.1f bytes/sec%s",
                         connection_id,
                         self.stats.frames_received,
+                        self.frames_dropped,
                         self.stats.frames_crc_errors,
                         self.stats.frames_parse_errors,
                         self.stats.messages_received,
@@ -270,7 +302,9 @@ class UsbCollector:
         Returns:
             Dictionary with statistics
         """
-        return self.stats.to_dict()
+        stats = self.stats.to_dict()
+        stats["frames_dropped"] = self.frames_dropped
+        return stats
 
     def _calculate_throughput_bps(self) -> float:
         """Calculate rolling average throughput in bytes per second.
@@ -578,10 +612,8 @@ async def probe_usb_device(
                     return (device_info, None)
 
                 device_id = None
-                if msg_type == "ecg_frame":
-                    device_id = esp_msg.ecg_frame.device_id
-                elif msg_type == "acc_frame":
-                    device_id = esp_msg.acc_frame.device_id
+                if msg_type == "sensor_frame":
+                    device_id = esp_msg.sensor_frame.device_id
 
                 last_message = {
                     "type": msg_type or "unknown",

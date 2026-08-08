@@ -1,5 +1,12 @@
 #include "usb_transport.h"
 
+#include <inttypes.h>
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+
+#include "esp_log.h"
+
 #include "pb.h"
 #include "pb_decode.h"
 #include "pb_encode.h"
@@ -11,11 +18,46 @@
 #include "pb_helpers.h"
 #include "state.h"
 
+static const char *TAG = "USB_TRANSPORT";
+
 static uint8_t g_frame_buf[4096];
 static uint8_t g_payload_buf[4096];
 static uint8_t g_rx_frame_buf[4096];
 static uint8_t g_rx_payload_buf[2048];
 static ecg_streaming_UsbFrame g_usb_frame;
+
+#define USB_TX_LOCK_TIMEOUT_MS 50
+// ~8 ms between sensor frames at 130 Hz; 50 ms rides out transient host stalls
+#define USB_TX_FRAME_TIMEOUT_MS 50
+#define USB_TX_DROP_LOG_INTERVAL_MS 1000
+
+static SemaphoreHandle_t g_usb_tx_mutex;
+static uint32_t g_usb_tx_dropped;
+static TickType_t g_usb_tx_last_drop_log;
+
+// Called on lock timeout without the mutex held; a lost increment under
+// contention is acceptable for a stats counter.
+static void usb_tx_note_drop(void) {
+    g_usb_tx_dropped++;
+    TickType_t now = xTaskGetTickCount();
+    if ((TickType_t)(now - g_usb_tx_last_drop_log) >= pdMS_TO_TICKS(USB_TX_DROP_LOG_INTERVAL_MS)) {
+        g_usb_tx_last_drop_log = now;
+        ESP_LOGW(TAG, "USB TX frames dropped: %" PRIu32 " total", g_usb_tx_dropped);
+    }
+}
+
+static bool usb_tx_lock(void) {
+    if (g_usb_tx_mutex == NULL ||
+        xSemaphoreTake(g_usb_tx_mutex, pdMS_TO_TICKS(USB_TX_LOCK_TIMEOUT_MS)) != pdTRUE) {
+        usb_tx_note_drop();
+        return false;
+    }
+    return true;
+}
+
+static void usb_tx_unlock(void) {
+    xSemaphoreGive(g_usb_tx_mutex);
+}
 
 typedef struct {
     uint8_t *data;
@@ -48,6 +90,7 @@ static bool decode_bytes_cb(pb_istream_t *stream, const pb_field_t *field, void 
     return true;
 }
 
+// Caller must hold g_usb_tx_mutex.
 static bool send_usb_frame(ecg_streaming_UsbPayloadType type,
                            const uint8_t *payload, size_t payload_len) {
     bytes_view_t view = {
@@ -76,38 +119,48 @@ static bool send_usb_frame(ecg_streaming_UsbPayloadType type,
         (uint8_t)((frame_len >> 24) & 0xFF),
     };
 
-    usb_cdc_write_binary(len_le, sizeof(len_le));
-    usb_cdc_write_binary(g_frame_buf, frame_len);
+    if (!usb_cdc_write_frame(len_le, sizeof(len_le), g_frame_buf, frame_len,
+                             USB_TX_FRAME_TIMEOUT_MS)) {
+        usb_tx_note_drop();
+        return false;
+    }
     return true;
 }
 
 void usb_transport_init(void) {
     g_usb_frame = (ecg_streaming_UsbFrame)ecg_streaming_UsbFrame_init_zero;
+    g_usb_tx_mutex = xSemaphoreCreateMutex();
 }
 
 bool usb_send_esp_message(const ecg_streaming_EspMessage *msg) {
-    pb_ostream_t stream = pb_ostream_from_buffer(g_payload_buf, sizeof(g_payload_buf));
-
-    if (!pb_encode(&stream, ecg_streaming_EspMessage_fields, msg)) {
+    if (!usb_tx_lock()) {
         return false;
     }
 
-    return send_usb_frame(ecg_streaming_UsbPayloadType_USB_PAYLOAD_TYPE_ESP_MESSAGE,
-                          g_payload_buf, stream.bytes_written);
+    pb_ostream_t stream = pb_ostream_from_buffer(g_payload_buf, sizeof(g_payload_buf));
+    bool ok = pb_encode(&stream, ecg_streaming_EspMessage_fields, msg) &&
+              send_usb_frame(ecg_streaming_UsbPayloadType_USB_PAYLOAD_TYPE_ESP_MESSAGE,
+                             g_payload_buf, stream.bytes_written);
+
+    usb_tx_unlock();
+    return ok;
 }
 
 bool usb_send_esp_discovery_message(const ecg_streaming_EspDiscoveryMessage *msg) {
-    pb_ostream_t stream = pb_ostream_from_buffer(g_payload_buf, sizeof(g_payload_buf));
-
-    if (!pb_encode(&stream, ecg_streaming_EspDiscoveryMessage_fields, msg)) {
+    if (!usb_tx_lock()) {
         return false;
     }
 
-    return send_usb_frame(
-        ecg_streaming_UsbPayloadType_USB_PAYLOAD_TYPE_ESP_DISCOVERY_MESSAGE,
-        g_payload_buf,
-        stream.bytes_written
-    );
+    pb_ostream_t stream = pb_ostream_from_buffer(g_payload_buf, sizeof(g_payload_buf));
+    bool ok = pb_encode(&stream, ecg_streaming_EspDiscoveryMessage_fields, msg) &&
+              send_usb_frame(
+                  ecg_streaming_UsbPayloadType_USB_PAYLOAD_TYPE_ESP_DISCOVERY_MESSAGE,
+                  g_payload_buf,
+                  stream.bytes_written
+              );
+
+    usb_tx_unlock();
+    return ok;
 }
 
 bool usb_receive_collector_to_esp_message(ecg_streaming_CollectorToEspMessage *out_msg) {
