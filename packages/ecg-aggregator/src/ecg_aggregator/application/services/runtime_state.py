@@ -39,6 +39,13 @@ class DeviceRuntimeStatus:
     battery_level: int | None = None
     error_message: str | None = None
 
+    @property
+    def last_contact(self) -> HostTimeSeconds:
+        """Most recent contact of any kind: registration, status update, or data."""
+        if self.last_data_time is not None and self.last_data_time > self.last_update:
+            return self.last_data_time
+        return self.last_update
+
 
 class CollectorRegistry:
     """Own collector runtime state."""
@@ -158,15 +165,15 @@ class DeviceRegistry:
         device.error_message = error_message
         return device
 
-    def disconnect_collector_devices(self, collector_id: str) -> list[str]:
+    def disconnect_collector_devices(self, collector_id: str) -> list[DeviceRuntimeStatus]:
         """Remove all devices for a collector from the registry."""
         disconnected = [
-            device_id
-            for device_id, device in self.device_statuses.items()
+            device
+            for device in self.device_statuses.values()
             if device.collector_id == collector_id
         ]
-        for device_id in disconnected:
-            del self.device_statuses[device_id]
+        for device in disconnected:
+            del self.device_statuses[device.device_id]
         return disconnected
 
     def count_active_devices_for_collector(

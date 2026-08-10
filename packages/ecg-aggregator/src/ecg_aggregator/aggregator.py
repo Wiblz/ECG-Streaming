@@ -158,6 +158,7 @@ class ECGAggregator:
 
         logger.info("Stopping gRPC server...")
         await self.ingest_service.stop_stats_task()
+        await self.ingest_service.stop_last_seen_task()
         await self.ingest_service.stop_flush_task()
         await self.grpc_server.stop(grace=5)
 
@@ -182,6 +183,7 @@ class ECGAggregator:
 
         self.ingest_service.start_flush_task()
         self.ingest_service.start_stats_task()
+        self.ingest_service.start_last_seen_task()
 
     async def _start_http_server(self) -> None:
         """Start the HTTP/WebSocket server."""

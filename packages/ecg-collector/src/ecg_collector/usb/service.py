@@ -7,7 +7,7 @@ import time
 from typing import cast
 
 from ecg_common.logging import get_logger
-from ecg_common.models import SensorFrame, SensorType
+from ecg_common.models import DeviceStatusCode, SensorFrame, SensorType
 from ecg_common.proto import esp_collector_pb2
 
 from ecg_collector.base import DataCollector
@@ -91,6 +91,10 @@ class MultiUsbCollectorService(DataCollector):
         self._inventory_stale_s = 45.0
         self._last_inventory_prune_ts = 0.0
         self._rejected_device_ids: set[str] = set()
+        self._device_last_frame_ts: dict[str, float] = {}
+        # A device that stops delivering frames is reported disconnected; matches
+        # the BLE monitor loop, which drives the same transitions from link state
+        self._device_stale_s = 15.0
         self._configured_esp_ids: set[str] = set()
         self._unmapped_esp_ids: set[str] = set()
         self._seen_app_versions: set[str] = set()
@@ -245,6 +249,8 @@ class MultiUsbCollectorService(DataCollector):
             if device_id not in self.device_ids:
                 logger.info("USB device discovered from stream: %s", device_id)
             self.device_ids.add(device_id)
+            self._device_last_frame_ts[device_id] = time.time()
+            await self.send_status_update(device_id, DeviceStatusCode.STREAMING)
 
         # Convert sensor frame: proto → Python dataclass → batch message
         if msg_type == "sensor_frame":
@@ -412,6 +418,12 @@ class MultiUsbCollectorService(DataCollector):
             self._inventory_manager.drop_device_path(device_path)
             self._usb_tasks.pop(device_path, None)
 
+    async def _report_stale_devices(self, now: float) -> None:
+        """Report devices that have stopped delivering frames as disconnected."""
+        for device_id, last_ts in self._device_last_frame_ts.items():
+            if now - last_ts > self._device_stale_s:
+                await self.send_status_update(device_id, DeviceStatusCode.DISCONNECTED)
+
     async def _discovery_loop(self) -> None:
         """Periodically discover USB data interfaces and start collectors."""
         while self.running:
@@ -424,6 +436,8 @@ class MultiUsbCollectorService(DataCollector):
                 if now - self._last_inventory_prune_ts >= self._inventory_prune_interval_s:
                     self._inventory_manager.prune_stale(self._inventory_stale_s)
                     self._last_inventory_prune_ts = now
+
+                await self._report_stale_devices(now)
 
                 device_groups = await discover_and_group_usb_interfaces()
                 data_paths = [

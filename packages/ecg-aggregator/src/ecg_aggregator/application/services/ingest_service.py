@@ -49,6 +49,7 @@ from ecg_aggregator.sync.time_alignment import TimeAlignmentService
 
 logger = get_logger(__name__)
 ACTIVE_DEVICE_WINDOW_S = Seconds(30.0)
+LAST_SEEN_FLUSH_INTERVAL_S = Seconds(30.0)
 
 
 class IngestService:
@@ -101,6 +102,8 @@ class IngestService:
         self._last_frame_ts: dict[tuple[str, str], int] = {}
         self._sync_ready_logged: dict[str, int] = {}
         self._stats_task: asyncio.Task[None] | None = None
+        self._last_seen_task: asyncio.Task[None] | None = None
+        self._device_last_seen_persisted: dict[str, float] = {}
 
     def start_flush_task(self) -> None:
         """Start periodic batch flushing."""
@@ -125,6 +128,48 @@ class IngestService:
             self._stats_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._stats_task
+
+    def start_last_seen_task(self, interval_s: float = LAST_SEEN_FLUSH_INTERVAL_S) -> None:
+        """Start periodic persistence of device last-seen timestamps."""
+        if self.database is None:
+            return
+        if self._last_seen_task is None or self._last_seen_task.done():
+            self._last_seen_task = asyncio.create_task(self._flush_last_seen_loop(interval_s))
+
+    async def stop_last_seen_task(self) -> None:
+        """Stop last-seen persistence and flush pending timestamps."""
+        if self._last_seen_task and not self._last_seen_task.done():
+            self._last_seen_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._last_seen_task
+        await self._flush_device_last_seen()
+
+    async def _flush_last_seen_loop(self, interval_s: float) -> None:
+        while True:
+            try:
+                await asyncio.sleep(interval_s)
+                await self._flush_device_last_seen()
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.error("Error persisting device last_seen: %s", exc)
+
+    async def _flush_device_last_seen(self) -> None:
+        """Persist runtime last-contact timestamps that advanced since the last flush."""
+        if self.database is None:
+            return
+        updates = {
+            device_id: float(status.last_contact)
+            for device_id, status in self.device_registry.device_statuses.items()
+            if status.last_contact > self._device_last_seen_persisted.get(device_id, 0.0)
+        }
+        if not updates:
+            return
+        persisted = await asyncio.get_running_loop().run_in_executor(
+            None, self.database.update_devices_last_seen, updates
+        )
+        if persisted:
+            self._device_last_seen_persisted.update(updates)
 
     async def _publish_buffer_stats(self, interval_s: float) -> None:
         """Periodically publish a BufferStatsUpdated domain event."""
@@ -214,12 +259,16 @@ class IngestService:
             metadata=registration.metadata,
         )
 
+        registration_time = time.time()
         for device_id in registration.device_ids:
             self.database.ensure_device(device_id)
             self.database.upsert_device_collector_mapping(
                 device_id=device_id,
                 collector_id=registration.collector_id,
             )
+        self.database.update_devices_last_seen(
+            dict.fromkeys(registration.device_ids, registration_time)
+        )
 
         for device_id, nickname in registration.device_nicknames.items():
             if nickname:
@@ -481,12 +530,13 @@ class IngestService:
                 current_generation,
             )
             return
-        for device_id in self.device_registry.disconnect_collector_devices(collector_id):
-            self._clear_device_stream_state(device_id)
+        removed_devices = self.device_registry.disconnect_collector_devices(collector_id)
+        for device in removed_devices:
+            self._clear_device_stream_state(device.device_id)
             if self.event_bus:
                 await self.event_bus.publish(
                     DeviceUpdated(
-                        device_id=device_id,
+                        device_id=device.device_id,
                         collector_id=collector_id,
                         status=DeviceStatus.DISCONNECTED,
                     )
@@ -496,9 +546,20 @@ class IngestService:
             await self.event_bus.publish(CollectorDisconnected(collector_id=collector_id))
         self.collector_registry.remove(collector_id)
         if self.database:
-            await asyncio.get_running_loop().run_in_executor(
-                None, self.database.update_collector_last_seen, collector_id
-            )
+            # Removed devices leave the registry, so flush their final contact
+            # time now instead of waiting for the periodic task.
+            last_seen_updates = {
+                device.device_id: float(device.last_contact) for device in removed_devices
+            }
+            database = self.database
+
+            def _persist_disconnect() -> None:
+                database.update_devices_last_seen(last_seen_updates)
+                database.update_collector_last_seen(collector_id)
+
+            await asyncio.get_running_loop().run_in_executor(None, _persist_disconnect)
+        for device in removed_devices:
+            self._device_last_seen_persisted.pop(device.device_id, None)
 
     def get_active_device_count(self, active_window_s: Seconds = ACTIVE_DEVICE_WINDOW_S) -> int:
         """Get total number of active devices across all collectors."""

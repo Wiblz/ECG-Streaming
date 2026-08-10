@@ -97,6 +97,7 @@ class SampleRepository:
                     ),
                 )
 
+                current_time = time.time()
                 cursor.execute(
                     """
                     INSERT INTO devices (device_id, first_seen, last_seen, total_samples)
@@ -105,7 +106,7 @@ class SampleRepository:
                         last_seen = ?,
                         total_samples = total_samples + 1
                     """,
-                    (device_id, global_time, global_time, global_time),
+                    (device_id, current_time, current_time, current_time),
                 )
 
                 self._conn.commit()
@@ -160,6 +161,7 @@ class SampleRepository:
                     ),
                 )
 
+                current_time = time.time()
                 cursor.execute(
                     """
                     INSERT INTO devices (device_id, first_seen, last_seen, total_samples)
@@ -168,7 +170,7 @@ class SampleRepository:
                         last_seen = ?,
                         total_samples = total_samples + 1
                     """,
-                    (device_id, global_time, global_time, global_time),
+                    (device_id, current_time, current_time, current_time),
                 )
 
                 self._conn.commit()

@@ -299,6 +299,9 @@ class ECGDatabase:
     def update_device_nickname(self, device_id: str, nickname: str | None) -> bool:
         return self._devices.update_device_nickname(device_id, nickname)
 
+    def update_devices_last_seen(self, updates: dict[str, float]) -> bool:
+        return self._devices.update_devices_last_seen(updates)
+
     def upsert_collector(
         self,
         collector_id: str,

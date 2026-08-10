@@ -159,6 +159,10 @@ class DeviceQueryService:
                 last_update = status_info.last_update
                 battery_level = status_info.battery_level
                 error_message = status_info.error_message
+                # Runtime contact is fresher than the throttled DB value while
+                # the device is connected.
+                if last_seen is None or status_info.last_contact > last_seen:
+                    last_seen = status_info.last_contact
 
             devices.append(
                 DeviceInfoDTO(

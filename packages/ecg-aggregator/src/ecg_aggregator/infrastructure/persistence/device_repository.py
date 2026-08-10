@@ -90,6 +90,36 @@ class DeviceRepository:
                 logger.error(f"Error updating device nickname: {e}")
                 return False
 
+    def update_devices_last_seen(self, updates: dict[str, float]) -> bool:
+        """Advance last_seen for the given devices, creating rows if needed.
+
+        Timestamps only move forward, so a stale flush can never regress a
+        value written by a newer sample batch.
+        """
+        if not updates:
+            return True
+        with self._lock:
+            try:
+                cursor = self._conn.cursor()
+                cursor.executemany(
+                    """
+                    INSERT INTO devices (device_id, first_seen, last_seen, total_samples)
+                    VALUES (?, ?, ?, 0)
+                    ON CONFLICT(device_id) DO UPDATE SET
+                        last_seen = MAX(last_seen, excluded.last_seen)
+                    """,
+                    [
+                        (device_id, timestamp, timestamp)
+                        for device_id, timestamp in updates.items()
+                    ],
+                )
+                self._conn.commit()
+                return True
+
+            except Exception as e:
+                logger.error(f"Error updating device last_seen: {e}")
+                return False
+
     def upsert_collector(
         self,
         collector_id: str,
