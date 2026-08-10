@@ -58,6 +58,16 @@ export interface PlotConfigOptions {
   legend?: uPlot.Legend;
 
   /**
+   * uPlot rendering mode. Absent or 1 → aligned data; 2 → faceted per-series data.
+   */
+  mode?: 1 | 2;
+
+  /**
+   * Cursor configuration
+   */
+  cursor?: uPlot.Cursor;
+
+  /**
    * Functions to create series and axes (loaded from uplot-config)
    */
   createDeviceSeries: (
@@ -87,6 +97,8 @@ export function buildPlotOptions(config: PlotConfigOptions): WaveformPlotOptions
     scales,
     hooks,
     legend,
+    mode,
+    cursor,
     createDeviceSeries,
     createAxes
   } = config;
@@ -97,6 +109,8 @@ export function buildPlotOptions(config: PlotConfigOptions): WaveformPlotOptions
 
   return {
     height,
+    ...(mode !== undefined ? { mode } : {}),
+    ...(cursor !== undefined ? { cursor } : {}),
     series: createDeviceSeries(
       devices,
       showVerifiedPoints && getVerifiedIndices ? getVerifiedIndices : undefined,

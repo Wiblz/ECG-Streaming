@@ -121,7 +121,6 @@
           title="ECG"
           emptyMessage="Waiting for ECG data..."
           standalone={false}
-          alignMode="linear"
           {showVerifiedPoints}
         />
       </div>
@@ -154,7 +153,6 @@
           title="Accelerometer"
           emptyMessage="Waiting for accelerometer data..."
           standalone={false}
-          alignMode="linear"
           {showVerifiedPoints}
         />
       </div>

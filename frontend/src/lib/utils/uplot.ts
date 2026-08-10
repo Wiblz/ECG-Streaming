@@ -82,6 +82,49 @@ export function createDeviceSeries(
 }
 
 /**
+ * Create series configuration for devices on a mode 2 (faceted) chart.
+ *
+ * Each series carries its own x/y facet pair, so verified-point indices are
+ * per-series rather than positions in a shared timestamp grid.
+ *
+ * @param getVerifiedIndices - Reads live-updated indices for a device; omit to hide points
+ */
+export function createFacetDeviceSeries(
+  deviceIds: string[],
+  getVerifiedIndices?: (deviceId: string) => number[],
+  deviceNicknames?: Map<string, string>,
+  spanGaps: boolean = true
+): uPlot.Series[] {
+  const series: uPlot.Series[] = [{}];
+
+  deviceIds.forEach((deviceId, idx) => {
+    const displayName = deviceNicknames?.get(deviceId) || deviceId;
+    series.push({
+      label: displayName,
+      stroke: getDeviceColor(idx),
+      width: 2,
+      spanGaps,
+      // Both scale ranges are supplied by the chart's range functions, so skip
+      // uPlot's per-redraw min/max scan over the facet arrays
+      auto: false,
+      // sorted x facet lets uPlot read min/max from the endpoints
+      facets: [{ scale: 'x', sorted: 1 }, { scale: 'y' }],
+      points: getVerifiedIndices
+        ? {
+            show: true,
+            size: 5,
+            width: 2,
+            stroke: '#00ff00', // Green for verified samples
+            filter: () => getVerifiedIndices(deviceId)
+          }
+        : { show: false }
+    });
+  });
+
+  return series;
+}
+
+/**
  * Format time values for x-axis display
  */
 export function formatTimeAxis(u: uPlot, vals: number[]): string[] {

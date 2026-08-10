@@ -5,19 +5,8 @@
   import { browser } from '$app/environment';
   import type { PlottableSample } from '$lib/types/api';
   import { isPaused } from '$lib/state/pause.svelte';
-  import type { AlignMode } from '$lib/utils/samples';
-  import {
-    prepareChartData as prepareChartDataUtil,
-    extractVerifiedIndices
-  } from '$lib/waveforms/chart-data-transformer';
-  import { RenderCache } from '$lib/waveforms/render-cache';
   import { calculateTimeWindow } from '$lib/waveforms/time-window';
-  import {
-    isCacheValid as checkCacheValid,
-    findBaseDevice,
-    type AlignmentCache
-  } from '$lib/waveforms/alignment-cache';
-  import { updateAlignmentCache } from '$lib/waveforms/incremental-alignment';
+  import { FacetDataBuilder, toAlignedData, type DeviceWindow } from '$lib/waveforms/facet-data';
   import {
     getCurrentPlaybackTime,
     getSessionStartTime,
@@ -54,8 +43,6 @@
      * Map of device IDs to nicknames for display
      */
     deviceNicknames?: Map<string, string>;
-    maxGapSeconds?: number;
-    alignMode?: AlignMode;
   }
 
   let {
@@ -67,12 +54,10 @@
     wsState,
     standalone = true,
     showVerifiedPoints = false,
-    deviceNicknames,
-    maxGapSeconds = 0.1,
-    alignMode = 'exact'
+    deviceNicknames
   }: Props = $props();
 
-  let createDeviceSeries = $state<
+  let createFacetDeviceSeries = $state<
     | ((
         deviceIds: string[],
         getVerifiedIndices?: (deviceId: string) => number[],
@@ -84,8 +69,7 @@
   let createAxes = $state<((yLabel: string) => uPlot.Axis[]) | null>(null);
   let tooltipsPlugin: ReturnType<typeof import('$lib/utils/uplot-tooltips').tooltipsPlugin> | null =
     null;
-  // Reuse array references to avoid forcing uPlot to redraw from scratch
-  let plotData: AlignedData = $state([[], []]);
+  let plotData: AlignedData = $state(toAlignedData([null]));
   let plotOptions: WaveformPlotOptions | null = $state(null);
   let plotReady = $state(false);
   let chartApi: WaveformPlotApi | null = null;
@@ -93,15 +77,23 @@
   let lastUpdateTime = 0;
 
   let deviceOrder: string[] = $state([]);
-  let samplesByDevice: (T | null)[][] = $state([]);
+
+  // Per-frame lookups read from uPlot callbacks. Deliberately non-reactive:
+  // rewriting them every frame must not retrigger the options effect.
+  let deviceWindows: DeviceWindow<T>[] = [];
   // eslint-disable-next-line svelte/prefer-svelte-reactivity
   let verifiedIndicesByDevice = new Map<string, number[]>();
+
+  const facetBuilder = new FacetDataBuilder<T>();
+
+  // Sorted device list, recomputed only when a device appears (keys are never removed)
+  let cachedDevices: string[] = [];
 
   /**
    * Assign deviceOrder only when the device list actually changed.
    *
-   * prepareChartData runs every animation frame and produces a fresh array each
-   * time. Assigning it unconditionally dirties the $state on every frame, which
+   * The device list is recomputed every animation frame as a fresh array.
+   * Assigning it unconditionally dirties the $state on every frame, which
    * retriggers the rebuildPlotOptions effect and recreates the uPlot instance
    * ~30x/second, so the chart never renders past its first frames.
    */
@@ -112,18 +104,12 @@
     deviceOrder = next;
   }
 
-  // Cache for aligned data to avoid re-aligning on every frame
-  // Note: Not reactive - this is an internal optimization that doesn't need reactivity
-  let alignmentCache: AlignmentCache<T> | null = null;
-
-  // Render cache - reuses arrays to eliminate GC pressure
-  const renderCache = new RenderCache<T>();
-
   import { ConnectionState } from '$lib/state/websocket.svelte';
 
   // Time window configuration
   const WINDOW_DURATION = 7.5; // seconds to display
   const UPDATE_INTERVAL_MS = 33; // update every 33ms (30 FPS)
+  const CURSOR_MAX_DISTANCE = 0.25; // seconds; beyond this a series reports no sample
 
   // State computed via polling instead of reactivity
   let isStreaming = $state(false);
@@ -164,7 +150,7 @@
   // Uses untrack() to read samples without creating ongoing subscription
   $effect(() => {
     // Only run when plot helpers are loaded and we have fresh data to show
-    if (!shouldShowPlot || !createDeviceSeries || !createAxes) {
+    if (!shouldShowPlot || !createFacetDeviceSeries || !createAxes) {
       return;
     }
 
@@ -175,8 +161,7 @@
 
     // Use untrack to read samples once without subscribing to future updates
     untrack(() => {
-      // Initialize with initial data preparation
-      const { data, devices } = prepareChartData(samples);
+      const { data, devices } = refreshFrameData(getCurrentTimeWindow());
       if (devices.length > 0) {
         // Set initial data and options to make plot render
         plotData = data;
@@ -187,13 +172,30 @@
 
   // Rebuild plot options when device order changes
   $effect(() => {
-    if (!createDeviceSeries || !createAxes) return;
+    if (!createFacetDeviceSeries || !createAxes) return;
     if (deviceOrder.length === 0) return;
     rebuildPlotOptions(deviceOrder);
   });
 
+  /**
+   * Republish plotData for the current device list.
+   *
+   * A device joining or leaving recreates the chart, and mode 2 throws at
+   * construction unless every series has a matching facet pair.
+   */
+  $effect(() => {
+    if (deviceOrder.length === 0) return;
+    untrack(() => {
+      plotData = refreshFrameData(getCurrentTimeWindow()).data;
+    });
+  });
+
   // X-axis range controlled by function (prevents setData from resetting scale)
   let xAxisRange: [number, number] = [0, WINDOW_DURATION];
+
+  // Y-axis range read by the scale's range function. Updated from the copy pass
+  // in build(), so uPlot's own per-redraw min/max scan is skipped (series auto: false).
+  let yAxisRange: [number, number] = [0, 1];
 
   // Use shared session start time for synchronization across all waveforms
   const sessionStartTime = $derived(getSessionStartTime());
@@ -203,209 +205,129 @@
     return calculateTimeWindow(getCurrentPlaybackTime(), WINDOW_DURATION);
   }
 
-  // Check if alignment cache is valid
-  function isCacheValid(sampleMap: Map<string, T[]>): boolean {
-    return checkCacheValid(alignmentCache, sampleMap, sessionStartTime);
-  }
+  const EMPTY_FACET = new Float64Array(0);
 
-  // Prepare data for uPlot from live samples, filtered by time window
-  function prepareChartData(
-    sampleMap: Map<string, T[]>,
-    timeWindow?: { minTime: number; maxTime: number } | null
-  ): {
+  /**
+   * Rebuild this frame's faceted plot data and the per-frame lookups that uPlot
+   * callbacks read (tooltip window offsets, verified-point indices).
+   */
+  function refreshFrameData(timeWindow: { minTime: number; maxTime: number } | null): {
     data: AlignedData;
     devices: string[];
-    samples: T[];
   } {
-    const devices = Array.from(sampleMap.keys()).sort();
+    if (samples.size !== cachedDevices.length) {
+      cachedDevices = Array.from(samples.keys()).sort();
+    }
+    const devices = cachedDevices;
 
-    if (devices.length === 0 || sampleMap.size === 0) {
-      alignmentCache = null;
+    if (devices.length === 0) {
       setDeviceOrder([]);
-      samplesByDevice = [];
+      deviceWindows = [];
       verifiedIndicesByDevice.clear();
-      return { data: [[], []], devices: [], samples: [] };
+      return { data: toAlignedData([null]), devices: [] };
     }
 
-    // Single device case
-    if (devices.length === 1) {
-      const deviceSamples = sampleMap.get(devices[0])!;
-      if (deviceSamples.length === 0) {
-        return { data: [[], []], devices, samples: [] };
-      }
-
-      // Set session start time from first sample if not set
-      if (sessionStartTime === null && deviceSamples.length > 0) {
-        setSessionStartTime(deviceSamples[0].global_time);
-      }
-
-      // Use absolute time (seconds from session start)
-      const currentStartTime = sessionStartTime ?? deviceSamples[0].global_time;
-
-      // Filter samples by time window if provided using binary search
-      let filteredSamples = deviceSamples;
-      if (timeWindow) {
-        // Binary search for start index
-        let left = 0;
-        let right = deviceSamples.length;
-        while (left < right) {
-          const mid = Math.floor((left + right) / 2);
-          if (deviceSamples[mid].global_time - currentStartTime < timeWindow.minTime) {
-            left = mid + 1;
-          } else {
-            right = mid;
-          }
+    // Anchor relative time to the first sample seen, shared across all waveforms.
+    // The time window is derived from this origin, so it must be set before the
+    // window check below or playback never starts.
+    let startTime = sessionStartTime;
+    if (startTime === null) {
+      for (const deviceId of devices) {
+        const deviceSamples = samples.get(deviceId)!;
+        if (deviceSamples.length > 0) {
+          startTime = deviceSamples[0].global_time;
+          setSessionStartTime(startTime);
+          break;
         }
-        const startIdx = left;
-
-        // Binary search for end index
-        left = startIdx;
-        right = deviceSamples.length;
-        while (left < right) {
-          const mid = Math.floor((left + right) / 2);
-          if (deviceSamples[mid].global_time - currentStartTime <= timeWindow.maxTime) {
-            left = mid + 1;
-          } else {
-            right = mid;
-          }
-        }
-
-        filteredSamples = deviceSamples.slice(startIdx, left);
-      }
-
-      const timestamps = filteredSamples.map((s) => s.global_time - currentStartTime);
-      const values = filteredSamples.map((s) => getValue(s));
-
-      setDeviceOrder(devices);
-      const verifiedIndices: number[] = [];
-      for (let i = 0; i < filteredSamples.length; i++) {
-        if (filteredSamples[i].time_verified) verifiedIndices.push(i);
-      }
-      samplesByDevice = [filteredSamples];
-      verifiedIndicesByDevice.clear();
-      verifiedIndicesByDevice.set(devices[0], verifiedIndices);
-
-      return { data: [timestamps, values], devices, samples: filteredSamples };
-    }
-
-    // Multiple devices - align by timestamp
-    // Check if we can use cached alignment
-    const cacheIsValid = isCacheValid(sampleMap);
-
-    if (cacheIsValid && alignmentCache && sessionStartTime !== null) {
-      // Try incremental update
-      const updateSuccess = updateAlignmentCache(
-        alignmentCache,
-        sampleMap,
-        getValue,
-        sessionStartTime,
-        maxGapSeconds,
-        alignMode
-      );
-      if (!updateSuccess) {
-        // Incremental update failed - need full rebuild
-        alignmentCache = null;
       }
     }
-
-    if (!cacheIsValid || !alignmentCache) {
-      // Need to rebuild alignment cache
-      // Find the device with the most samples to use as time base
-      const maxDevice = findBaseDevice(sampleMap);
-      if (!maxDevice) {
-        alignmentCache = null;
-        setDeviceOrder([]);
-        samplesByDevice = [];
-        verifiedIndicesByDevice.clear();
-        return { data: [[], []], devices: [], samples: [] };
-      }
-
-      const baseSamples = sampleMap.get(maxDevice)!;
-      if (baseSamples.length === 0) {
-        alignmentCache = null;
-        setDeviceOrder([]);
-        samplesByDevice = [];
-        verifiedIndicesByDevice.clear();
-        return { data: [[], []], devices: [], samples: [] };
-      }
-
-      // Set session start time from first sample if not set
-      if (sessionStartTime === null && baseSamples.length > 0) {
-        setSessionStartTime(baseSamples[0].global_time);
-      }
-
-      const alignStartTime = sessionStartTime ?? baseSamples[0].global_time;
-
-      // Build full alignment (no time window filtering)
-      const aligned = prepareChartDataUtil({
-        samples: sampleMap,
-        getValue,
-        referenceTime: alignStartTime,
-        maxGapSeconds,
-        alignMode,
-        deviceOrder: devices
-      });
-
-      // Calculate timestamp range for cache
-      const timestampRange =
-        aligned.timestamps.length > 0
-          ? { min: aligned.timestamps[0], max: aligned.timestamps[aligned.timestamps.length - 1] }
-          : { min: 0, max: 0 };
-
-      // Update cache
-      alignmentCache = {
-        deviceOrder: aligned.deviceOrder,
-        deviceSampleCounts: new Map(devices.map((d) => [d, sampleMap.get(d)!.length])),
-        timestamps: aligned.timestamps,
-        seriesData: aligned.data.slice(1) as (number | null)[][],
-        samplesByDevice: aligned.samplesByDevice,
-        sessionStartTime: alignStartTime,
-        baseDeviceId: maxDevice,
-        timestampRange
-      };
-
-      // Extract verified indices ONCE when cache is rebuilt (not every frame)
-      const verifiedEntries = extractVerifiedIndices(aligned);
-      verifiedIndicesByDevice.clear();
-      for (const [key, value] of verifiedEntries) {
-        verifiedIndicesByDevice.set(key, value);
-      }
+    if (startTime === null) {
+      return { data: toAlignedData([null]), devices: [] };
     }
 
-    // Now filter by time window if provided
-    const cachedTimestamps = alignmentCache!.timestamps;
-    const cachedSeriesData = alignmentCache!.seriesData;
-    const cachedBaseSamples = sampleMap.get(alignmentCache!.baseDeviceId) ?? [];
-    const cachedSamplesByDevice = alignmentCache!.samplesByDevice;
-
+    // Empty facets still let the chart construct with its real series list,
+    // which mode 2 requires
     if (!timeWindow) {
-      setDeviceOrder(alignmentCache!.deviceOrder);
-      samplesByDevice = cachedSamplesByDevice;
-      // verifiedIndicesByDevice already set when cache was built
-
-      return { data: [cachedTimestamps, ...cachedSeriesData], devices, samples: cachedBaseSamples };
+      setDeviceOrder(devices);
+      deviceWindows = [];
+      verifiedIndicesByDevice.clear();
+      devices.forEach((deviceId) => verifiedIndicesByDevice.set(deviceId, []));
+      return {
+        data: toAlignedData([
+          null,
+          ...devices.map(() => [EMPTY_FACET, EMPTY_FACET] as [Float64Array, Float64Array])
+        ]),
+        devices
+      };
     }
 
-    // Use render cache to filter by time window without creating new arrays
-    renderCache.updateFromAlignmentCache(
-      cachedTimestamps,
-      cachedSeriesData,
-      cachedSamplesByDevice,
-      alignmentCache!.deviceOrder,
-      timeWindow
-    );
+    const frame = facetBuilder.build({
+      samples,
+      deviceOrder: devices,
+      getValue,
+      sessionStartTime: startTime,
+      timeWindow,
+      collectVerified: showVerifiedPoints
+    });
 
-    setDeviceOrder(alignmentCache!.deviceOrder);
-    samplesByDevice = renderCache.samplesByDevice;
+    setDeviceOrder(devices);
+    deviceWindows = frame.deviceWindows;
+    verifiedIndicesByDevice.clear();
+    devices.forEach((deviceId, idx) => {
+      verifiedIndicesByDevice.set(deviceId, frame.verifiedIndices[idx]);
+    });
 
-    // Don't extract verified indices every frame - they don't change during streaming
-    // and extracting them creates new arrays. Only extract when cache is rebuilt.
+    if (frame.yRange) {
+      const [yMin, yMax] = frame.yRange;
+      const pad = (yMax - yMin) * 0.1 || 1;
+      yAxisRange[0] = yMin - pad;
+      yAxisRange[1] = yMax + pad;
+    }
 
-    return { data: renderCache.toUPlotData(), devices, samples: [] };
+    return { data: toAlignedData(frame.data), devices };
+  }
+
+  /**
+   * Resolve the sample each series should report under the cursor.
+   *
+   * uPlot's default dataIdx is mode 1 only; in mode 2 it receives no usable
+   * cursor index or x value, so both are derived here.
+   */
+  function facetDataIdx(u: uPlot, seriesIdx: number): number | null {
+    if (seriesIdx === 0) return null;
+
+    const left = u.cursor.left;
+    if (left === undefined || left === null || left < 0) return null;
+
+    const xs = (u.data[seriesIdx] as unknown as [number[], number[]] | undefined)?.[0];
+    if (!xs || xs.length === 0) return null;
+
+    const xVal = u.posToVal(left, 'x');
+
+    let lo = 0;
+    let hi = xs.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (xs[mid] < xVal) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+
+    // Compare against the previous point too - the search lands on the first
+    // x >= xVal, which may be the farther of the two neighbours
+    let nearest = lo;
+    if (lo > 0 && Math.abs(xs[lo - 1] - xVal) <= Math.abs(xs[lo] - xVal)) {
+      nearest = lo - 1;
+    }
+
+    // Ignore samples too far from the cursor to be what the user is pointing at
+    return Math.abs(xs[nearest] - xVal) > CURSOR_MAX_DISTANCE ? null : nearest;
   }
 
   function rebuildPlotOptions(devices: string[]) {
-    if (!createDeviceSeries || !createAxes) {
+    if (!createFacetDeviceSeries || !createAxes) {
       plotOptions = null;
       return;
     }
@@ -420,10 +342,17 @@
       spanGaps: true,
       plugins: tooltipsPlugin ? [tooltipsPlugin] : [],
       scales: {
-        x: { time: false, auto: false, range: () => xAxisRange }
+        x: { time: false, auto: false, range: () => xAxisRange },
+        y: { auto: false, range: () => yAxisRange }
       },
-      legend: { show: true },
-      createDeviceSeries,
+      // uPlot's single-value live legend misreads faceted series; the tooltip shows values
+      legend: { show: true, live: false },
+      mode: 2,
+      cursor: {
+        dataIdx: facetDataIdx,
+        drag: { x: false, y: false, setScale: false }
+      },
+      createDeviceSeries: createFacetDeviceSeries,
       createAxes
     });
   }
@@ -455,19 +384,21 @@
       return;
     }
 
-    const { data, devices } = prepareChartData(samples, timeWindow);
+    const { data, devices } = refreshFrameData(timeWindow);
 
-    // Update the range array (plot will use function to read it)
+    // Chart re-creation reads this closure once, at construction
     xAxisRange[0] = timeWindow.minTime;
     xAxisRange[1] = timeWindow.maxTime;
 
-    // Call uPlot API directly instead of using Svelte reactivity
-    if (chartApi) {
-      chartApi.setData(data);
-    }
-
     if (devices.length === 0) {
       plotOptions = null;
+    } else if (chartApi) {
+      // Only mode 1 re-invokes a non-auto scale's range fn on setData, so both
+      // scale windows must be pushed explicitly here
+      chartApi.setFrame(data, {
+        x: { min: timeWindow.minTime, max: timeWindow.maxTime },
+        y: { min: yAxisRange[0], max: yAxisRange[1] }
+      });
     }
 
     animationFrameId = requestAnimationFrame(updateChart);
@@ -514,14 +445,15 @@
       import('$lib/utils/uplot'),
       import('$lib/utils/uplot-tooltips')
     ]);
-    createDeviceSeries = utilsModule.createDeviceSeries;
+    createFacetDeviceSeries = utilsModule.createFacetDeviceSeries;
     createAxes = utilsModule.createAxes;
     tooltipsPlugin = tooltipsModule.tooltipsPlugin({
       showSeriesPoints: true,
       showCursorPosition: false,
+      faceted: true,
       formatValue: (xVal, yVal, seriesIdx, dataIdx) => {
-        const deviceIdx = seriesIdx - 1;
-        const sample = samplesByDevice[deviceIdx]?.[dataIdx];
+        const win = deviceWindows[seriesIdx - 1];
+        const sample = win?.samples[win.startIdx + dataIdx];
         if (sample) {
           const verified = sample.time_verified ? ' ✓' : '';
           return `

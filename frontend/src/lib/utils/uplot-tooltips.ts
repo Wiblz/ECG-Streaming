@@ -7,6 +7,8 @@ export interface TooltipOptions {
   showCursorPosition?: boolean;
   /** Custom formatter for tooltip text - receives x value, y value, series index, and data point index */
   formatValue?: (xVal: number, yVal: number, seriesIdx: number, dataIdx: number) => string;
+  /** Read values from mode 2 faceted data ([xs, ys] per series) with per-series hover indices */
+  faceted?: boolean;
 }
 
 /**
@@ -24,7 +26,8 @@ export function tooltipsPlugin(opts: TooltipOptions = {}) {
   const {
     showSeriesPoints = true,
     showCursorPosition = false,
-    formatValue = (xVal: number, yVal: number) => `${xVal.toFixed(2)}, ${yVal.toFixed(2)}`
+    formatValue = (xVal: number, yVal: number) => `${xVal.toFixed(2)}, ${yVal.toFixed(2)}`,
+    faceted = false
   } = opts;
 
   let cursortt: HTMLDivElement | null = null;
@@ -116,7 +119,8 @@ export function tooltipsPlugin(opts: TooltipOptions = {}) {
   function setCursor(u: uPlot) {
     const { left, top, idx } = u.cursor;
 
-    if (left === undefined || top === undefined || idx === undefined) {
+    // In faceted mode there is no shared idx - each series hovers its own sample
+    if (left === undefined || top === undefined || (!faceted && idx === undefined)) {
       return;
     }
 
@@ -135,13 +139,15 @@ export function tooltipsPlugin(opts: TooltipOptions = {}) {
         if (!tt || i === 0) return;
 
         const s = u.series[i];
+        const dataIdx = faceted ? u.cursor.idxs?.[i] : idx;
 
-        if (s.show && idx !== null && idx !== undefined) {
-          const xVal = u.data[0][idx];
-          const yVal = u.data[i][idx];
+        if (s.show && dataIdx !== null && dataIdx !== undefined) {
+          const seriesData = u.data[i] as unknown as [number[], number[]];
+          const xVal = faceted ? seriesData[0][dataIdx] : u.data[0][dataIdx];
+          const yVal = faceted ? seriesData[1][dataIdx] : u.data[i][dataIdx];
 
           if (xVal !== null && xVal !== undefined && yVal !== null && yVal !== undefined) {
-            tt.innerHTML = formatValue(xVal, yVal, i, idx);
+            tt.innerHTML = formatValue(xVal, yVal, i, dataIdx);
 
             // Position tooltip at cursor position
             tt.style.left = left + 15 + 'px';

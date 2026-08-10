@@ -11,8 +11,12 @@
     margin-top: 0.5rem !important;
   }
 
-  /* Hide the first series (x-axis/Time) from legend */
-  .u-legend .u-series:first-child {
+  /*
+   * Hide the first series (x-axis/Time) from legend. Mode 2 charts emit no row
+   * for series 0, so their first row is a real device; WaveformPlot sets
+   * .u-mode-1 only on mode 1 charts.
+   */
+  .u-mode-1 .u-legend .u-series:first-child {
     display: none !important;
   }
 
