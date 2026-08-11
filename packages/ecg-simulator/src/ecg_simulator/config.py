@@ -48,14 +48,27 @@ class SimulatorConfig:
 
 
 @dataclass(slots=True)
+class ReplayStream:
+    """Sample count and time bounds for one device's stream."""
+
+    count: int
+    first_time: float
+    last_time: float
+
+
+@dataclass(slots=True)
 class ReplayDevice:
-    """Device reconstructed from a recorded session."""
+    """Device reconstructed from a recorded session.
+
+    Samples stay in SQLite and are streamed during replay, so memory is flat
+    regardless of session length.
+    """
 
     device_id: str  # original string id e.g. "SIM_AA:BB:CC:DD:EE:FF"
     db_device_id: int  # integer FK in the DB
     nickname: str
-    ecg_samples: list  # list of sqlite3.Row
-    acc_samples: list  # list of sqlite3.Row
+    ecg: ReplayStream | None
+    acc: ReplayStream | None
     stats: DeviceStats = field(default_factory=DeviceStats)
 
 

@@ -72,6 +72,16 @@ ecg-simulator replay 3 --db ecg_data.db
 Loads session 3 from the database and re-emits it through the gRPC pipeline
 at real-time speed. The original device IDs and nicknames are preserved.
 
+Samples are streamed from SQLite as they are needed rather than loaded up
+front, so startup is immediate and memory stays flat regardless of session
+length — multi-million-sample sessions replay in tens of megabytes.
+
+Progress lines report the speed actually achieved alongside the requested one
+(`speed 9.84×/10×`), highlighted when playback cannot keep up. The outbound
+queue is bounded, so replay is paced by what the aggregator actually accepts:
+high `--speed` values plateau at that delivery rate instead of piling
+batches up in memory.
+
 | Option         | Default       | Description                        |
 |----------------|---------------|------------------------------------|
 | `--db`         | `ecg_data.db` | Path to aggregator SQLite database |

@@ -1,6 +1,7 @@
 """Device last_seen must track any contact, not just persisted samples."""
 
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -17,7 +18,7 @@ from ecg_aggregator.sync.time_alignment import TimeAlignmentService
 
 
 @pytest.fixture
-def database(tmp_path: Path) -> ECGDatabase:
+def database(tmp_path: Path) -> Iterator[ECGDatabase]:
     db = ECGDatabase(db_path=tmp_path / "test.db")
     yield db
     db.close()
