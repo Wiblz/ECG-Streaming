@@ -93,6 +93,15 @@
   const INITIAL_WINDOW_SECONDS = 30;
   const MAX_WINDOW_SECONDS = 30; // Maximum zoom out window
 
+  // For a session still in progress (no end_time), duration_seconds is null.
+  // Fall back to elapsed wall-clock time instead of INITIAL_WINDOW_SECONDS,
+  // otherwise pan/zoom clamp to a 30s window and later data is unreachable.
+  function getSessionDuration(): number {
+    if (session.duration_seconds != null) return session.duration_seconds;
+    const elapsed = Date.now() / 1000 - session.start_time;
+    return Math.max(elapsed, INITIAL_WINDOW_SECONDS);
+  }
+
   // Debounce for fetching data
   let fetchTimeout: ReturnType<typeof setTimeout> | null = null;
   const FETCH_DEBOUNCE_MS = 300;
@@ -204,7 +213,7 @@
                   let newMax = scXMax0 - dx;
                   const range = newMax - newMin;
 
-                  const sessionDuration = session.duration_seconds ?? INITIAL_WINDOW_SECONDS;
+                  const sessionDuration = getSessionDuration();
 
                   if (newMin < 0) {
                     newMin = 0;
@@ -252,7 +261,7 @@
               let nxMax = nxMin + nxRange;
 
               // Clamp to session bounds (relative time: 0 to session duration)
-              const sessionDuration = session.duration_seconds ?? INITIAL_WINDOW_SECONDS;
+              const sessionDuration = getSessionDuration();
 
               if (nxMin < 0) {
                 nxMin = 0;
@@ -342,7 +351,7 @@
             const globalEnd = session.start_time + relativeEnd;
 
             // Clamp to session bounds (global time)
-            const sessionEnd = session.end_time ?? session.start_time + INITIAL_WINDOW_SECONDS;
+            const sessionEnd = session.end_time ?? session.start_time + getSessionDuration();
             const clampedStart = Math.max(globalStart, session.start_time);
             const clampedEnd = Math.min(globalEnd, sessionEnd);
 

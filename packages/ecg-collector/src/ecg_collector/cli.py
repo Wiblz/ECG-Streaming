@@ -239,7 +239,11 @@ def usb_scan(
             )
             data = json.loads(resp.read())
             live_esps = {e["device_path"]: e for e in data.get("esps", [])}
-        except urllib.error.URLError, OSError, KeyError:
+        except (
+            urllib.error.URLError,
+            OSError,
+            KeyError,
+        ):
             pass
 
         # Discover device groups

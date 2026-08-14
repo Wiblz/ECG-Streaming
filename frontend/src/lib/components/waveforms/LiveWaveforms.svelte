@@ -21,7 +21,7 @@
   // Shared state for verified points toggle
   let showVerifiedPoints = $state(false);
 
-  // Collapsible state - will auto-collapse when >4 devices
+  // Collapsible state - will auto-collapse when >20 devices
   let isExpanded = $state(true);
 
   // Polling-based state (plain Maps have no reactivity)
@@ -46,7 +46,7 @@
       // Update device count and auto-collapse if needed
       if (newCount !== activeDeviceCount) {
         activeDeviceCount = newCount;
-        tooManyDevices = activeDeviceCount > 4;
+        tooManyDevices = activeDeviceCount > 20;
 
         // Auto-collapse when exceeding threshold
         if (tooManyDevices && isExpanded) {
@@ -70,7 +70,7 @@
           showVerifiedPoints = !showVerifiedPoints;
         }}
         title={tooManyDevices
-          ? `Verified points disabled with ${activeDeviceCount} devices (max 4 for performance)`
+          ? `Verified points disabled with ${activeDeviceCount} devices (max 20 for performance)`
           : 'Toggle verified sample points (samples with direct Polar timestamps)'}
       >
         Verified Points
@@ -85,7 +85,7 @@
         isExpanded = !isExpanded;
       }}
       title={tooManyDevices && !isExpanded
-        ? `Waveforms disabled with ${activeDeviceCount} devices (max 4 for performance)`
+        ? `Waveforms disabled with ${activeDeviceCount} devices (max 20 for performance)`
         : isExpanded
           ? 'Collapse waveforms'
           : 'Expand waveforms'}

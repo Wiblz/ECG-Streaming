@@ -108,10 +108,7 @@ class DeviceRepository:
                     ON CONFLICT(device_id) DO UPDATE SET
                         last_seen = MAX(last_seen, excluded.last_seen)
                     """,
-                    [
-                        (device_id, timestamp, timestamp)
-                        for device_id, timestamp in updates.items()
-                    ],
+                    [(device_id, timestamp, timestamp) for device_id, timestamp in updates.items()],
                 )
                 self._conn.commit()
                 return True
